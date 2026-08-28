@@ -55,6 +55,7 @@ Risks introduced (or not yet closed) by our own choices. Revisit at each milesto
 | FND-108 | medium | monitor | **Content sanitization vs. fidelity.** Aggressive `ammonia` allow-lists can strip legitimate embeds (iframes for video, etc.); too permissive risks XSS. | Curate an allow-list tuned for feed content (safe iframes for known video hosts behind the media proxy); test with real feeds. |
 | FND-109 | low | open | **UUIDv7 vs. reference cuid/nanoid IDs.** Migration must map or preserve old string IDs; mixing formats needs care in FKs. | Decide in `docs/MIGRATION.md`: keep old IDs as `text` for migrated rows, UUIDv7 for new; or remap via translation tables. |
 | FND-110 | medium | monitor | **Two crypto/secret classes at rest** (API keys, feed cookies) all hinge on one `ENCRYPTION_SECRET`. Losing/rotating it invalidates all secrets. | Document rotation procedure; support re-encrypt-on-read with a versioned key id (AEAD associated data includes a key version). |
+| FND-114 | low | planned | **No cross-instance L1 cache invalidation (M3).** `delete`/`delete_prefix` clear the local moka L1 + Redis L2, but a *different* app instance's L1 stays warm until its per-entry TTL. Single-instance (default self-hosted) is exact; multi-instance L1 can be briefly stale. | Add Redis pub/sub: on invalidation, publish the key/prefix; each instance subscribes and drops matching L1 entries. Defer until multi-instance is actually used. TTLs bound staleness meanwhile. |
 
 ---
 

@@ -71,6 +71,10 @@ uuid = { version = "1", features = ["v7", "serde"] }
 time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 sha2 = "0.10"
 
+# cache
+moka = { version = "0.12", features = ["future"] }
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager"] }
+
 # observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }

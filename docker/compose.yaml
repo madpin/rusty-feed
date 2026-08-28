@@ -67,10 +67,12 @@ services:
       MODEL_CACHE_DIR: /var/lib/rustss/models
       RUN_EMBEDDED_WORKER: "true"
       AUTO_MIGRATE: "true"
-      # Required secrets — set them in a `.env` file next to where you run
-      # compose (see docs/GETTING_STARTED.md). Compose errors clearly if unset.
-      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env, e.g. openssl rand -base64 48}
-      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:?set ENCRYPTION_SECRET in .env, e.g. openssl rand -base64 48}
+      # Secrets — set real values in a `.env` file (see docs/GETTING_STARTED.md).
+      # The defaults below are INSECURE and for local trial only; never use them
+      # in production. They are >=32 chars so the app boots, and are long enough
+      # to remind you to replace them.
+      SESSION_SECRET: ${SESSION_SECRET:-INSECURE_dev_only_change_me_please_0123456789}
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-INSECURE_dev_only_change_me_please_0123456789}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "8080:8080"
