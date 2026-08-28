@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/db",
+    "crates/cache",
+    "crates/feeds",
+    "crates/extract",
+    "crates/embed",
+    "crates/llm",
+    "crates/search",
+    "crates/agents",
+    "crates/web",
+    "bins/server",
+    "bins/worker",
+    "bins/cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+license = "MIT"
+repository = "https://github.com/madpin/rustss"
+authors = ["RustSS contributors"]
+
+# Shared dependency versions. Add new deps here (per the development plan's
+# milestones) and reference them from member crates with `dep.workspace = true`.
+# Versions use conservative, well-established releases (see AGENTS.md).
+[workspace.dependencies]
+# internal crates
+rustss-core = { path = "crates/core" }
+rustss-db = { path = "crates/db" }
+rustss-cache = { path = "crates/cache" }
+rustss-feeds = { path = "crates/feeds" }
+rustss-extract = { path = "crates/extract" }
+rustss-embed = { path = "crates/embed" }
+rustss-llm = { path = "crates/llm" }
+rustss-search = { path = "crates/search" }
+rustss-agents = { path = "crates/agents" }
+rustss-web = { path = "crates/web" }
+
+# runtime / web
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "compression-gzip", "timeout", "catch-panic"] }
+
+# errors / (de)serialization
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+[profile.release]
+# Optimize for the low-footprint, self-hosted target.
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+panic = "abort"

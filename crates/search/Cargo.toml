@@ -1,0 +1,9 @@
+[package]
+name = "rustss-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "RustSS search: semantic search, saved-search DSL/matcher, scoring, patterns."

@@ -1,0 +1,81 @@
+# RustSS local/self-hosted stack: app + Postgres/pgvector + Redis + headless Chrome.
+# Usage:
+#   docker compose -f docker/compose.yaml up -d
+#   docker compose -f docker/compose.yaml up -d postgres redis chromium   # deps only (local dev)
+
+name: rustss
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: rustss
+      POSTGRES_PASSWORD: rustss
+      POSTGRES_DB: rustss
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rustss -d rustss"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Remote headless Chrome exposing a CDP endpoint on :9222 (used by the
+  # extraction agent in M8). Kept as a separate service to keep the app image
+  # small and cap browser memory independently (see docs/FINDINGS.md FND-104).
+  chromium:
+    image: chromedp/headless-shell:latest
+    init: true
+    ports:
+      - "9222:9222"
+    command:
+      - --remote-debugging-address=0.0.0.0
+      - --remote-debugging-port=9222
+      - --no-sandbox
+      - --disable-gpu
+      - --headless=new
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      chromium:
+        condition: service_started
+    environment:
+      BIND_ADDR: 0.0.0.0:8080
+      DATABASE_URL: postgres://rustss:rustss@postgres:5432/rustss
+      REDIS_URL: redis://redis:6379
+      CHROMIUM_CDP_URL: http://chromium:9222
+      MODEL_CACHE_DIR: /var/lib/rustss/models
+      RUN_EMBEDDED_WORKER: "true"
+      AUTO_MIGRATE: "true"
+      # Provide real secrets via an env file or your orchestrator:
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-32-bytes-min}
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-change-me-32-bytes-min}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "8080:8080"
+    volumes:
+      - models:/var/lib/rustss/models
+
+volumes:
+  pgdata:
+  models:

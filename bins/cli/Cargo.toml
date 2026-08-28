@@ -1,0 +1,17 @@
+[package]
+name = "rustss-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "RustSS admin/maintenance CLI (migrate, create-admin, fetch-model, ...)."
+
+[[bin]]
+name = "rustss-cli"
+path = "src/main.rs"
+
+[dependencies]
+rustss-core = { workspace = true }
+anyhow = { workspace = true }

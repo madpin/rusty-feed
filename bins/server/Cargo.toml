@@ -1,0 +1,22 @@
+[package]
+name = "rustss-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "RustSS HTTP server (optionally embeds the AGENTS worker)."
+
+[[bin]]
+name = "rustss-server"
+path = "src/main.rs"
+
+[dependencies]
+rustss-core = { workspace = true }
+rustss-web = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

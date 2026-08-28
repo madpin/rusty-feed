@@ -1,0 +1,9 @@
+[package]
+name = "rustss-embed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "RustSS embeddings: local ONNX (fastembed) + OpenAI, single space per instance."

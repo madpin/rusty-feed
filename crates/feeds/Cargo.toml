@@ -1,0 +1,9 @@
+[package]
+name = "rustss-feeds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "RustSS feeds: SafeFetchClient, feed-rs parsing, and ingest dedup."
