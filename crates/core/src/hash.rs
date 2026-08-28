@@ -9,13 +9,19 @@ use sha2::{Digest, Sha256};
 
 /// Compute the content hash for an article body: `SHA-256(trim(content))` hex.
 pub fn content_hash(content: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(content.trim().as_bytes());
-    let digest = hasher.finalize();
-    hex_lower(&digest)
+    sha256_hex(content.trim().as_bytes())
 }
 
-fn hex_lower(bytes: &[u8]) -> String {
+/// Lowercase-hex SHA-256 of arbitrary bytes. Used for content hashing and for
+/// hashing opaque secrets (session/API tokens) before storage.
+pub fn sha256_hex(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hex_encode(&hasher.finalize())
+}
+
+/// Encode bytes as a lowercase hex string (e.g. for random opaque tokens).
+pub fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for &b in bytes {

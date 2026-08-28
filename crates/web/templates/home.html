@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}RustSS{% endblock %}
+{% block content %}
+<h1>RustSS</h1>
+{% if let Some(name) = user_name %}
+<p>Signed in as <strong>{{ name }}</strong>.</p>
+<form method="post" action="/logout">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <button type="submit">Log out</button>
+</form>
+<p class="muted">The reading experience is under construction (see the roadmap).</p>
+{% else %}
+<p class="muted">Your RSS reader, but it actually understands what you read.</p>
+<p><a href="/login">Sign in</a> or <a href="/register">register</a> to get started.</p>
+{% endif %}
+{% endblock %}

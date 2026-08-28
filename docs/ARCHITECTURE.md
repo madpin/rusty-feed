@@ -587,7 +587,7 @@ Effective value = first present of **feed → category → user prefs → system
 
 - **OAuth2** (`oauth2`): Google, GitHub, and a configurable Generic OAuth2/OIDC provider; standard code+PKCE flow; account linked in `oauth_accounts`.
 - **Local accounts:** email + password hashed with **Argon2id**; optional email verification; registration mode (open/invite/closed) via admin/env; **first registered user becomes ADMIN** if none exists (self-host bootstrap).
-- **Sessions:** `tower-sessions` with the Postgres store; secure, HTTP-only, SameSite=Lax cookies; rolling expiry; CSRF token for cookie-auth mutations.
+- **Sessions:** a small, dependency-light DB-backed scheme (FND-116) — the browser holds an opaque random token in a secure, HTTP-only, SameSite=Lax cookie; only its SHA-256 hash is stored in `sessions`, so a DB read never exposes live tokens. CSRF is a double-submit cookie token for cookie-auth mutations.
 - **Authorization:** role checks (`ADMIN|USER|GUEST`) via an extractor/middleware; every data query is **scoped by `user_id`** for per-user tables; shared-content reads require an active subscription where appropriate. Admin routes gated server-side.
 - **Rate limiting** on login/register/password endpoints (`tower_governor`).
 
@@ -637,7 +637,7 @@ Effective value = first present of **feed → category → user prefs → system
 - **HTTP:** router/handler tests (auth, CSRF, envelopes, status codes) with a test app; **`wiremock`** for feed/LLM/HTTP fakes.
 - **Property tests** (`proptest`) for the query parser and dedup invariants.
 - **Load/bench** (`criterion` for hot functions; a small harness for search/list p95 and refresh throughput) to guard PRD §7 targets.
-- **CI gates:** `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, migration check, and a smoke `docker compose up` health probe.
+- **CI gates:** `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, migration check, and a smoke `docker compose --env-file .env -f docker/compose.yaml up` health probe.
 
 ---
 

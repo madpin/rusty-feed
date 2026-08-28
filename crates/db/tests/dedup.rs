@@ -1,9 +1,9 @@
 //! Integration tests for the multi-user deduplication invariants (M2).
 //!
 //! These require a Postgres+pgvector instance. They run when `TEST_DATABASE_URL`
-//! is set (CI provides one; locally: `docker compose -f docker/compose.yaml up -d
-//! postgres` then export it) and are skipped otherwise so `cargo test` stays
-//! green without a database.
+//! is set (CI provides one; locally: `docker compose --env-file .env -f
+//! docker/compose.yaml up -d postgres` then export it) and are skipped otherwise
+//! so `cargo test` stays green without a database.
 //!
 //! Isolation: each test uses unique URLs/emails and asserts on URL-scoped
 //! queries, so tests can share one database and run in parallel.

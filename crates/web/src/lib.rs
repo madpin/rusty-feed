@@ -4,29 +4,37 @@
 //! JSON API (native + a GReader-compatible adapter). See `docs/ARCHITECTURE.md`
 //! §9 and §9.1.
 //!
-//! So far this exposes the health + metrics surface (milestones **M0/M1**); the
-//! reading UI, auth, and feature APIs arrive in later milestones per
-//! `docs/DEVELOPMENT_PLAN.md`.
+//! So far this exposes: the home page, local-account auth (login/register/
+//! logout) with DB-backed sessions, and health/metrics. The reading UI and
+//! feature APIs arrive in later milestones per `docs/DEVELOPMENT_PLAN.md`.
 
+pub mod auth;
 mod error;
 mod state;
 
 pub use error::{AppError, Result};
-pub use state::AppState;
+pub use state::{AppSettings, AppState};
 
 use axum::extract::State;
 use axum::http::header;
-use axum::response::IntoResponse;
-use axum::{routing::get, Json, Router};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use serde_json::json;
 
-/// Build the base application router.
-///
-/// Currently exposes health endpoints (PRD FR-API-3) and Prometheus `/metrics`.
-/// As milestones land, feature routers (auth, reading UI, feeds, search, admin,
-/// GReader) are merged in here.
+/// Build the application router with all current routes.
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .route("/", get(auth::handlers::home))
+        .route(
+            "/login",
+            get(auth::handlers::login_page).post(auth::handlers::login_submit),
+        )
+        .route(
+            "/register",
+            get(auth::handlers::register_page).post(auth::handlers::register_submit),
+        )
+        .route("/logout", post(auth::handlers::logout_submit))
         .route("/api/health", get(health))
         .route("/api/health/ready", get(ready))
         .route("/metrics", get(metrics))
@@ -44,11 +52,23 @@ async fn health() -> Json<serde_json::Value> {
     }))
 }
 
-/// Readiness probe. Once dependencies are wired (M2+), this will check the DB
-/// (required) and report optional dependencies (Redis/LLM/Chromium) as degraded
-/// rather than failing. For now it mirrors liveness.
-async fn ready() -> Json<serde_json::Value> {
-    Json(json!({ "data": { "status": "ready" } }))
+/// Readiness probe: checks the database (required). Optional dependencies
+/// (Redis) are reported but do not fail readiness.
+async fn ready(State(state): State<AppState>) -> Response {
+    let db_ok = state.db.ping().await.is_ok();
+    let status = if db_ok {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    };
+    let body = Json(json!({
+        "data": {
+            "status": if db_ok { "ready" } else { "degraded" },
+            "database": if db_ok { "ok" } else { "unavailable" },
+            "cache": if state.cache.l2_connected() { "connected" } else { "l1-only" },
+        }
+    }));
+    (status, body).into_response()
 }
 
 /// Prometheus metrics exposition endpoint.
@@ -62,14 +82,26 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::{Request, StatusCode};
-    use http_body_util::BodyExt;
-    use tower::ServiceExt; // for `oneshot`
+    use rustss_cache::Cache;
+    use rustss_db::Db;
+
+    async fn test_state() -> AppState {
+        // A lazily-connected pool: fine for handlers that don't touch the DB.
+        let db = Db::connect_lazy("postgres://user:pass@localhost/rustss_test").unwrap();
+        let cache = Cache::in_memory().await;
+        AppState::new(db, cache, AppSettings::default(), || {
+            "# rustss metrics\n".to_string()
+        })
+    }
 
     #[tokio::test]
     async fn health_returns_ok_envelope() {
-        let app = router(AppState::default());
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let app = router(test_state().await);
         let res = app
             .oneshot(
                 Request::builder()
@@ -89,7 +121,12 @@ mod tests {
 
     #[tokio::test]
     async fn metrics_endpoint_responds() {
-        let app = router(AppState::new(|| "# rustss metrics\n".to_string()));
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let app = router(test_state().await);
         let res = app
             .oneshot(
                 Request::builder()

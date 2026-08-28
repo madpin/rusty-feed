@@ -80,11 +80,13 @@ for AI summaries, or leave AI on the free local mode.)
 ### 4. Start everything
 
 ```bash
-docker compose -f docker/compose.yaml up -d
+docker compose --env-file .env -f docker/compose.yaml up -d
 ```
 
 The **first** run builds the app and downloads images, so it can take several
-minutes. Later starts are fast.
+minutes. Later starts are fast. `--env-file .env` is required because the
+Compose file lives under `docker/`; it makes Compose load the root `.env` used
+by the setup steps above.
 
 > **Port already in use?** If you see an error about port `5432`, `6379`, `9222`,
 > or `8080` being allocated, something else on your machine uses it. Set an
@@ -109,11 +111,11 @@ Open <http://localhost:8080/api/health> in your browser too.
 ### 6. Everyday commands
 
 ```bash
-docker compose -f docker/compose.yaml logs -f app     # watch app logs
-docker compose -f docker/compose.yaml ps              # what's running
-docker compose -f docker/compose.yaml down            # stop (keeps data)
-docker compose -f docker/compose.yaml up -d --build   # rebuild after updating code
-docker compose -f docker/compose.yaml down -v         # stop AND delete all data ⚠️
+docker compose --env-file .env -f docker/compose.yaml logs -f app     # watch app logs
+docker compose --env-file .env -f docker/compose.yaml ps              # what's running
+docker compose --env-file .env -f docker/compose.yaml down            # stop (keeps data)
+docker compose --env-file .env -f docker/compose.yaml up -d --build   # rebuild after updating code
+docker compose --env-file .env -f docker/compose.yaml down -v         # stop AND delete all data ⚠️
 ```
 
 Database migrations run automatically on startup (`AUTO_MIGRATE=true`).
@@ -146,7 +148,7 @@ cp .env.example .env       # then edit .env and set SESSION_SECRET + ENCRYPTION_
 ### 3. Start the dependencies (database, Redis, Chrome)
 
 ```bash
-docker compose -f docker/compose.yaml up -d postgres redis chromium
+docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 ```
 
 Make sure your `.env` `DATABASE_URL` points at this Postgres. With the default
@@ -266,7 +268,8 @@ docker --version && docker compose version
 
 ### 3. Deploy RustSS
 Follow **[Option A](#a-localhost-with-docker-compose-easiest)** from step 2
-(clone, create `.env` with your secrets, `docker compose up -d`).
+(clone, create `.env` with your secrets, then run the documented Compose command
+with `--env-file .env`).
 
 ### 4. Reach it on your network
 - The app listens on port **8080** inside the container.
@@ -288,6 +291,9 @@ full list). The ones you're most likely to touch:
 | `ENCRYPTION_SECRET` | Encrypts stored API keys/cookies (**required**, 32+ chars) | — |
 | `DATABASE_URL` | PostgreSQL connection string | set by compose |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
+| `POSTGRES_PORT` | PostgreSQL port published on the host | `5432` |
+| `REDIS_PORT` | Redis port published on the host | `6379` |
+| `CHROMIUM_PORT` | Chromium CDP port published on the host | `9222` |
 | `BASE_URL` | Public URL of your instance (for correct links) | `http://<bind_addr>` |
 | `REGISTRATION_MODE` | `open` / `invite` / `closed` | `open` |
 | `EMBEDDING_PROVIDER` | `local` (free, on-device) or `openai` | `local` |
@@ -307,14 +313,15 @@ fix.
 - **`invalid configuration: SESSION_SECRET must be at least 32 bytes`** → your
   secret is too short; regenerate with `openssl rand -base64 48`.
 - **Port already allocated** → set `POSTGRES_PORT` / `REDIS_PORT` /
-  `CHROMIUM_PORT` in `.env` (see the note in Option A).
+  `CHROMIUM_PORT` in `.env` and include `--env-file .env` in the Compose command
+  (see the note in Option A).
 - **App can't reach the database** → confirm Postgres is healthy
-  (`docker compose -f docker/compose.yaml ps`) and `DATABASE_URL` matches its
-  host/port. From the app container the host is `postgres`; from your machine it's
-  `localhost`.
+  (`docker compose --env-file .env -f docker/compose.yaml ps`). The Compose app
+  uses `postgres:5432` internally; RustSS and database tools running directly on
+  your machine use `localhost:$POSTGRES_PORT` via `DATABASE_URL`.
 - **First build is slow** → the Rust app compiles on first build; subsequent
   builds are cached and much faster.
-- **See the logs** → `docker compose -f docker/compose.yaml logs -f app`.
+- **See the logs** → `docker compose --env-file .env -f docker/compose.yaml logs -f app`.
 
 Still stuck? Open an issue on the repository.
 

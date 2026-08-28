@@ -107,6 +107,37 @@ pub struct UserFeed {
 pub(crate) const USER_FEED_COLUMNS: &str =
     "id, user_id, feed_id, custom_name, tags, settings, subscribed_at, updated_at";
 
+/// A server-side session (the cookie carries an opaque token; only its hash is
+/// stored here).
+#[derive(Debug, Clone, FromRow)]
+pub struct Session {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: String,
+    pub created_at: OffsetDateTime,
+    pub last_used_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
+}
+
+pub(crate) const SESSION_COLUMNS: &str =
+    "id, user_id, token_hash, created_at, last_used_at, expires_at";
+
+/// An app-specific API token (native API + GReader). Only the hash is stored.
+#[derive(Debug, Clone, FromRow)]
+pub struct ApiToken {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub token_hash: String,
+    pub scopes: Vec<String>,
+    pub last_used_at: Option<OffsetDateTime>,
+    pub created_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
+}
+
+pub(crate) const API_TOKEN_COLUMNS: &str =
+    "id, user_id, name, token_hash, scopes, last_used_at, created_at, revoked_at";
+
 /// Input for ingesting an article (before content hashing / persistence).
 #[derive(Debug, Clone)]
 pub struct NewArticle {

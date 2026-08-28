@@ -68,6 +68,12 @@ impl AppError {
     }
 }
 
+impl From<rustss_db::DbError> for AppError {
+    fn from(e: rustss_db::DbError) -> Self {
+        AppError::Internal(anyhow::Error::new(e))
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = self.status();

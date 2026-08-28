@@ -31,7 +31,7 @@ Read these before coding (in order):
 - **Background work (AGENTS):** apalis over a Postgres queue; advisory-lock singletons; outbox events.
 - **Feeds/extract:** `feed-rs`, `reqwest` (rustls), `article_scraper`, `chromiumoxide`, `ammonia`.
 - **AI:** `fastembed` (local ONNX, one model per instance, downloaded on first run) + `async-openai`.
-- **Auth:** `oauth2` + `argon2` + `tower-sessions` (Postgres). **Crypto:** XChaCha20-Poly1305 + HKDF-SHA256.
+- **Auth:** local accounts (`argon2`) + custom DB-backed sessions (opaque token cookie, hash in `sessions`) + double-submit CSRF; OAuth (`oauth2`) in M4b. **Crypto:** XChaCha20-Poly1305 + HKDF-SHA256.
 - **Errors:** `thiserror` (libs) + `anyhow` (bins). **Config:** `figment`. **Obs:** `tracing` + `metrics`.
 
 Full rationale: `docs/ARCHITECTURE.md` §3.
@@ -78,13 +78,13 @@ cargo test                      # workspace unit + integration tests
 cargo test -p <crate>           # a single crate
 
 # Dependencies (local dev)
-docker compose -f docker/compose.yaml up -d postgres redis chromium
+docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 
 # Database (SQLx)
 cargo run -p rustss-cli -- migrate          # apply migrations (needs DATABASE_URL)
 # DB integration tests run when TEST_DATABASE_URL is set, else they skip:
-#   docker compose -f docker/compose.yaml up -d postgres   # POSTGRES_PORT=55432 if 5432 is taken
-#   TEST_DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss cargo test
+#   docker compose --env-file .env -f docker/compose.yaml up -d postgres
+#   TEST_DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss cargo test  # use POSTGRES_PORT
 
 # Run
 cargo run -p rustss-server                  # server (embedded worker by default)
@@ -96,10 +96,10 @@ cargo run -p rustss-cli -- fetch-model      # pre-download the embedding model (
 # see docker/ + build script; CSS is compiled and embedded via rust-embed
 
 # Full stack
-docker compose -f docker/compose.yaml up -d # app + postgres + redis + chromium
+docker compose --env-file .env -f docker/compose.yaml up -d # app + postgres + redis + chromium
 ```
 
-**Env:** copy `.env.example` → `.env`. Required: `DATABASE_URL`, `SESSION_SECRET`, `ENCRYPTION_SECRET`. See `docs/ARCHITECTURE.md` §16 for all groups.
+**Env:** copy `.env.example` → `.env` and pass it to Compose with `--env-file .env`. Required: `DATABASE_URL`, `SESSION_SECRET`, `ENCRYPTION_SECRET`. See `docs/ARCHITECTURE.md` §16 for all groups.
 
 ---
 

@@ -75,6 +75,12 @@ sha2 = "0.10"
 moka = { version = "0.12", features = ["future"] }
 redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager"] }
 
+# auth / web UI
+argon2 = { version = "0.5", features = ["std"] }
+rand = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
+askama = "0.12"
+
 # observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }

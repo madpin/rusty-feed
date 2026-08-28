@@ -23,7 +23,7 @@ Guidance for Claude Code (and other AI assistants) working in this repository.
 
 ```bash
 cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings && cargo test
-docker compose -f docker/compose.yaml up -d postgres redis chromium
+docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 cargo run -p rustss-cli -- migrate
 cargo run -p rustss-server
 ```

@@ -10,11 +10,20 @@ description = "RustSS web: Axum routers, handlers, Askama templates, auth, DTOs.
 
 [dependencies]
 rustss-core = { workspace = true }
+rustss-db = { workspace = true }
+rustss-cache = { workspace = true }
 axum = { workspace = true }
+axum-extra = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+askama = { workspace = true }
+argon2 = { workspace = true }
+rand = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

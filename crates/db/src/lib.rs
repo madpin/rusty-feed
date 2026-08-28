@@ -8,15 +8,17 @@
 //! (feeds, articles) are idempotent so concurrent workers never duplicate
 //! content. The [`Db`] handle owns the pool and runs migrations.
 
+pub mod api_tokens;
 pub mod articles;
 pub mod error;
 pub mod feeds;
 pub mod models;
+pub mod sessions;
 pub mod subscriptions;
 pub mod users;
 
 pub use error::{DbError, Result};
-pub use models::{Article, Feed, NewArticle, UpsertAction, User, UserFeed};
+pub use models::{ApiToken, Article, Feed, NewArticle, Session, UpsertAction, User, UserFeed};
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -37,6 +39,15 @@ impl Db {
             .max_connections(10)
             .connect(database_url)
             .await?;
+        Ok(Self { pool })
+    }
+
+    /// Create a lazily-connecting pool (no connection is opened until first use).
+    /// Useful for constructing app state in tests that never touch the database.
+    pub fn connect_lazy(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(10)
+            .connect_lazy(database_url)?;
         Ok(Self { pool })
     }
 

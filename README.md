@@ -90,7 +90,7 @@ Quick version (Docker Compose):
 ```bash
 git clone https://github.com/madpin/rustss.git && cd rustss
 cp .env.example .env      # set SESSION_SECRET and ENCRYPTION_SECRET (openssl rand -base64 48)
-docker compose -f docker/compose.yaml up -d
+docker compose --env-file .env -f docker/compose.yaml up -d
 curl http://localhost:8080/api/health
 ```
 
@@ -104,7 +104,7 @@ curl http://localhost:8080/api/health
 git clone https://github.com/madpin/rustss.git
 cd rustss
 cp .env.example .env          # set SESSION_SECRET, ENCRYPTION_SECRET, OAuth/keys as needed
-docker compose up -d          # app + postgres/pgvector + redis + headless chromium
+docker compose --env-file .env -f docker/compose.yaml up -d  # full stack
 open http://localhost:8080
 ```
 
@@ -114,8 +114,8 @@ The first account you register becomes the **admin**. New users are auto-subscri
 
 ```bash
 # Prereqs: Rust (stable), Docker, Tailwind standalone CLI
-docker compose up -d postgres redis chromium   # dependencies only
 cp .env.example .env
+docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 
 cargo run -p rustss-cli -- migrate            # apply DB migrations
 cargo run -p rustss-server                    # start the server (embedded worker by default)

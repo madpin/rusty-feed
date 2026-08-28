@@ -1,7 +1,7 @@
 # RustSS local/self-hosted stack: app + Postgres/pgvector + Redis + headless Chrome.
 # Usage:
-#   docker compose -f docker/compose.yaml up -d
-#   docker compose -f docker/compose.yaml up -d postgres redis chromium   # deps only (local dev)
+#   docker compose --env-file .env -f docker/compose.yaml up -d
+#   docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium   # deps only
 
 name: rustss
 

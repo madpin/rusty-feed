@@ -15,6 +15,8 @@ path = "src/main.rs"
 [dependencies]
 rustss-core = { workspace = true, features = ["telemetry"] }
 rustss-web = { workspace = true }
+rustss-db = { workspace = true }
+rustss-cache = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

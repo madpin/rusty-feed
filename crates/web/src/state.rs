@@ -1,22 +1,53 @@
 //! Shared application state passed to Axum handlers.
-//!
-//! Kept intentionally small and decoupled: instead of depending on the concrete
-//! metrics exporter, the state holds a renderer closure the binary wires up.
-//! Repositories, cache, and service handles are added here in later milestones.
 
 use std::sync::Arc;
 
-/// Cloneable handler state (cheap `Arc` clones per request).
+use rustss_cache::Cache;
+use rustss_core::config::RegistrationMode;
+use rustss_db::Db;
+
+/// Instance-level settings the web layer needs at request time.
+#[derive(Debug, Clone)]
+pub struct AppSettings {
+    /// How new-user registration is gated.
+    pub registration_mode: RegistrationMode,
+    /// Whether to mark cookies `Secure` (true when served over HTTPS).
+    pub cookie_secure: bool,
+    /// Public base URL (used for absolute links).
+    pub base_url: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            registration_mode: RegistrationMode::Open,
+            cookie_secure: false,
+            base_url: "http://localhost:8080".to_string(),
+        }
+    }
+}
+
+/// Cloneable handler state (cheap `Arc`/pool clones per request).
 #[derive(Clone)]
 pub struct AppState {
+    pub db: Db,
+    pub cache: Cache,
+    pub settings: Arc<AppSettings>,
     metrics: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
 impl AppState {
-    /// Build state with a metrics renderer (e.g. a Prometheus handle's
-    /// `render`). Use [`AppState::default`] when metrics aren't installed.
-    pub fn new(metrics_renderer: impl Fn() -> String + Send + Sync + 'static) -> Self {
+    /// Build application state.
+    pub fn new(
+        db: Db,
+        cache: Cache,
+        settings: AppSettings,
+        metrics_renderer: impl Fn() -> String + Send + Sync + 'static,
+    ) -> Self {
         Self {
+            db,
+            cache,
+            settings: Arc::new(settings),
             metrics: Arc::new(metrics_renderer),
         }
     }
@@ -24,11 +55,5 @@ impl AppState {
     /// Render the current metrics exposition text.
     pub fn render_metrics(&self) -> String {
         (self.metrics)()
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new(String::new)
     }
 }
