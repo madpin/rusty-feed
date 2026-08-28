@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{feeds, subscriptions};
+use rustss_db::{articles, feeds, jobs, subscriptions};
 use rustss_feeds::{normalize_url, refresh_feed};
 
 use crate::auth::csrf;
@@ -137,6 +137,7 @@ pub async fn add(
 
     match refresh_feed(&state.db, &state.fetch, &feed).await {
         Ok(stats) => {
+            enqueue_embeddings(&state, feed.id).await;
             let msg = format!(
                 "Added “{}” — {} new article(s).",
                 feed_display_name(&state, feed.id).await,
@@ -149,6 +150,30 @@ pub async fn add(
                 format!("Subscribed, but fetching failed: {e}. It will be retried on refresh.");
             render_page(&state, user.id, user.email, jar, None, Some(msg)).await
         }
+    }
+}
+
+/// After a synchronous refresh, enqueue embedding for the feed's not-yet-embedded
+/// articles so UI-added feeds are searchable/personalized like worker-refreshed
+/// ones (processed by the background worker).
+async fn enqueue_embeddings(state: &AppState, feed_id: Uuid) {
+    if !state.settings.auto_embed {
+        return;
+    }
+    let Ok(pending) = articles::list_needing_embedding(state.db.pool(), feed_id, 100).await else {
+        return;
+    };
+    for article_id in pending {
+        let dedup = format!("embed:{article_id}");
+        let _ = jobs::enqueue(
+            state.db.pool(),
+            "embed_article",
+            serde_json::json!({ "article_id": article_id }),
+            Some(&dedup),
+            None,
+            3,
+        )
+        .await;
     }
 }
 
@@ -177,10 +202,13 @@ pub async fn refresh(
     }
     let (message, error) = match feeds::find_by_id(state.db.pool(), id).await? {
         Some(feed) => match refresh_feed(&state.db, &state.fetch, &feed).await {
-            Ok(s) => (
-                Some(format!("Refreshed — {} new article(s).", s.created)),
-                None,
-            ),
+            Ok(s) => {
+                enqueue_embeddings(&state, feed.id).await;
+                (
+                    Some(format!("Refreshed — {} new article(s).", s.created)),
+                    None,
+                )
+            }
             Err(e) => (None, Some(format!("Refresh failed: {e}"))),
         },
         None => (None, Some("Feed not found.".to_string())),
@@ -203,6 +231,7 @@ pub async fn refresh_all(
     for feed in &feeds_list {
         if let Ok(s) = refresh_feed(&state.db, &state.fetch, feed).await {
             created += s.created;
+            enqueue_embeddings(&state, feed.id).await;
         }
     }
     let msg = format!(

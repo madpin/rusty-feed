@@ -81,10 +81,22 @@ async fn main() -> anyhow::Result<()> {
         base_url,
         oauth_providers,
         summarization_enabled: llm.is_some(),
+        auto_embed: config.embedding_auto_generate,
     };
 
+    // SSRF-safe fetch client (opt into private/loopback for trusted intranet
+    // feeds or local testing).
+    let fetch = if config.feeds_allow_private_network {
+        tracing::warn!("FEEDS_ALLOW_PRIVATE_NETWORK is on — feeds may reach private addresses");
+        rustss_feeds::SafeFetchClient::new_allow_private(std::time::Duration::from_secs(30))
+    } else {
+        rustss_feeds::SafeFetchClient::new(std::time::Duration::from_secs(30))
+    }
+    .context("failed to build HTTP client")?;
+
     let state = AppState::new(db, cache, settings, move || metrics.render())
-        .with_embedder(embedder.clone());
+        .with_embedder(embedder.clone())
+        .with_fetch(fetch);
 
     // Embedded AGENTS worker (default): refreshes feeds in the background.
     // Disable with RUN_EMBEDDED_WORKER=false to run `rustss-worker` separately.

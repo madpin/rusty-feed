@@ -21,8 +21,12 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to connect to the database")?;
     db.migrate().await.context("failed to apply migrations")?;
 
-    let fetch =
-        SafeFetchClient::new(Duration::from_secs(30)).context("failed to build HTTP client")?;
+    let fetch = if config.feeds_allow_private_network {
+        SafeFetchClient::new_allow_private(Duration::from_secs(30))
+    } else {
+        SafeFetchClient::new(Duration::from_secs(30))
+    }
+    .context("failed to build HTTP client")?;
     let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
         provider: config.embedding_provider,
         model: config.embedding_model.clone(),

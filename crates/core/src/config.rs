@@ -138,6 +138,11 @@ pub struct AppConfig {
     pub extraction_delay_ms: u64,
     #[serde(default = "defaults::bool_true")]
     pub respect_robots_txt: bool,
+    /// Allow fetching feeds/content from private/loopback addresses. **Off by
+    /// default** (SSRF-safe); enable only for trusted intranet feeds or local
+    /// testing.
+    #[serde(default)]
+    pub feeds_allow_private_network: bool,
 
     // ── Background jobs / AGENTS ──
     #[serde(default = "defaults::bool_true")]

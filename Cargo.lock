@@ -2902,6 +2902,7 @@ dependencies = [
  "rustss-core",
  "rustss-db",
  "rustss-embed",
+ "rustss-feeds",
  "rustss-llm",
  "rustss-web",
  "tokio",

@@ -50,6 +50,8 @@ pub struct AppSettings {
     pub oauth_providers: Vec<OAuthProvider>,
     /// Whether an LLM is configured (enables the "Summarize" action).
     pub summarization_enabled: bool,
+    /// Whether newly-ingested articles should be enqueued for embedding.
+    pub auto_embed: bool,
 }
 
 impl Default for AppSettings {
@@ -60,6 +62,7 @@ impl Default for AppSettings {
             base_url: "http://localhost:8080".to_string(),
             oauth_providers: Vec::new(),
             summarization_enabled: false,
+            auto_embed: false,
         }
     }
 }

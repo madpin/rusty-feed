@@ -20,6 +20,7 @@ rustss-cache = { workspace = true }
 rustss-agents = { workspace = true }
 rustss-embed = { workspace = true }
 rustss-llm = { workspace = true }
+rustss-feeds = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
