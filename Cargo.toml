@@ -81,6 +81,7 @@ rand = "0.8"
 axum-extra = { version = "0.10", features = ["cookie"] }
 askama = "0.12"
 base64 = "0.22"
+rust-embed = { version = "8", features = ["debug-embed"] }
 
 # HTTP client (feeds, extraction, OAuth, LLM) — rustls, no OpenSSL
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "brotli"] }

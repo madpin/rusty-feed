@@ -88,16 +88,19 @@ fn render<T: Template>(tpl: &T) -> Result<Html<String>, AppError> {
         .map_err(|e| AppError::Internal(anyhow::anyhow!("template render failed: {e}")))
 }
 
-/// `GET /` — home page.
+/// `GET /` — landing page for anonymous visitors; signed-in users go to the
+/// reader.
 pub async fn home(
     State(state): State<AppState>,
     jar: CookieJar,
     MaybeUser(user): MaybeUser,
 ) -> Result<Response, AppError> {
+    if user.is_some() {
+        return Ok((jar, Redirect::to("/articles")).into_response());
+    }
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
-    let user_name = user.map(|u| u.name.unwrap_or(u.email));
     let body = render(&HomeTemplate {
-        user_name,
+        user_name: None,
         csrf_token,
     })?;
     Ok((jar, body).into_response())

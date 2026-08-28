@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}RustSS{% endblock %} · RustSS</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/articles" class="brand">RustSS</a>
+      <nav>
+        <a href="/articles">Articles</a>
+        <a href="/settings/preferences">Preferences</a>
+        <a href="/settings/tokens">API tokens</a>
+      </nav>
+      <span class="spacer"></span>
+      <span class="muted">{{ user_email }}</span>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button type="submit">Log out</button>
+      </form>
+    </header>
+    <div class="layout">
+      <aside class="sidebar">{% block sidebar %}{% endblock %}</aside>
+      <main class="content">{% block content %}{% endblock %}</main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,121 @@
+/* RustSS app styles (M5 start). A small hand-written stylesheet with light/dark
+   theming via CSS variables; the full Tailwind design system arrives later. */
+
+:root {
+  --bg: #ffffff;
+  --surface: #f6f7f9;
+  --border: #e3e6ea;
+  --text: #1c1f23;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --accent-contrast: #ffffff;
+  --danger: #b00020;
+}
+
+:root[data-theme="dark"],
+:root[data-theme="system"] {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --bg: #14171a;
+    --surface: #1c2024;
+    --border: #2b3138;
+    --text: #e6e8eb;
+    --muted: #9aa4af;
+    --accent: #4b8bff;
+    --accent-contrast: #0b0d0f;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #14171a;
+  --surface: #1c2024;
+  --border: #2b3138;
+  --text: #e6e8eb;
+  --muted: #9aa4af;
+  --accent: #4b8bff;
+  --accent-contrast: #0b0d0f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.muted { color: var(--muted); }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar .brand { font-weight: 700; font-size: 1.1rem; }
+.topbar nav { display: flex; gap: 1rem; }
+.topbar .spacer { flex: 1; }
+.topbar form { margin: 0; }
+
+.layout { display: flex; min-height: calc(100vh - 49px); }
+.sidebar {
+  width: 15rem;
+  flex: 0 0 15rem;
+  border-right: 1px solid var(--border);
+  padding: 1rem;
+  background: var(--surface);
+}
+.sidebar h2 { font-size: 0.8rem; text-transform: uppercase; color: var(--muted); }
+.sidebar ul { list-style: none; padding: 0; margin: 0 0 1rem; }
+.sidebar li { padding: 0.25rem 0; }
+.content { flex: 1; padding: 1.25rem; max-width: 60rem; }
+
+.article-list { list-style: none; padding: 0; margin: 0; }
+.article-card {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  background: var(--bg);
+}
+.article-card.read { opacity: 0.62; }
+.article-card h3 { margin: 0 0 0.25rem; font-size: 1.05rem; }
+.article-card .meta { font-size: 0.8rem; color: var(--muted); }
+.article-card .excerpt { margin: 0.4rem 0 0; color: var(--text); }
+.badge { font-size: 0.7rem; color: var(--accent); }
+
+.empty-state {
+  text-align: center;
+  color: var(--muted);
+  padding: 3rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+button, .btn {
+  font: inherit;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+button.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+
+form.stack label { display: block; margin: 0.75rem 0; }
+form.stack input, form.stack select { padding: 0.45rem; }
+.alert { color: var(--danger); }
+.notice { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.75rem; }

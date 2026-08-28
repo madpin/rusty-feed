@@ -167,6 +167,58 @@ pub async fn list_for_feed(pool: &PgPool, feed_id: Uuid, limit: i64) -> Result<V
         .await?)
 }
 
+/// A row for the reading list: shared article fields plus this user's personal
+/// flags and the source feed name.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ArticleListItem {
+    pub id: Uuid,
+    pub title: String,
+    pub url: String,
+    pub excerpt: Option<String>,
+    pub image_url: Option<String>,
+    pub published_at: Option<time::OffsetDateTime>,
+    pub feed_name: String,
+    pub is_read: bool,
+    pub is_bookmarked: bool,
+}
+
+/// List a user's reading feed: articles from their subscribed feeds, newest
+/// first, annotated with per-user read/bookmark flags. `unread_only` hides
+/// already-read articles.
+pub async fn list_for_user(
+    pool: &PgPool,
+    user_id: Uuid,
+    unread_only: bool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ArticleListItem>> {
+    let sql = format!(
+        "SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
+                f.name AS feed_name, \
+                (r.article_id IS NOT NULL) AS is_read, \
+                (b.article_id IS NOT NULL) AS is_bookmarked \
+         FROM articles a \
+         JOIN feeds f ON f.id = a.feed_id \
+         JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+         LEFT JOIN read_articles r ON r.article_id = a.id AND r.user_id = $1 \
+         LEFT JOIN bookmarks b ON b.article_id = a.id AND b.user_id = $1 \
+         {read_filter} \
+         ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
+         LIMIT $2 OFFSET $3",
+        read_filter = if unread_only {
+            "WHERE r.article_id IS NULL"
+        } else {
+            ""
+        }
+    );
+    Ok(sqlx::query_as::<_, ArticleListItem>(&sql)
+        .bind(user_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?)
+}
+
 /// Count articles with a given URL (0 or 1). Handy for dedup assertions.
 pub async fn count_by_url(pool: &PgPool, url: &str) -> Result<i64> {
     Ok(

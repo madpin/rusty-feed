@@ -16,6 +16,7 @@ pub mod models;
 pub mod oauth_accounts;
 pub mod sessions;
 pub mod subscriptions;
+pub mod user_preferences;
 pub mod users;
 
 pub use error::{DbError, Result};

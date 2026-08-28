@@ -108,7 +108,8 @@ async fn register_login_logout_flow() {
         .expect("session cookie")
         .to_string();
 
-    // 3. The session cookie authenticates the home page.
+    // 3. The session authenticates: `/` redirects signed-in users to the reader,
+    //    which renders (and issues a CSRF cookie we reuse for logout).
     let resp = app
         .clone()
         .oneshot(
@@ -119,12 +120,22 @@ async fn register_login_logout_flow() {
         )
         .await
         .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/articles")
+                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let home_cookies = set_cookies(&resp);
-    let home_csrf = find_cookie(&home_cookies, "rustss_csrf")
-        .expect("home csrf")
+    let home_csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+        .expect("articles csrf")
         .to_string();
-    assert!(body_string(resp).await.contains("Signed in as"));
 
     // 4. Logout deletes the session server-side.
     let resp = app
@@ -146,14 +157,14 @@ async fn register_login_logout_flow() {
     // 5. The old session cookie no longer authenticates (session was deleted).
     let resp = app
         .oneshot(
-            Request::get("/")
+            Request::get("/articles")
                 .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert!(!body_string(resp).await.contains("Signed in as"));
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

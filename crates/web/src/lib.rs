@@ -12,19 +12,27 @@ pub mod auth;
 mod error;
 pub mod extract;
 pub mod oauth;
+mod prefs;
 pub mod ratelimit;
+mod reader;
 mod state;
 mod tokens;
 
 pub use error::{AppError, Result};
 pub use state::{AppSettings, AppState, OAuthProvider, ProviderKind};
 
-use axum::extract::State;
-use axum::http::header;
+use axum::extract::{Path, State};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use rust_embed::RustEmbed;
 use serde_json::json;
+
+/// Embedded static assets (CSS/JS), served under `/static`.
+#[derive(RustEmbed)]
+#[folder = "static/"]
+struct Assets;
 
 /// Build the application router with all current routes.
 pub fn router(state: AppState) -> Router {
@@ -41,8 +49,11 @@ pub fn router(state: AppState) -> Router {
         .route("/logout", post(auth::handlers::logout_submit))
         .route("/auth/oauth/{provider}", get(oauth::start))
         .route("/auth/oauth/{provider}/callback", get(oauth::callback))
+        .route("/articles", get(reader::list))
+        .route("/settings/preferences", get(prefs::page).post(prefs::save))
         .route("/settings/tokens", get(tokens::list).post(tokens::create))
         .route("/settings/tokens/{id}/revoke", post(tokens::revoke))
+        .route("/static/{*path}", get(static_handler))
         .route("/api/health", get(health))
         .route("/api/health/ready", get(ready))
         .route("/metrics", get(metrics))
@@ -85,6 +96,29 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
         state.render_metrics(),
     )
+}
+
+/// Serve an embedded static asset under `/static/{*path}`.
+async fn static_handler(Path(path): Path<String>) -> Response {
+    match Assets::get(&path) {
+        Some(content) => (
+            [(header::CONTENT_TYPE, content_type(&path))],
+            content.data.into_owned(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+fn content_type(path: &str) -> &'static str {
+    match path.rsplit('.').next() {
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("woff2") => "font/woff2",
+        _ => "application/octet-stream",
+    }
 }
 
 #[cfg(test)]
