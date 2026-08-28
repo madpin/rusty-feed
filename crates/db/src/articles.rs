@@ -207,11 +207,12 @@ pub struct ArticleListItem {
 }
 
 /// List a user's reading feed: articles from their subscribed feeds, newest
-/// first, annotated with per-user read/bookmark flags. `unread_only` hides
-/// already-read articles.
+/// first, annotated with per-user read/bookmark flags. Optionally filter to one
+/// `feed_id`; `unread_only` hides already-read articles.
 pub async fn list_for_user(
     pool: &PgPool,
     user_id: Uuid,
+    feed_id: Option<Uuid>,
     unread_only: bool,
     limit: i64,
     offset: i64,
@@ -226,17 +227,18 @@ pub async fn list_for_user(
          JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
          LEFT JOIN read_articles r ON r.article_id = a.id AND r.user_id = $1 \
          LEFT JOIN bookmarks b ON b.article_id = a.id AND b.user_id = $1 \
-         {read_filter} \
+         WHERE ($2::uuid IS NULL OR a.feed_id = $2) {read_filter} \
          ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
-         LIMIT $2 OFFSET $3",
+         LIMIT $3 OFFSET $4",
         read_filter = if unread_only {
-            "WHERE r.article_id IS NULL"
+            "AND r.article_id IS NULL"
         } else {
             ""
         }
     );
     Ok(sqlx::query_as::<_, ArticleListItem>(&sql)
         .bind(user_id)
+        .bind(feed_id)
         .bind(limit)
         .bind(offset)
         .fetch_all(pool)

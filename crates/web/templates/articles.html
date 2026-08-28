@@ -5,8 +5,16 @@
 <ul>
   <li><a href="/articles">All articles</a></li>
   <li><a href="/articles?unread=1">Unread only</a></li>
-  <li><a href="/feeds">Manage feeds</a></li>
 </ul>
+<h2>Feeds</h2>
+<ul>
+  {% for f in feeds %}
+  <li><a href="/articles?feed={{ f.id }}"{% if f.active %} class="active"{% endif %}>{{ f.name }}</a></li>
+  {% else %}
+  <li class="muted">No feeds yet.</li>
+  {% endfor %}
+</ul>
+<p><a href="/feeds">Manage feeds →</a></p>
 {% endblock %}
 {% block content %}
 <div class="content-header">

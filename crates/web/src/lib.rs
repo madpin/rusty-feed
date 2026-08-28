@@ -11,6 +11,7 @@
 pub mod auth;
 mod error;
 pub mod extract;
+mod feeds;
 pub mod oauth;
 mod prefs;
 pub mod ratelimit;
@@ -57,6 +58,10 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/unread", post(reader::mark_unread))
         .route("/articles/{id}/bookmark", post(reader::bookmark))
         .route("/articles/{id}/unbookmark", post(reader::unbookmark))
+        .route("/feeds", get(feeds::page).post(feeds::add))
+        .route("/feeds/refresh-all", post(feeds::refresh_all))
+        .route("/feeds/{id}/refresh", post(feeds::refresh))
+        .route("/feeds/{id}/unsubscribe", post(feeds::unsubscribe))
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
         .route("/settings/tokens", get(tokens::list).post(tokens::create))
         .route("/settings/tokens/{id}/revoke", post(tokens::revoke))

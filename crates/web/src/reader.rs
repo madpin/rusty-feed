@@ -28,6 +28,12 @@ struct ArticleView {
     is_bookmarked: bool,
 }
 
+struct FeedNav {
+    id: String,
+    name: String,
+    active: bool,
+}
+
 #[derive(Template)]
 #[template(path = "articles.html")]
 struct ArticlesTemplate {
@@ -35,6 +41,7 @@ struct ArticlesTemplate {
     user_email: String,
     csrf_token: String,
     articles: Vec<ArticleView>,
+    feeds: Vec<FeedNav>,
     unread_only: bool,
     reading_mode: String,
     back_url: String,
@@ -66,6 +73,8 @@ pub struct ArticlesQuery {
     unread: Option<String>,
     #[serde(default)]
     offset: Option<i64>,
+    #[serde(default)]
+    feed: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -95,10 +104,17 @@ pub async fn list(
     let unread_param = q.unread.as_deref() == Some("1");
     let unread_only = unread_param || !prefs.show_read_articles;
     let offset = q.offset.unwrap_or(0).max(0);
+    let feed_id = q.feed;
 
-    let mut items =
-        articles::list_for_user(state.db.pool(), user.id, unread_only, per_page + 1, offset)
-            .await?;
+    let mut items = articles::list_for_user(
+        state.db.pool(),
+        user.id,
+        feed_id,
+        unread_only,
+        per_page + 1,
+        offset,
+    )
+    .await?;
     let has_next = items.len() as i64 > per_page;
     items.truncate(per_page as usize);
 
@@ -115,7 +131,24 @@ pub async fn list(
         })
         .collect();
 
-    let suffix = if unread_param { "&unread=1" } else { "" };
+    let feeds = feeds::list_for_user(state.db.pool(), user.id)
+        .await?
+        .into_iter()
+        .map(|f| FeedNav {
+            active: Some(f.id) == feed_id,
+            id: f.id.to_string(),
+            name: f.name,
+        })
+        .collect();
+
+    // Preserve the active filters in pagination/back links.
+    let mut suffix = String::new();
+    if unread_param {
+        suffix.push_str("&unread=1");
+    }
+    if let Some(fid) = feed_id {
+        suffix.push_str(&format!("&feed={fid}"));
+    }
     let back_url = format!("/articles?offset={offset}{suffix}");
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
 
@@ -124,6 +157,7 @@ pub async fn list(
         user_email: user.email,
         csrf_token,
         articles: article_views,
+        feeds,
         unread_only,
         reading_mode: prefs.reading_mode,
         back_url,

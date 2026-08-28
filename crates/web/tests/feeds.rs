@@ -1,0 +1,207 @@
+//! M6 integration test: add a feed through the UI, ingest its articles, and see
+//! them in the reader; then unsubscribe. Requires `TEST_DATABASE_URL`.
+
+use std::time::Duration;
+
+use axum::body::Body;
+use axum::http::{Request, Response, StatusCode};
+use axum::Router;
+use http_body_util::BodyExt;
+use tower::ServiceExt;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+use rustss_cache::Cache;
+use rustss_db::{feeds, subscriptions, users, Db};
+use rustss_feeds::SafeFetchClient;
+use rustss_web::{router, AppSettings, AppState};
+
+/// RSS with unique item URLs per `run` (article URLs are globally unique, so a
+/// stable URL would be skipped as a duplicate on reruns / across tests).
+fn rss(run: &str) -> String {
+    format!(
+        r#"<?xml version="1.0"?>
+<rss version="2.0"><channel>
+  <title>Mock Feed</title><link>https://mock.example</link>
+  <item><title>Alpha Post</title><link>https://mock.example/{run}/a</link><guid>{run}-a</guid>
+    <description>Alpha body</description></item>
+  <item><title>Beta Post</title><link>https://mock.example/{run}/b</link><guid>{run}-b</guid>
+    <description>Beta body</description></item>
+</channel></rss>"#
+    )
+}
+
+fn set_cookies(resp: &Response<Body>) -> Vec<(String, String)> {
+    resp.headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|hv| hv.to_str().ok())
+        .filter_map(|s| {
+            let first = s.split(';').next()?;
+            let (n, v) = first.split_once('=')?;
+            Some((n.trim().to_string(), v.trim().to_string()))
+        })
+        .collect()
+}
+
+fn find<'a>(pairs: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    pairs
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, v)| v.as_str())
+}
+
+async fn body_string(resp: Response<Body>) -> String {
+    let b = resp.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8_lossy(&b).to_string()
+}
+
+async fn register(app: &Router) -> (String, String) {
+    let email = format!("f-{}%40example.com", uuid::Uuid::now_v7());
+    let resp = app
+        .clone()
+        .oneshot(Request::get("/register").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/register")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "name=&email={email}&password=password123&csrf_token={csrf}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = find(&set_cookies(&resp), "rustss_sid").unwrap().to_string();
+    (sid, email.replace("%40", "@"))
+}
+
+#[tokio::test]
+async fn add_feed_ingests_and_shows_articles() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+
+    let run = uuid::Uuid::now_v7().to_string();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/feed.xml"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(rss(&run)))
+        .mount(&server)
+        .await;
+
+    // App state with an allow-private fetch client so it can reach wiremock.
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    )
+    .with_fetch(SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap());
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+
+    // CSRF from the feeds page.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+
+    // Add the feed.
+    let feed_url = format!("{}/feed.xml?u={}", server.uri(), uuid::Uuid::now_v7());
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "url={}&csrf_token={csrf}",
+                    urlencoding_min(&feed_url)
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(body_string(resp).await.contains("new article"));
+
+    // The user is subscribed and articles are ingested.
+    let user = users::find_by_email(state.db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    let subs = feeds::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    assert_eq!(subs.len(), 1);
+    let feed = &subs[0];
+    assert!(
+        subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap()
+    );
+
+    // They show up in the reader.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/articles")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = body_string(resp).await;
+    assert!(body.contains("Alpha Post"));
+    assert!(body.contains("Beta Post"));
+
+    // Unsubscribe.
+    let resp = app
+        .oneshot(
+            Request::post(format!("/feeds/{}/unsubscribe", feed.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert!(
+        !subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap()
+    );
+}
+
+/// Minimal application/x-www-form-urlencoded encoding for our test URL values.
+fn urlencoding_min(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace('&', "%26")
+        .replace('=', "%3D")
+        .replace('?', "%3F")
+        .replace(':', "%3A")
+        .replace('/', "%2F")
+}

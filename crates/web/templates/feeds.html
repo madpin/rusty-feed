@@ -1,0 +1,60 @@
+{% extends "app_base.html" %}
+{% block title %}Manage feeds{% endblock %}
+{% block sidebar %}
+<h2>Reading</h2>
+<ul>
+  <li><a href="/articles">All articles</a></li>
+  <li><a href="/articles?unread=1">Unread only</a></li>
+  <li><a href="/feeds">Manage feeds</a></li>
+</ul>
+{% endblock %}
+{% block content %}
+<div class="content-header">
+  <h1>Feeds</h1>
+  {% if !feeds.is_empty() %}
+  <form method="post" action="/feeds/refresh-all">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit">Refresh all</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if let Some(msg) = message %}<p class="notice">{{ msg }}</p>{% endif %}
+{% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
+
+<form method="post" action="/feeds" class="stack">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <label>Add a feed by URL
+    <input type="url" name="url" placeholder="https://example.com/feed.xml" required />
+  </label>
+  <button type="submit" class="primary">Add feed</button>
+</form>
+
+<h2>Your feeds</h2>
+{% if feeds.is_empty() %}
+<p class="muted">You haven't subscribed to any feeds yet.</p>
+{% else %}
+<ul class="feed-list">
+  {% for f in feeds %}
+  <li class="feed-row">
+    <div>
+      <strong><a href="/articles?feed={{ f.id }}">{{ f.name }}</a></strong>
+      <span class="badge health-{{ f.health }}">{{ f.health }}</span>
+      <div class="meta">{{ f.url }}</div>
+    </div>
+    <div class="feed-actions">
+      <form method="post" action="/feeds/{{ f.id }}/refresh">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button type="submit">Refresh</button>
+      </form>
+      <form method="post" action="/feeds/{{ f.id }}/unsubscribe"
+            onsubmit="return confirm('Unsubscribe from this feed?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button type="submit">Unsubscribe</button>
+      </form>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

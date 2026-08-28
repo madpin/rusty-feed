@@ -61,6 +61,80 @@ pub async fn upsert_by_url(
     }
 }
 
+/// List the distinct shared feeds a user subscribes to.
+pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Feed>> {
+    let sql = format!(
+        "SELECT {} FROM feeds f \
+         JOIN user_feeds uf ON uf.feed_id = f.id AND uf.user_id = $1 \
+         ORDER BY f.name ASC",
+        FEED_COLUMNS
+            .split(", ")
+            .map(|c| format!("f.{c}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok(sqlx::query_as::<_, Feed>(&sql)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?)
+}
+
+/// Update a feed's canonical name/site URL from parsed feed metadata. (Per-user
+/// display names live in `user_feeds.custom_name` and are unaffected.)
+pub async fn update_metadata(
+    pool: &PgPool,
+    feed_id: Uuid,
+    name: &str,
+    site_url: Option<&str>,
+) -> Result<()> {
+    sqlx::query("UPDATE feeds SET name = $2, site_url = COALESCE($3, site_url) WHERE id = $1")
+        .bind(feed_id)
+        .bind(name)
+        .bind(site_url)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Record a successful fetch: refresh validators + reset health.
+pub async fn record_fetch_success(
+    pool: &PgPool,
+    feed_id: Uuid,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE feeds SET last_fetched_at = now(), last_successful_fetch_at = now(), \
+         etag = $2, last_modified = $3, error_count = 0, consecutive_failures = 0, \
+         health_status = 'healthy', last_error = NULL WHERE id = $1",
+    )
+    .bind(feed_id)
+    .bind(etag)
+    .bind(last_modified)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Record a failed fetch: bump counters and downgrade health (auto-disable at the
+/// configured threshold).
+pub async fn record_fetch_failure(pool: &PgPool, feed_id: Uuid, error: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE feeds SET last_fetched_at = now(), error_count = error_count + 1, \
+         consecutive_failures = consecutive_failures + 1, last_error = $2, \
+         health_status = CASE \
+            WHEN consecutive_failures + 1 >= auto_disable_threshold THEN 'disabled' \
+            WHEN consecutive_failures + 1 >= 3 THEN 'error' \
+            ELSE 'warning' END \
+         WHERE id = $1",
+    )
+    .bind(feed_id)
+    .bind(error)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Count feeds with a given URL (0 or 1). Handy for dedup assertions/tests.
 pub async fn count_by_url(pool: &PgPool, url: &str) -> Result<i64> {
     Ok(

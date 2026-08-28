@@ -7,6 +7,7 @@ use rustss_cache::Cache;
 use rustss_core::config::RegistrationMode;
 use rustss_core::Secret;
 use rustss_db::Db;
+use rustss_feeds::SafeFetchClient;
 
 use crate::ratelimit::RateLimiter;
 
@@ -63,13 +64,15 @@ pub struct AppState {
     pub db: Db,
     pub cache: Cache,
     pub settings: Arc<AppSettings>,
+    /// SSRF-guarded HTTP client for fetching/refreshing feeds.
+    pub fetch: SafeFetchClient,
     /// Per-IP limiter for authentication endpoints.
     pub auth_limiter: RateLimiter,
     metrics: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
 impl AppState {
-    /// Build application state.
+    /// Build application state (with the default SSRF-safe fetch client).
     pub fn new(
         db: Db,
         cache: Cache,
@@ -80,10 +83,17 @@ impl AppState {
             db,
             cache,
             settings: Arc::new(settings),
+            fetch: SafeFetchClient::default(),
             // 10 auth attempts per minute per client IP.
             auth_limiter: RateLimiter::new(10, Duration::from_secs(60)),
             metrics: Arc::new(metrics_renderer),
         }
+    }
+
+    /// Override the fetch client (e.g. tests using an allow-private client).
+    pub fn with_fetch(mut self, fetch: SafeFetchClient) -> Self {
+        self.fetch = fetch;
+        self
     }
 
     /// Render the current metrics exposition text.

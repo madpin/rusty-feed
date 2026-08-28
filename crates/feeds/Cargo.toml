@@ -7,3 +7,19 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "RustSS feeds: SafeFetchClient, feed-rs parsing, and ingest dedup."
+
+[dependencies]
+rustss-core = { workspace = true }
+rustss-db = { workspace = true }
+reqwest = { workspace = true }
+feed-rs = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+futures-util = "0.3"
+
+[dev-dependencies]
+wiremock = "0.6"

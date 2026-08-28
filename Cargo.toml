@@ -85,7 +85,11 @@ rust-embed = { version = "8", features = ["debug-embed"] }
 ammonia = "4"
 
 # HTTP client (feeds, extraction, OAuth, LLM) — rustls, no OpenSSL
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "brotli"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "brotli", "stream"] }
+
+# feeds
+feed-rs = "2"
+url = "2"
 
 # observability
 tracing = "0.1"
