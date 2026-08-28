@@ -1,0 +1,35 @@
+{% extends "app_base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block sidebar %}
+<h2>Reading</h2>
+<ul>
+  <li><a href="/articles">All articles</a></li>
+  <li><a href="/searches">Saved searches</a></li>
+  <li><a href="/notifications">Notifications</a></li>
+</ul>
+{% endblock %}
+{% block content %}
+<div class="content-header">
+  <h1>Notifications</h1>
+  {% if !notifications.is_empty() %}
+  <form method="post" action="/notifications/read">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit">Mark all read</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if notifications.is_empty() %}
+<p class="muted">No notifications.</p>
+{% else %}
+<ul class="article-list">
+  {% for n in notifications %}
+  <li class="article-card {% if n.read %}read{% endif %}">
+    <h3>{{ n.title }}</h3>
+    <div class="meta">{{ n.created }}</div>
+    <p class="excerpt">{{ n.message }}</p>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

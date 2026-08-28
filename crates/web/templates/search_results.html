@@ -1,0 +1,32 @@
+{% extends "app_base.html" %}
+{% block title %}{{ name }}{% endblock %}
+{% block sidebar %}
+<h2>Saved searches</h2>
+<ul>
+  <li><a href="/searches">← All saved searches</a></li>
+</ul>
+{% endblock %}
+{% block content %}
+<h1>{{ name }}</h1>
+<p class="muted"><code>{{ query }}</code></p>
+
+{% if results.is_empty() %}
+<div class="empty-state">
+  <p><strong>No matches yet.</strong></p>
+  <p class="muted">Matches appear as new articles arrive (or use "Run now").</p>
+</div>
+{% else %}
+<ul class="article-list">
+  {% for r in results %}
+  <li class="article-card">
+    <h3><a href="/articles/{{ r.id }}">{{ r.title }}</a></h3>
+    <div class="meta">
+      {{ r.feed_name }}{% if let Some(when) = r.published %} · {{ when }}{% endif %}
+      · <span class="badge">{{ r.score }}% match</span>
+    </div>
+    {% if let Some(excerpt) = r.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

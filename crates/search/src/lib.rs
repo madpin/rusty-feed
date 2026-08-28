@@ -6,7 +6,9 @@
 //! here are covered by exact-value unit tests; [`personalize`] wires them to the
 //! database + cache.
 
+pub mod dsl;
 pub mod personalize;
+pub mod saved;
 mod stopwords;
 
 use std::collections::HashMap;

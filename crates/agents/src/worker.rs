@@ -15,7 +15,7 @@ use rustss_feeds::SafeFetchClient;
 
 use crate::{
     Agent, AgentContext, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
-    PatternDecayAgent,
+    PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -29,12 +29,14 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 5] = [
+        let list: [Arc<dyn Agent>; 7] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
             Arc::new(ExtractContentAgent::default()),
             Arc::new(EmbedArticleAgent::default()),
             Arc::new(PatternDecayAgent),
+            Arc::new(SavedSearchScanAgent),
+            Arc::new(SavedSearchMatchAgent::default()),
         ];
         for agent in list {
             registry.register(agent.name().to_string(), agent);
@@ -100,7 +102,14 @@ impl Worker {
         config: WorkerConfig,
     ) -> Self {
         let mut registry = Registry::with_defaults();
-        registry.register("embed_article", Arc::new(EmbedArticleAgent::new(embedder)));
+        registry.register(
+            "embed_article",
+            Arc::new(EmbedArticleAgent::new(embedder.clone())),
+        );
+        registry.register(
+            "saved_search_match",
+            Arc::new(SavedSearchMatchAgent::new(embedder)),
+        );
         let ctx = AgentContext::new(db, fetch).with_embed_on_ingest(config.embed_on_ingest);
         Self {
             ctx: Arc::new(ctx),
@@ -142,6 +151,9 @@ impl Worker {
                     }
                     if let Err(e) = enqueue_singleton(&ctx.db, "pattern_decay").await {
                         tracing::warn!(error = %e, "scheduler: could not enqueue pattern_decay");
+                    }
+                    if let Err(e) = enqueue_singleton(&ctx.db, "saved_search_scan").await {
+                        tracing::warn!(error = %e, "scheduler: could not enqueue saved_search_scan");
                     }
                     tokio::select! {
                         _ = tokio::time::sleep(interval) => {}

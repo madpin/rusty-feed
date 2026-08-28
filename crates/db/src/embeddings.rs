@@ -88,6 +88,42 @@ pub async fn search_for_user(
         .await?)
 }
 
+/// A candidate article for saved-search matching: content + semantic similarity.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Candidate {
+    pub id: Uuid,
+    pub title: String,
+    pub content: String,
+    pub similarity: f64,
+}
+
+/// Recent embedded articles in the user's feeds, ranked by similarity to a query
+/// vector (for saved-search matching). `since_days` bounds recency.
+pub async fn candidates_for_query(
+    pool: &PgPool,
+    user_id: Uuid,
+    query: &[f32],
+    model: &str,
+    since_days: i64,
+    limit: i64,
+) -> Result<Vec<Candidate>> {
+    let sql = "SELECT a.id, a.title, a.content, 1 - (e.embedding <=> $2::vector) AS similarity \
+               FROM article_embeddings e \
+               JOIN articles a ON a.id = e.article_id \
+               JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+               WHERE e.model = $3 AND a.created_at > now() - make_interval(days => $4::int) \
+               ORDER BY e.embedding <=> $2::vector \
+               LIMIT $5";
+    Ok(sqlx::query_as::<_, Candidate>(sql)
+        .bind(user_id)
+        .bind(to_pg_vector(query))
+        .bind(model)
+        .bind(since_days)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?)
+}
+
 /// Articles similar to `article_id` (using its stored embedding), within the
 /// user's subscribed feeds and the same model.
 pub async fn related_for_user(

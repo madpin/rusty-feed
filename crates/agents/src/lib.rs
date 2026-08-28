@@ -13,6 +13,7 @@ mod extract_content;
 mod feed_refresh;
 mod fetch_feed;
 mod pattern_decay;
+mod saved_search;
 mod worker;
 
 pub use embed_article::EmbedArticleAgent;
@@ -20,6 +21,7 @@ pub use extract_content::ExtractContentAgent;
 pub use feed_refresh::FeedRefreshAgent;
 pub use fetch_feed::FetchFeedAgent;
 pub use pattern_decay::PatternDecayAgent;
+pub use saved_search::{SavedSearchMatchAgent, SavedSearchScanAgent};
 pub use worker::{enqueue_feed_refresh, process, Registry, Worker, WorkerConfig};
 
 use async_trait::async_trait;

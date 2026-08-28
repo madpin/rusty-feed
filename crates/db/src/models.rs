@@ -122,6 +122,22 @@ pub struct Session {
 pub(crate) const SESSION_COLUMNS: &str =
     "id, user_id, token_hash, created_at, last_used_at, expires_at";
 
+/// A saved search (persistent boolean+semantic query) (M11).
+#[derive(Debug, Clone, FromRow)]
+pub struct SavedSearch {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub query: String,
+    pub threshold: f64,
+    pub notify_on_match: bool,
+    pub notify_threshold: f64,
+    pub archived: bool,
+}
+
+pub(crate) const SAVED_SEARCH_COLUMNS: &str =
+    "id, user_id, name, query, threshold, notify_on_match, notify_threshold, archived";
+
 /// Per-domain extraction politeness/backoff state (M8).
 #[derive(Debug, Clone, FromRow)]
 pub struct DomainState {

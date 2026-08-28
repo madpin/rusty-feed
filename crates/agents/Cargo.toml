@@ -14,6 +14,7 @@ rustss-db = { workspace = true }
 rustss-feeds = { workspace = true }
 rustss-extract = { workspace = true }
 rustss-embed = { workspace = true }
+rustss-search = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -20,9 +20,12 @@ pub mod feedback;
 pub mod feeds;
 pub mod jobs;
 pub mod models;
+pub mod notifications;
 pub mod oauth_accounts;
 pub mod patterns;
 pub mod read_articles;
+pub mod saved_search_matches;
+pub mod saved_searches;
 pub mod sessions;
 pub mod subscriptions;
 pub mod user_preferences;
@@ -30,8 +33,8 @@ pub mod users;
 
 pub use error::{DbError, Result};
 pub use models::{
-    ApiToken, Article, DomainState, Feed, Job, NewArticle, OAuthAccount, Session, UpsertAction,
-    User, UserFeed,
+    ApiToken, Article, DomainState, Feed, Job, NewArticle, OAuthAccount, SavedSearch, Session,
+    UpsertAction, User, UserFeed,
 };
 
 use sqlx::postgres::PgPoolOptions;

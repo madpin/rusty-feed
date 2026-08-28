@@ -16,6 +16,7 @@ pub mod oauth;
 mod prefs;
 pub mod ratelimit;
 mod reader;
+mod saved;
 mod search;
 mod state;
 mod tokens;
@@ -65,6 +66,12 @@ pub fn router(state: AppState) -> Router {
         .route("/feeds/{id}/refresh", post(feeds::refresh))
         .route("/feeds/{id}/unsubscribe", post(feeds::unsubscribe))
         .route("/search", get(search::page))
+        .route("/searches", get(saved::page).post(saved::create))
+        .route("/searches/{id}", get(saved::results))
+        .route("/searches/{id}/run", post(saved::run))
+        .route("/searches/{id}/delete", post(saved::delete))
+        .route("/notifications", get(saved::notifications_page))
+        .route("/notifications/read", post(saved::mark_read))
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
         .route("/settings/reset-learning", post(prefs::reset_learning))
         .route("/settings/tokens", get(tokens::list).post(tokens::create))
