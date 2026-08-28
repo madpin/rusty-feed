@@ -6,6 +6,11 @@
   <li><a href="/articles">All articles</a></li>
   <li><a href="/articles?unread=1">Unread only</a></li>
 </ul>
+<h2>Sort</h2>
+<ul>
+  <li><a href="/articles"{% if sort == "recent" %} class="active"{% endif %}>Most recent</a></li>
+  <li><a href="/articles?sort=relevance"{% if sort == "relevance" %} class="active"{% endif %}>For you</a></li>
+</ul>
 <h2>Feeds</h2>
 <ul>
   {% for f in feeds %}
@@ -41,6 +46,7 @@
     <h3><a href="/articles/{{ a.id }}" class="article-link" data-id="{{ a.id }}">{{ a.title }}</a></h3>
     <div class="meta">
       {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
+      {% if let Some(pct) = a.score %} · <span class="badge">{{ pct }}% for you</span>{% endif %}
     </div>
     {% if let Some(excerpt) = a.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
     <div class="article-inline" hidden></div>
@@ -62,6 +68,20 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
         <input type="hidden" name="next" value="{{ back_url }}" />
         <button type="submit">{% if a.is_bookmarked %}★ Saved{% else %}☆ Save{% endif %}</button>
+      </form>
+      <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
+            data-target="#card-{{ a.id }}" data-toggle-class="rated">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <input type="hidden" name="value" value="up" />
+        <input type="hidden" name="next" value="{{ back_url }}" />
+        <button type="submit" title="More like this">👍</button>
+      </form>
+      <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
+            data-target="#card-{{ a.id }}" data-toggle-class="rated">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <input type="hidden" name="value" value="down" />
+        <input type="hidden" name="next" value="{{ back_url }}" />
+        <button type="submit" title="Less like this">👎</button>
       </form>
     </div>
   </li>

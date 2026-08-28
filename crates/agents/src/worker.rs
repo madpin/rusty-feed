@@ -15,6 +15,7 @@ use rustss_feeds::SafeFetchClient;
 
 use crate::{
     Agent, AgentContext, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
+    PatternDecayAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -28,11 +29,12 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 4] = [
+        let list: [Arc<dyn Agent>; 5] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
             Arc::new(ExtractContentAgent::default()),
             Arc::new(EmbedArticleAgent::default()),
+            Arc::new(PatternDecayAgent),
         ];
         for agent in list {
             registry.register(agent.name().to_string(), agent);
@@ -138,6 +140,9 @@ impl Worker {
                     if let Err(e) = enqueue_feed_refresh(&ctx.db).await {
                         tracing::warn!(error = %e, "scheduler: could not enqueue feed_refresh");
                     }
+                    if let Err(e) = enqueue_singleton(&ctx.db, "pattern_decay").await {
+                        tracing::warn!(error = %e, "scheduler: could not enqueue pattern_decay");
+                    }
                     tokio::select! {
                         _ = tokio::time::sleep(interval) => {}
                         _ = sd.changed() => {}
@@ -206,15 +211,12 @@ pub(crate) async fn enqueue_embed(db: &Db, article_id: uuid::Uuid) -> anyhow::Re
 /// Enqueue a single (deduped) `feed_refresh` job. Public so a freshly-started
 /// worker can kick one immediately.
 pub async fn enqueue_feed_refresh(db: &Db) -> anyhow::Result<()> {
-    jobs::enqueue(
-        db.pool(),
-        "feed_refresh",
-        serde_json::json!({}),
-        Some("feed_refresh"),
-        None,
-        3,
-    )
-    .await?;
+    enqueue_singleton(db, "feed_refresh").await
+}
+
+/// Enqueue a deduped, payload-less singleton job of the given kind.
+async fn enqueue_singleton(db: &Db, kind: &str) -> anyhow::Result<()> {
+    jobs::enqueue(db.pool(), kind, serde_json::json!({}), Some(kind), None, 3).await?;
     Ok(())
 }
 

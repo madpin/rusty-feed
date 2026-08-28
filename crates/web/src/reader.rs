@@ -9,7 +9,9 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{articles, bookmarks, feeds, read_articles};
+use rustss_db::{articles, bookmarks, feeds, patterns, read_articles};
+use rustss_search::personalize;
+use rustss_search::{extract_keywords, relevance_score, ExplicitFeedback};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -17,6 +19,11 @@ use crate::error::AppError;
 use crate::extract::Ajax;
 use crate::prefs;
 use crate::state::AppState;
+
+/// Candidate window scored when sorting by relevance.
+const RELEVANCE_CANDIDATES: i64 = 120;
+/// Default implicit bounce threshold (ARCH §11.2).
+const BOUNCE_THRESHOLD: f64 = 0.25;
 
 struct ArticleView {
     id: String,
@@ -26,6 +33,7 @@ struct ArticleView {
     published: Option<String>,
     is_read: bool,
     is_bookmarked: bool,
+    score: Option<i64>,
 }
 
 struct FeedNav {
@@ -44,6 +52,7 @@ struct ArticlesTemplate {
     feeds: Vec<FeedNav>,
     unread_only: bool,
     reading_mode: String,
+    sort: String,
     back_url: String,
     has_prev: bool,
     has_next: bool,
@@ -75,6 +84,20 @@ pub struct ArticlesQuery {
     offset: Option<i64>,
     #[serde(default)]
     feed: Option<Uuid>,
+    /// `recent` (default) or `relevance`.
+    #[serde(default)]
+    sort: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct FeedbackForm {
+    csrf_token: String,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    time_spent: Option<f64>,
+    #[serde(default)]
+    next: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -105,31 +128,17 @@ pub async fn list(
     let unread_only = unread_param || !prefs.show_read_articles;
     let offset = q.offset.unwrap_or(0).max(0);
     let feed_id = q.feed;
+    let sort = if q.sort.as_deref() == Some("relevance") {
+        "relevance"
+    } else {
+        "recent"
+    };
 
-    let mut items = articles::list_for_user(
-        state.db.pool(),
-        user.id,
-        feed_id,
-        unread_only,
-        per_page + 1,
-        offset,
-    )
-    .await?;
-    let has_next = items.len() as i64 > per_page;
-    items.truncate(per_page as usize);
-
-    let article_views = items
-        .into_iter()
-        .map(|a| ArticleView {
-            id: a.id.to_string(),
-            title: a.title,
-            excerpt: a.excerpt,
-            feed_name: a.feed_name,
-            published: a.published_at.map(|d| d.date().to_string()),
-            is_read: a.is_read,
-            is_bookmarked: a.is_bookmarked,
-        })
-        .collect();
+    let (article_views, has_next) = if sort == "relevance" {
+        relevance_page(&state, user.id, feed_id, unread_only, per_page, offset).await?
+    } else {
+        recency_page(&state, user.id, feed_id, unread_only, per_page, offset).await?
+    };
 
     let feeds = feeds::list_for_user(state.db.pool(), user.id)
         .await?
@@ -149,6 +158,9 @@ pub async fn list(
     if let Some(fid) = feed_id {
         suffix.push_str(&format!("&feed={fid}"));
     }
+    if sort == "relevance" {
+        suffix.push_str("&sort=relevance");
+    }
     let back_url = format!("/articles?offset={offset}{suffix}");
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
 
@@ -160,6 +172,7 @@ pub async fn list(
         feeds,
         unread_only,
         reading_mode: prefs.reading_mode,
+        sort: sort.to_string(),
         back_url,
         has_prev: offset > 0,
         has_next,
@@ -171,6 +184,183 @@ pub async fn list(
     .map_err(|e| AppError::Internal(anyhow::anyhow!("template render failed: {e}")))?;
 
     Ok((jar, body).into_response())
+}
+
+/// Recency-ordered page (newest first), fetching one extra row for `has_next`.
+async fn recency_page(
+    state: &AppState,
+    user_id: Uuid,
+    feed_id: Option<Uuid>,
+    unread_only: bool,
+    per_page: i64,
+    offset: i64,
+) -> Result<(Vec<ArticleView>, bool), AppError> {
+    let mut items = articles::list_for_user(
+        state.db.pool(),
+        user_id,
+        feed_id,
+        unread_only,
+        per_page + 1,
+        offset,
+    )
+    .await?;
+    let has_next = items.len() as i64 > per_page;
+    items.truncate(per_page as usize);
+    let views = items
+        .into_iter()
+        .map(|a| ArticleView {
+            id: a.id.to_string(),
+            title: a.title,
+            excerpt: a.excerpt,
+            feed_name: a.feed_name,
+            published: a.published_at.map(|d| d.date().to_string()),
+            is_read: a.is_read,
+            is_bookmarked: a.is_bookmarked,
+            score: None,
+        })
+        .collect();
+    Ok((views, has_next))
+}
+
+/// Relevance-ranked page: score a recent candidate window against the user's
+/// patterns (one batched weights lookup), sort by score, then paginate.
+async fn relevance_page(
+    state: &AppState,
+    user_id: Uuid,
+    feed_id: Option<Uuid>,
+    unread_only: bool,
+    per_page: i64,
+    offset: i64,
+) -> Result<(Vec<ArticleView>, bool), AppError> {
+    let candidates = articles::list_for_user(
+        state.db.pool(),
+        user_id,
+        feed_id,
+        unread_only,
+        RELEVANCE_CANDIDATES,
+        0,
+    )
+    .await?;
+
+    // Extract keywords per candidate (title + excerpt) and look up all weights
+    // in a single query.
+    let keywords: Vec<_> = candidates
+        .iter()
+        .map(|a| {
+            let text = format!("{} {}", a.title, a.excerpt.as_deref().unwrap_or(""));
+            extract_keywords(&text, 30)
+        })
+        .collect();
+    let mut all_terms: Vec<String> = keywords
+        .iter()
+        .flat_map(|ks| ks.iter().map(|k| k.term.clone()))
+        .collect();
+    all_terms.sort();
+    all_terms.dedup();
+    let weights: std::collections::HashMap<String, f64> =
+        patterns::weights_for(state.db.pool(), user_id, &all_terms)
+            .await?
+            .into_iter()
+            .collect();
+
+    let mut scored: Vec<(articles::ArticleListItem, f64)> = candidates
+        .into_iter()
+        .zip(keywords)
+        .map(|(a, ks)| {
+            let total: f64 = ks
+                .iter()
+                .filter_map(|k| weights.get(&k.term).map(|w| w * k.relevance))
+                .sum();
+            (a, relevance_score(total))
+        })
+        .collect();
+    scored.sort_by(|x, y| {
+        y.1.partial_cmp(&x.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| y.0.published_at.cmp(&x.0.published_at))
+    });
+
+    let start = offset as usize;
+    let has_next = scored.len() > start + per_page as usize;
+    let views = scored
+        .into_iter()
+        .skip(start)
+        .take(per_page as usize)
+        .map(|(a, score)| ArticleView {
+            id: a.id.to_string(),
+            title: a.title,
+            excerpt: a.excerpt,
+            feed_name: a.feed_name,
+            published: a.published_at.map(|d| d.date().to_string()),
+            is_read: a.is_read,
+            is_bookmarked: a.is_bookmarked,
+            score: Some((score.clamp(0.0, 1.0) * 100.0).round() as i64),
+        })
+        .collect();
+    Ok((views, has_next))
+}
+
+/// `POST /articles/{id}/feedback` — explicit 👍/👎 or an implicit reading signal.
+pub async fn feedback(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Ajax(is_ajax): Ajax,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<FeedbackForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    authorize_action(&state, user.id, id).await?;
+    let article = articles::find_by_id(state.db.pool(), id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    match form.value.as_deref() {
+        Some("up") => {
+            personalize::record_explicit(
+                &state.db,
+                &state.cache,
+                user.id,
+                &article,
+                ExplicitFeedback::Up,
+            )
+            .await?;
+        }
+        Some("down") => {
+            personalize::record_explicit(
+                &state.db,
+                &state.cache,
+                user.id,
+                &article,
+                ExplicitFeedback::Down,
+            )
+            .await?;
+        }
+        _ => {
+            if let Some(time_spent) = form.time_spent {
+                let estimated = estimate_reading_seconds(&article.content);
+                personalize::record_implicit(
+                    &state.db,
+                    &state.cache,
+                    user.id,
+                    &article,
+                    time_spent,
+                    estimated,
+                    BOUNCE_THRESHOLD,
+                )
+                .await?;
+            }
+        }
+    }
+    Ok(action_response(is_ajax, form.next))
+}
+
+/// Estimate reading time (seconds) at ~200 wpm.
+fn estimate_reading_seconds(content: &str) -> f64 {
+    let words = content.split_whitespace().count().max(1) as f64;
+    words / 200.0 * 60.0
 }
 
 /// `GET /articles/{id}` — standalone reading view.

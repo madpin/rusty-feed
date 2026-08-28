@@ -6,4 +6,16 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS search: semantic search, saved-search DSL/matcher, scoring, patterns."
+description = "RustSS personalization + search: TF keyword patterns, feedback, scoring."
+
+[dependencies]
+rustss-core = { workspace = true }
+rustss-db = { workspace = true }
+rustss-cache = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

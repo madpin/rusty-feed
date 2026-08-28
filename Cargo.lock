@@ -2719,6 +2719,16 @@ version = "0.1.0"
 [[package]]
 name = "rustss-search"
 version = "0.1.0"
+dependencies = [
+ "rustss-cache",
+ "rustss-core",
+ "rustss-db",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "rustss-server"
@@ -2757,6 +2767,7 @@ dependencies = [
  "rustss-db",
  "rustss-embed",
  "rustss-feeds",
+ "rustss-search",
  "serde",
  "serde_json",
  "thiserror 2.0.20",

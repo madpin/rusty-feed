@@ -4,7 +4,7 @@
 
 use askama::Template;
 use axum::extract::State;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,25 @@ use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
 use crate::error::AppError;
 use crate::state::AppState;
+
+#[derive(Deserialize)]
+pub struct CsrfForm {
+    csrf_token: String,
+}
+
+/// `POST /settings/reset-learning` — clear the user's learned patterns/feedback.
+pub async fn reset_learning(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(form): Form<CsrfForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    rustss_search::personalize::reset_learning(&state.db, &state.cache, user.id).await?;
+    Ok((jar, Redirect::to("/settings/preferences")).into_response())
+}
 
 /// Typed user preferences. `#[serde(default)]` makes missing fields fall back to
 /// defaults, so the stored document can evolve without breaking older rows.

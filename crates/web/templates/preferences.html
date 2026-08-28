@@ -38,4 +38,12 @@
   </label>
   <button type="submit" class="primary">Save</button>
 </form>
+
+<h2>Personalization</h2>
+<p class="muted">RustSS learns from your 👍/👎 and reading habits to rank "For you".</p>
+<form method="post" action="/settings/reset-learning"
+      onsubmit="return confirm('Clear everything RustSS has learned about you?');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <button type="submit">Reset learning</button>
+</form>
 {% endblock %}

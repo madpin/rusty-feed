@@ -279,6 +279,95 @@ async fn reading_actions_and_detail_work() {
 }
 
 #[tokio::test]
+async fn feedback_records_patterns_and_relevance_sort_works() {
+    use rustss_db::models::NewArticle;
+    use rustss_db::{articles, feeds, patterns, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "F",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let (article, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            guid: None,
+            title: "Async Rust Concurrency".into(),
+            author: None,
+            content: "async await concurrency in the rust programming language".into(),
+            excerpt: Some("async rust".into()),
+            image_url: None,
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // CSRF from the article list.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/articles")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+
+    // Thumbs up via the fetch path → 204, and patterns are learned.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{}/feedback", article.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("value=up&csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(patterns::count_for(pool, user.id).await.unwrap() > 0);
+
+    // Relevance sort renders and surfaces the liked article with a score badge.
+    let resp = app
+        .oneshot(
+            Request::get("/articles?sort=relevance")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Async Rust Concurrency"));
+    assert!(body.contains("for you"));
+}
+
+#[tokio::test]
 async fn static_css_is_served() {
     // No DB needed — build a lazy-pool state.
     let db = Db::connect_lazy("postgres://u:p@localhost/none").unwrap();

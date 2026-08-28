@@ -42,6 +42,32 @@
       });
   });
 
+  // Implicit reading signal: on an article page, report time spent when the
+  // reader leaves, so personalization can learn from completion/bounce.
+  var tracked = document.querySelector("[data-track-reading]");
+  if (tracked) {
+    var startedAt = Date.now();
+    var sent = false;
+    var report = function () {
+      if (sent) return;
+      sent = true;
+      var seconds = Math.round((Date.now() - startedAt) / 1000);
+      var body = new URLSearchParams();
+      body.set("csrf_token", tracked.getAttribute("data-csrf") || "");
+      body.set("time_spent", String(seconds));
+      var url = tracked.getAttribute("data-track-reading");
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, body);
+      } else {
+        fetch(url, { method: "POST", body: body, keepalive: true, credentials: "same-origin" });
+      }
+    };
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") report();
+    });
+    window.addEventListener("pagehide", report);
+  }
+
   // Inline reading: expand article content in the list instead of navigating.
   document.addEventListener("click", function (e) {
     var link = e.target.closest ? e.target.closest("a.article-link") : null;
