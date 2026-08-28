@@ -1,21 +1,45 @@
-//! RustSS standalone AGENTS worker entry point.
-//!
-//! Loads configuration and initializes telemetry, then idles until shutdown.
-//! The scheduler, durable queue, and concrete agents are implemented in
-//! milestone M7 (see `docs/DEVELOPMENT_PLAN.md` and `docs/ARCHITECTURE.md` §8).
+//! RustSS standalone AGENTS worker: runs the scheduler + durable-queue consumers
+//! (feed refresh/fetch today; more agents in later milestones). Runnable
+//! separately from the web server, or embedded in it via `RUN_EMBEDDED_WORKER`.
+
+use std::time::Duration;
 
 use anyhow::Context;
+use rustss_agents::{Worker, WorkerConfig};
 use rustss_core::AppConfig;
+use rustss_db::Db;
+use rustss_feeds::SafeFetchClient;
+use tokio::sync::watch;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = AppConfig::load().context("failed to load configuration")?;
     rustss_core::telemetry::init_tracing(&config.log_level);
 
-    tracing::info!("{} worker starting", rustss_core::banner());
-    tracing::warn!("no agents registered yet (implemented in milestone M7)");
+    let db = Db::connect(&config.database_url)
+        .await
+        .context("failed to connect to the database")?;
+    db.migrate().await.context("failed to apply migrations")?;
 
+    let fetch =
+        SafeFetchClient::new(Duration::from_secs(30)).context("failed to build HTTP client")?;
+    let worker = Worker::new(
+        db,
+        fetch,
+        WorkerConfig {
+            concurrency: config.feed_refresh_concurrency,
+            ..WorkerConfig::default()
+        },
+    );
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handle = tokio::spawn(async move { worker.run(shutdown_rx).await });
+
+    tracing::info!("{} worker started", rustss_core::banner());
     shutdown_signal().await;
+    tracing::info!("worker shutting down");
+    let _ = shutdown_tx.send(true);
+    let _ = handle.await;
     tracing::info!("worker shutdown complete");
     Ok(())
 }

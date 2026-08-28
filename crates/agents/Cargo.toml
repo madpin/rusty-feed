@@ -6,4 +6,22 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS AGENTS: background-worker framework and concrete agents."
+description = "RustSS AGENTS: scheduler, durable job queue, run records, and agents."
+
+[dependencies]
+rustss-core = { workspace = true }
+rustss-db = { workspace = true }
+rustss-feeds = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+async-trait = "0.1"
+
+[dev-dependencies]
+wiremock = "0.6"
+sqlx = { workspace = true }

@@ -8,11 +8,14 @@
 //! (feeds, articles) are idempotent so concurrent workers never duplicate
 //! content. The [`Db`] handle owns the pool and runs migrations.
 
+pub mod agent_locks;
+pub mod agent_runs;
 pub mod api_tokens;
 pub mod articles;
 pub mod bookmarks;
 pub mod error;
 pub mod feeds;
+pub mod jobs;
 pub mod models;
 pub mod oauth_accounts;
 pub mod read_articles;
@@ -23,7 +26,7 @@ pub mod users;
 
 pub use error::{DbError, Result};
 pub use models::{
-    ApiToken, Article, Feed, NewArticle, OAuthAccount, Session, UpsertAction, User, UserFeed,
+    ApiToken, Article, Feed, Job, NewArticle, OAuthAccount, Session, UpsertAction, User, UserFeed,
 };
 
 use sqlx::postgres::PgPoolOptions;

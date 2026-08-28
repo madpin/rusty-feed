@@ -61,6 +61,24 @@ pub async fn upsert_by_url(
     }
 }
 
+/// List feeds due for a refresh, system-wide (not per-user): not disabled, and
+/// either never fetched or past their `fetch_interval_minutes`. Ordered oldest
+/// first. This is what makes refresh O(1) per shared feed.
+pub async fn list_due(pool: &PgPool, limit: i64) -> Result<Vec<Feed>> {
+    let sql = format!(
+        "SELECT {FEED_COLUMNS} FROM feeds \
+         WHERE health_status <> 'disabled' \
+           AND (last_fetched_at IS NULL \
+                OR last_fetched_at + make_interval(mins => fetch_interval_minutes) <= now()) \
+         ORDER BY last_fetched_at ASC NULLS FIRST \
+         LIMIT $1"
+    );
+    Ok(sqlx::query_as::<_, Feed>(&sql)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?)
+}
+
 /// List the distinct shared feeds a user subscribes to.
 pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Feed>> {
     let sql = format!(

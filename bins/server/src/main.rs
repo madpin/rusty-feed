@@ -59,8 +59,26 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let state = AppState::new(db, cache, settings, move || metrics.render());
-    let app = rustss_web::router(state);
 
+    // Embedded AGENTS worker (default): refreshes feeds in the background.
+    // Disable with RUN_EMBEDDED_WORKER=false to run `rustss-worker` separately.
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let worker_handle = if config.run_embedded_worker {
+        let worker = rustss_agents::Worker::new(
+            state.db.clone(),
+            state.fetch.clone(),
+            rustss_agents::WorkerConfig {
+                concurrency: config.feed_refresh_concurrency,
+                ..rustss_agents::WorkerConfig::default()
+            },
+        );
+        tracing::info!("embedded AGENTS worker enabled");
+        Some(tokio::spawn(async move { worker.run(shutdown_rx).await }))
+    } else {
+        None
+    };
+
+    let app = rustss_web::router(state);
     tracing::info!("{} starting on http://{addr}", rustss_core::banner());
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -71,10 +89,16 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        let _ = shutdown_tx.send(true); // stop the embedded worker too
+    })
     .await
     .context("server error")?;
 
+    if let Some(handle) = worker_handle {
+        let _ = handle.await;
+    }
     tracing::info!("shutdown complete");
     Ok(())
 }

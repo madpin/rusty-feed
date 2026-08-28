@@ -122,6 +122,16 @@ pub struct Session {
 pub(crate) const SESSION_COLUMNS: &str =
     "id, user_id, token_hash, created_at, last_used_at, expires_at";
 
+/// A claimed unit of work from the durable job queue (M7).
+#[derive(Debug, Clone, FromRow)]
+pub struct Job {
+    pub id: Uuid,
+    pub kind: String,
+    pub payload: serde_json::Value,
+    pub attempts: i32,
+    pub max_attempts: i32,
+}
+
 /// A linked third-party identity (OAuth). Minimal projection used at login.
 #[derive(Debug, Clone, FromRow)]
 pub struct OAuthAccount {
