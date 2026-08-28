@@ -1,0 +1,34 @@
+{% extends "app_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block sidebar %}
+<h2>Reading</h2>
+<ul>
+  <li><a href="/articles">← Back to articles</a></li>
+  <li><a href="/articles?unread=1">Unread only</a></li>
+</ul>
+{% endblock %}
+{% block content %}
+<article class="reader">
+  <h1>{{ title }}</h1>
+  <div class="meta">
+    {{ feed_name }}{% if let Some(when) = published %} · {{ when }}{% endif %}
+    · <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original ↗</a>
+  </div>
+  <div class="actions">
+    <form method="post"
+          action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="/articles/{{ id }}" />
+      <button type="submit">{% if is_bookmarked %}★ Saved{% else %}☆ Save{% endif %}</button>
+    </form>
+    <form method="post" action="/articles/{{ id }}/{% if is_read %}unread{% else %}read{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="/articles/{{ id }}" />
+      <button type="submit">{% if is_read %}Mark unread{% else %}Mark read{% endif %}</button>
+    </form>
+  </div>
+  <div class="article-body">
+    {{ content|safe }}
+  </div>
+</article>
+{% endblock %}

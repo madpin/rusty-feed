@@ -11,6 +11,30 @@ use uuid::Uuid;
 use crate::error::{DbError, Result};
 use crate::models::{Article, NewArticle, UpsertAction, ARTICLE_COLUMNS};
 
+/// Find an article by id.
+pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Article>> {
+    let sql = format!("SELECT {ARTICLE_COLUMNS} FROM articles WHERE id = $1");
+    Ok(sqlx::query_as::<_, Article>(&sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await?)
+}
+
+/// Whether `user_id` is subscribed to the feed that owns `article_id` (used to
+/// authorize reading a shared article).
+pub async fn user_can_access(pool: &PgPool, user_id: Uuid, article_id: Uuid) -> Result<bool> {
+    let exists: Option<i32> = sqlx::query_scalar(
+        "SELECT 1 FROM articles a \
+         JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+         WHERE a.id = $2 LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(article_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(exists.is_some())
+}
+
 /// Find an article by its globally-unique URL.
 pub async fn find_by_url(pool: &PgPool, url: &str) -> Result<Option<Article>> {
     let sql = format!("SELECT {ARTICLE_COLUMNS} FROM articles WHERE url = $1");

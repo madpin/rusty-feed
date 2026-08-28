@@ -10,10 +10,12 @@
 
 pub mod api_tokens;
 pub mod articles;
+pub mod bookmarks;
 pub mod error;
 pub mod feeds;
 pub mod models;
 pub mod oauth_accounts;
+pub mod read_articles;
 pub mod sessions;
 pub mod subscriptions;
 pub mod user_preferences;

@@ -19,12 +19,22 @@
       <option value="dark"{% if prefs_theme == "dark" %} selected{% endif %}>Dark</option>
     </select>
   </label>
+  <label>Reading mode
+    <select name="reading_mode">
+      <option value="standalone"{% if prefs_reading_mode == "standalone" %} selected{% endif %}>Standalone page</option>
+      <option value="inline"{% if prefs_reading_mode == "inline" %} selected{% endif %}>Inline (expand in list)</option>
+    </select>
+  </label>
   <label>Articles per page
     <input type="number" name="articles_per_page" min="5" max="100" value="{{ prefs_per_page }}" />
   </label>
   <label>
     <input type="checkbox" name="show_read_articles" value="true"{% if prefs_show_read %} checked{% endif %} />
     Show read articles
+  </label>
+  <label>
+    <input type="checkbox" name="auto_mark_read" value="true"{% if prefs_auto_mark_read %} checked{% endif %} />
+    Mark articles read when opened
   </label>
   <button type="submit" class="primary">Save</button>
 </form>

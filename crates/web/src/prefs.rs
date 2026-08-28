@@ -25,6 +25,10 @@ pub struct Preferences {
     pub theme: String,
     pub articles_per_page: u32,
     pub show_read_articles: bool,
+    /// `standalone` (open a full page) or `inline` (expand in the list).
+    pub reading_mode: String,
+    /// Mark an article read automatically when opened.
+    pub auto_mark_read: bool,
 }
 
 impl Default for Preferences {
@@ -33,6 +37,8 @@ impl Default for Preferences {
             theme: "system".to_string(),
             articles_per_page: 20,
             show_read_articles: true,
+            reading_mode: "standalone".to_string(),
+            auto_mark_read: true,
         }
     }
 }
@@ -41,6 +47,9 @@ impl Preferences {
     fn sanitized(mut self) -> Self {
         if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
             self.theme = "system".to_string();
+        }
+        if !matches!(self.reading_mode.as_str(), "standalone" | "inline") {
+            self.reading_mode = "standalone".to_string();
         }
         self.articles_per_page = self.articles_per_page.clamp(5, 100);
         self
@@ -65,6 +74,8 @@ struct PreferencesTemplate {
     prefs_theme: String,
     prefs_per_page: u32,
     prefs_show_read: bool,
+    prefs_reading_mode: String,
+    prefs_auto_mark_read: bool,
     saved: bool,
 }
 
@@ -73,8 +84,11 @@ pub struct PrefsForm {
     csrf_token: String,
     theme: String,
     articles_per_page: u32,
+    reading_mode: String,
     #[serde(default)]
     show_read_articles: Option<String>,
+    #[serde(default)]
+    auto_mark_read: Option<String>,
 }
 
 fn render(tpl: &PreferencesTemplate) -> Result<Html<String>, AppError> {
@@ -98,6 +112,8 @@ pub async fn page(
         prefs_theme: prefs.theme,
         prefs_per_page: prefs.articles_per_page,
         prefs_show_read: prefs.show_read_articles,
+        prefs_reading_mode: prefs.reading_mode,
+        prefs_auto_mark_read: prefs.auto_mark_read,
         saved: false,
     })?;
     Ok((jar, body).into_response())
@@ -117,6 +133,8 @@ pub async fn save(
         theme: form.theme,
         articles_per_page: form.articles_per_page,
         show_read_articles: form.show_read_articles.is_some(),
+        reading_mode: form.reading_mode,
+        auto_mark_read: form.auto_mark_read.is_some(),
     }
     .sanitized();
 
@@ -132,6 +150,8 @@ pub async fn save(
         prefs_theme: prefs.theme,
         prefs_per_page: prefs.articles_per_page,
         prefs_show_read: prefs.show_read_articles,
+        prefs_reading_mode: prefs.reading_mode,
+        prefs_auto_mark_read: prefs.auto_mark_read,
         saved: true,
     })?;
     Ok((jar, body).into_response())

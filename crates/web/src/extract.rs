@@ -29,6 +29,25 @@ impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
     }
 }
 
+/// Whether the request was made by our client-side fetch (progressive
+/// enhancement): actions return `204 No Content` for these and a redirect
+/// otherwise, so they also work without JavaScript.
+pub struct Ajax(pub bool);
+
+impl<S: Send + Sync> FromRequestParts<S> for Ajax {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Infallible> {
+        let is_ajax = parts
+            .headers
+            .get("x-requested-with")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.eq_ignore_ascii_case("fetch"))
+            .unwrap_or(false);
+        Ok(Ajax(is_ajax))
+    }
+}
+
 fn header_first(parts: &Parts, name: &str) -> Option<String> {
     parts
         .headers

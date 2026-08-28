@@ -1,39 +1,68 @@
 {% extends "app_base.html" %}
 {% block title %}Articles{% endblock %}
 {% block sidebar %}
-<h2>Filters</h2>
+<h2>Reading</h2>
 <ul>
   <li><a href="/articles">All articles</a></li>
   <li><a href="/articles?unread=1">Unread only</a></li>
+  <li><a href="/feeds">Manage feeds</a></li>
 </ul>
-<h2>Feeds</h2>
-<p class="muted">Feed management arrives in an upcoming milestone.</p>
 {% endblock %}
 {% block content %}
-<h1>{% if unread_only %}Unread{% else %}All articles{% endif %}</h1>
+<div class="content-header">
+  <h1>{% if unread_only %}Unread{% else %}All articles{% endif %}</h1>
+  {% if !articles.is_empty() %}
+  <form method="post" action="/articles/read-all" class="js-action" data-toggle-class="noop">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="next" value="{{ back_url }}" />
+    <button type="submit">Mark all read</button>
+  </form>
+  {% endif %}
+</div>
 
 {% if articles.is_empty() %}
 <div class="empty-state">
   <p><strong>No articles yet.</strong></p>
-  <p>Once you subscribe to feeds and they refresh, your reading list appears here.</p>
+  <p>Add feeds and refresh them, and your reading list will appear here.</p>
+  <p><a class="btn" href="/feeds">Manage feeds</a></p>
 </div>
 {% else %}
-<ul class="article-list">
+<ul class="article-list" data-reading-mode="{{ reading_mode }}">
   {% for a in articles %}
-  <li class="article-card {% if a.is_read %}read{% endif %}">
-    <h3><a href="{{ a.url }}" target="_blank" rel="noopener noreferrer">{{ a.title }}</a></h3>
+  <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}" id="card-{{ a.id }}">
+    <h3><a href="/articles/{{ a.id }}" class="article-link" data-id="{{ a.id }}">{{ a.title }}</a></h3>
     <div class="meta">
       {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
-      {% if a.is_bookmarked %} · <span class="badge">★ saved</span>{% endif %}
     </div>
     {% if let Some(excerpt) = a.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
+    <div class="article-inline" hidden></div>
+    <div class="actions">
+      <form class="js-action" method="post"
+            action="/articles/{{ a.id }}/{% if a.is_read %}unread{% else %}read{% endif %}"
+            data-target="#card-{{ a.id }}" data-toggle-class="read"
+            data-alt-action="/articles/{{ a.id }}/{% if a.is_read %}read{% else %}unread{% endif %}"
+            data-alt-label="{% if a.is_read %}Mark read{% else %}Mark unread{% endif %}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <input type="hidden" name="next" value="{{ back_url }}" />
+        <button type="submit">{% if a.is_read %}Mark unread{% else %}Mark read{% endif %}</button>
+      </form>
+      <form class="js-action" method="post"
+            action="/articles/{{ a.id }}/{% if a.is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
+            data-target="#card-{{ a.id }}" data-toggle-class="bookmarked"
+            data-alt-action="/articles/{{ a.id }}/{% if a.is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
+            data-alt-label="{% if a.is_bookmarked %}☆ Save{% else %}★ Saved{% endif %}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <input type="hidden" name="next" value="{{ back_url }}" />
+        <button type="submit">{% if a.is_bookmarked %}★ Saved{% else %}☆ Save{% endif %}</button>
+      </form>
+    </div>
   </li>
   {% endfor %}
 </ul>
 
-<p>
+<nav class="pager">
   {% if has_prev %}<a href="{{ prev_url }}">← Newer</a>{% endif %}
-  {% if has_next %}<a href="{{ next_url }}" style="float:right">Older →</a>{% endif %}
-</p>
+  {% if has_next %}<a href="{{ next_url }}" class="pager-next">Older →</a>{% endif %}
+</nav>
 {% endif %}
 {% endblock %}

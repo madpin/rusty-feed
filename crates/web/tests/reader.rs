@@ -144,7 +144,7 @@ async fn preferences_save_roundtrip() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "theme=dark&articles_per_page=30&csrf_token={csrf}"
+                    "theme=dark&reading_mode=inline&articles_per_page=30&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
@@ -163,8 +163,119 @@ async fn preferences_save_roundtrip() {
         .unwrap()
         .unwrap();
     assert_eq!(stored["theme"], "dark");
+    assert_eq!(stored["reading_mode"], "inline");
     assert_eq!(stored["articles_per_page"], 30);
     assert_eq!(stored["show_read_articles"], false);
+    assert_eq!(stored["auto_mark_read"], false);
+}
+
+#[tokio::test]
+async fn reading_actions_and_detail_work() {
+    use rustss_db::models::NewArticle;
+    use rustss_db::{articles, bookmarks, feeds, read_articles, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+
+    // Seed: a subscribed feed with one article (feed ingestion is M6).
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let feed_url = format!("https://ex.com/{}.xml", uuid::Uuid::now_v7());
+    let (feed, _) = feeds::upsert_by_url(pool, &feed_url, "Example Feed", None)
+        .await
+        .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let art_url = format!("https://ex.com/{}", uuid::Uuid::now_v7());
+    let (article, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: art_url,
+            guid: Some(uuid::Uuid::now_v7().to_string()),
+            title: "Hello World Article".into(),
+            author: None,
+            content: "<p>Body text</p><script>alert(1)</script>".into(),
+            excerpt: Some("An excerpt".into()),
+            image_url: None,
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    let aid = article.id;
+
+    // The list shows the article and gives us a CSRF token.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/articles")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    assert!(body_string(resp).await.contains("Hello World Article"));
+
+    // Mark read (as the JS client would): 204, and it persists.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{aid}/read"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(read_articles::is_read(pool, user.id, aid).await.unwrap());
+
+    // Bookmark it (plain post → redirect).
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{aid}/bookmark"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}&next=/articles")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert!(bookmarks::is_bookmarked(pool, user.id, aid).await.unwrap());
+
+    // Detail page renders sanitized content (the <script> is stripped).
+    let resp = app
+        .oneshot(
+            Request::get(format!("/articles/{aid}"))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Hello World Article"));
+    assert!(body.contains("Body text"));
+    assert!(
+        !body.contains("<script>alert(1)"),
+        "content must be sanitized"
+    );
 }
 
 #[tokio::test]

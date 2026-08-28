@@ -104,6 +104,33 @@ a:hover { text-decoration: underline; }
   border-radius: 8px;
 }
 
+.content-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.content-header form { margin: 0; }
+
+.article-card .actions { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+.article-card .actions form { margin: 0; }
+.article-card .actions button { font-size: 0.8rem; padding: 0.25rem 0.6rem; }
+.article-card.bookmarked { border-left: 3px solid var(--accent); }
+.article-inline {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+  font-size: 0.95rem;
+}
+.article-inline img { max-width: 100%; height: auto; }
+
+.pager { display: flex; justify-content: space-between; margin-top: 1rem; }
+.pager .pager-next { margin-left: auto; }
+
+.reader { max-width: 44rem; }
+.reader h1 { margin-bottom: 0.25rem; }
+.reader .actions { display: flex; gap: 0.5rem; margin: 0.75rem 0 1.25rem; }
+.reader .actions form { margin: 0; }
+.article-body { line-height: 1.7; }
+.article-body img { max-width: 100%; height: auto; }
+.article-body pre { overflow-x: auto; background: var(--surface); padding: 0.75rem; border-radius: 6px; }
+.article-body a { word-break: break-word; }
+
 button, .btn {
   font: inherit;
   padding: 0.4rem 0.8rem;
