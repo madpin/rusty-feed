@@ -13,10 +13,9 @@ name = "rustss-server"
 path = "src/main.rs"
 
 [dependencies]
-rustss-core = { workspace = true }
+rustss-core = { workspace = true, features = ["telemetry"] }
 rustss-web = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }

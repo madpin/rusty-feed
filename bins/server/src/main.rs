@@ -1,24 +1,30 @@
 //! RustSS HTTP server entry point.
 //!
-//! Milestone M0/M1: initializes tracing and serves the health surface. Auth,
-//! the reading UI, the native/GReader APIs, and the optional embedded worker are
-//! wired in later milestones (see `docs/DEVELOPMENT_PLAN.md`).
+//! Loads and validates configuration, initializes telemetry, and serves the
+//! current HTTP surface (health + metrics). Auth, the reading UI, the
+//! native/GReader APIs, and the optional embedded worker are wired in later
+//! milestones (see `docs/DEVELOPMENT_PLAN.md`).
 
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use rustss_core::AppConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    // Fail fast on bad config (before we have logging).
+    let config = AppConfig::load().context("failed to load configuration")?;
 
-    // M1 will replace this with the typed, validated `AppConfig` (figment).
-    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
-    let addr: SocketAddr = bind_addr
+    rustss_core::telemetry::init_tracing(&config.log_level);
+    let metrics = rustss_core::telemetry::install_metrics();
+
+    let addr: SocketAddr = config
+        .bind_addr
         .parse()
-        .with_context(|| format!("invalid BIND_ADDR: {bind_addr}"))?;
+        .with_context(|| format!("invalid BIND_ADDR: {}", config.bind_addr))?;
 
-    let app = rustss_web::router();
+    let state = rustss_web::AppState::new(move || metrics.render());
+    let app = rustss_web::router(state);
 
     tracing::info!("{} starting on http://{addr}", rustss_core::banner());
 
@@ -33,19 +39,6 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("shutdown complete");
     Ok(())
-}
-
-/// Minimal tracing setup. M1 centralizes this in `rustss_core::telemetry`
-/// (JSON/pretty output, request IDs, metrics).
-fn init_tracing() {
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-    let filter = EnvFilter::try_from_env("LOG_LEVEL")
-        .or_else(|_| EnvFilter::try_from_default_env())
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer())
-        .init();
 }
 
 /// Wait for Ctrl-C or SIGTERM for graceful shutdown.

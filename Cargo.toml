@@ -52,9 +52,15 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# configuration
+figment = { version = "0.10", features = ["env"] }
+dotenvy = "0.15"
+
 # observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
 
 [profile.release]
 # Optimize for the low-footprint, self-hosted target.

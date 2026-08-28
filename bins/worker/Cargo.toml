@@ -13,9 +13,8 @@ name = "rustss-worker"
 path = "src/main.rs"
 
 [dependencies]
-rustss-core = { workspace = true }
+rustss-core = { workspace = true, features = ["telemetry"] }
 rustss-agents = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }

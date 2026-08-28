@@ -8,6 +8,19 @@ repository.workspace = true
 authors.workspace = true
 description = "RustSS core: domain types, config, errors, and port traits (no I/O)."
 
+[features]
+# Enabled by binaries only, so domain crates stay lean (no subscriber/exporter).
+telemetry = ["dep:tracing-subscriber", "dep:metrics", "dep:metrics-exporter-prometheus"]
+
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+figment = { workspace = true }
+dotenvy = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+metrics-exporter-prometheus = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

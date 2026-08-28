@@ -12,6 +12,9 @@ description = "RustSS web: Axum routers, handlers, Askama templates, auth, DTOs.
 rustss-core = { workspace = true }
 axum = { workspace = true }
 serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

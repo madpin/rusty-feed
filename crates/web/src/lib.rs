@@ -4,21 +4,33 @@
 //! JSON API (native + a GReader-compatible adapter). See `docs/ARCHITECTURE.md`
 //! §9 and §9.1.
 //!
-//! Only the health surface exists so far (milestone **M0/M1**); the reading UI,
-//! auth, and API arrive in later milestones per `docs/DEVELOPMENT_PLAN.md`.
+//! So far this exposes the health + metrics surface (milestones **M0/M1**); the
+//! reading UI, auth, and feature APIs arrive in later milestones per
+//! `docs/DEVELOPMENT_PLAN.md`.
 
+mod error;
+mod state;
+
+pub use error::{AppError, Result};
+pub use state::AppState;
+
+use axum::extract::State;
+use axum::http::header;
+use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
 use serde_json::json;
 
 /// Build the base application router.
 ///
-/// For now this only exposes health endpoints (PRD FR-API-3). As milestones
-/// land, feature routers (auth, reading UI, feeds, search, admin, GReader) are
-/// merged in here.
-pub fn router() -> Router {
+/// Currently exposes health endpoints (PRD FR-API-3) and Prometheus `/metrics`.
+/// As milestones land, feature routers (auth, reading UI, feeds, search, admin,
+/// GReader) are merged in here.
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/health/ready", get(ready))
+        .route("/metrics", get(metrics))
+        .with_state(state)
 }
 
 /// Liveness probe: the process is up. Always `200`.
@@ -39,6 +51,14 @@ async fn ready() -> Json<serde_json::Value> {
     Json(json!({ "data": { "status": "ready" } }))
 }
 
+/// Prometheus metrics exposition endpoint.
+async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        state.render_metrics(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_returns_ok_envelope() {
-        let app = router();
+        let app = router(AppState::default());
         let res = app
             .oneshot(
                 Request::builder()
@@ -65,5 +85,22 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["data"]["status"], "ok");
         assert_eq!(v["data"]["service"], rustss_core::APP_NAME);
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_responds() {
+        let app = router(AppState::new(|| "# rustss metrics\n".to_string()));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains("rustss metrics"));
     }
 }

@@ -1,15 +1,26 @@
 //! # rustss-core
 //!
-//! Foundational, I/O-free building blocks shared across every RustSS crate:
-//! domain types, configuration, the error taxonomy, and the port traits
-//! (`Repositories`, `Cache`, `VectorStore`, `Embedder`, `LlmClient`,
-//! `FetchClient`, `Queue`, `Clock`) that adapter crates implement.
+//! Foundational, mostly I/O-free building blocks shared across every RustSS
+//! crate: configuration, the error taxonomy, secret handling, telemetry setup,
+//! and (from M2) the port traits that adapter crates implement.
 //!
-//! See `docs/ARCHITECTURE.md` §5 (module structure) and §19 (errors).
+//! See `docs/ARCHITECTURE.md` §5 (module structure), §16 (config), §17
+//! (observability), and §19 (errors).
 //!
 //! ## The one invariant
 //! *Content is shared; state is personal.* Types and traits here must never
 //! encode per-user duplication of shared content. See `docs/ARCHITECTURE.md` §7.
+
+pub mod config;
+pub mod error;
+pub mod secret;
+
+#[cfg(feature = "telemetry")]
+pub mod telemetry;
+
+pub use config::AppConfig;
+pub use error::ConfigError;
+pub use secret::Secret;
 
 /// Human-facing application name.
 pub const APP_NAME: &str = "RustSS";
