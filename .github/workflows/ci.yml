@@ -12,14 +12,32 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # Use committed .sqlx/ offline metadata so CI builds without a live database
-  # (added in milestone M2; harmless before then).
-  SQLX_OFFLINE: "true"
 
 jobs:
   lint-and-test:
     name: fmt · clippy · test · build
     runs-on: ubuntu-latest
+
+    # Postgres + pgvector so the DB integration tests (gated on TEST_DATABASE_URL)
+    # actually run in CI. The tests apply migrations themselves (idempotent).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rustss
+          POSTGRES_PASSWORD: rustss
+          POSTGRES_DB: rustss
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rustss -d rustss"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://rustss:rustss@localhost:5432/rustss
+
     steps:
       - uses: actions/checkout@v4
 

@@ -81,9 +81,10 @@ cargo test -p <crate>           # a single crate
 docker compose -f docker/compose.yaml up -d postgres redis chromium
 
 # Database (SQLx)
-cargo run -p rustss-cli -- migrate          # apply migrations
-cargo sqlx prepare --workspace              # regenerate .sqlx/ offline metadata (commit it!)
-# requires DATABASE_URL; install once: cargo install sqlx-cli --no-default-features --features postgres,rustls
+cargo run -p rustss-cli -- migrate          # apply migrations (needs DATABASE_URL)
+# DB integration tests run when TEST_DATABASE_URL is set, else they skip:
+#   docker compose -f docker/compose.yaml up -d postgres   # POSTGRES_PORT=55432 if 5432 is taken
+#   TEST_DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss cargo test
 
 # Run
 cargo run -p rustss-server                  # server (embedded worker by default)
@@ -105,7 +106,7 @@ docker compose -f docker/compose.yaml up -d # app + postgres + redis + chromium
 ## 5. Conventions
 
 - **Errors:** `thiserror` enums in libraries; `anyhow` only in bins/agent boundaries. No `unwrap()`/`expect()` on fallible paths outside tests and startup. Map to HTTP via the single `web::AppError: IntoResponse`.
-- **SQL:** use `sqlx::query!`/`query_as!` (compile-checked). **Commit `.sqlx/`** offline metadata so CI builds without a DB (FND-107). Shared writes are **idempotent** (`ON CONFLICT`). Per-user reads/writes are **always scoped by `user_id`**.
+- **SQL:** use **runtime** `sqlx::query`/`query_as` (not the compile-time macros) so builds stay hermetic (no DB or `.sqlx/` needed); SQL is validated by integration tests against a real Postgres (FND-107). Shared writes are **idempotent** (`ON CONFLICT`). Per-user reads/writes are **always scoped by `user_id`**. `FromRow` structs live in `rustss-db` with column-list constants kept in sync with the schema.
 - **IDs:** UUIDv7. **Time:** `time` crate + `timestamptz`. **Vectors:** the `pgvector` crate; one fixed dimension per instance (`EMBEDDING_MODEL`); never pad/truncate across dimensions (FND-002).
 - **Outbound HTTP:** only via `SafeFetchClient` (SSRF-guarded). No direct `reqwest` calls to feed/article/robots/media URLs (FND-006).
 - **Secrets:** encrypt with the unified AEAD helper; never log secret material; use the masking helper for display.
@@ -122,7 +123,7 @@ docker compose -f docker/compose.yaml up -d # app + postgres + redis + chromium
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings` clean
 - [ ] `cargo test` green (including the dedup invariant tests)
 - [ ] New env/config in `.env.example` + `docs/ARCHITECTURE.md` §16
-- [ ] `.sqlx/` regenerated if queries changed
+- [ ] DB integration tests pass with `TEST_DATABASE_URL` set (dedup invariants stay green)
 - [ ] New smells/risks/bugs recorded in `docs/FINDINGS.md` (reference the `FND-*` id in the commit)
 - [ ] Conventional Commit with a body explaining **why** (see §7)
 

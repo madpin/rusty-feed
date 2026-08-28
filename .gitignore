@@ -35,6 +35,3 @@ target
 
 # Editor/OS noise
 .DS_Store
-
-# NOTE: `.sqlx/` (SQLx offline query metadata) IS committed so CI builds
-# without a live database — do not ignore it.

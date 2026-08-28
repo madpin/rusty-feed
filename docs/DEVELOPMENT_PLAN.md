@@ -25,7 +25,7 @@
 
 ### Conventions
 - Errors: `thiserror` in libs, `anyhow` in bins/agents boundaries (ARCH §19).
-- SQL: `sqlx` with compile-time checks; commit `.sqlx/` offline metadata (FND-107).
+- SQL: `sqlx` **runtime** queries (`query`/`query_as` + `FromRow`), not the `query!` macros — hermetic builds; SQL validated by integration tests against real Postgres (FND-107).
 - IDs: UUIDv7. Time: `time` + `timestamptz`. Money/cost: store integer micro-USD or `numeric`.
 - All outbound HTTP goes through `SafeFetchClient` (ARCH §12). No exceptions.
 - All per-user queries are scoped by `user_id`. Shared writes are idempotent (`ON CONFLICT`).
@@ -63,7 +63,7 @@ Tasks:
 - [ ] Root `Cargo.toml` workspace; `rust-toolchain.toml` (pin stable); `.rustfmt.toml`, `clippy` config.
 - [ ] Create crates (lib skeletons): `core`, `db`, `cache`, `feeds`, `extract`, `embed`, `llm`, `search`, `agents`, `web`; bins: `server`, `worker`, `cli`.
 - [ ] `.env.example`, `docker/Dockerfile`, `docker/compose.yaml` (postgres+pgvector, redis, chromium, app), `docker/entrypoint.sh`.
-- [ ] GitHub Actions CI: fmt + clippy(-D warnings) + test + build; cache cargo; (later) `sqlx prepare` check.
+- [ ] GitHub Actions CI: fmt + clippy(-D warnings) + test + build; cache cargo; Postgres+pgvector service for DB integration tests.
 - [ ] `AGENTS.md`, `CLAUDE.md` present (done in docs phase).
 
 Verification: `cargo build` + `cargo clippy` + `cargo test` green; `docker build` succeeds.
@@ -94,7 +94,7 @@ Tasks:
 - [ ] SQL migrations (`crates/db/migrations`) implementing ARCH §6 groups: users/auth (incl. `api_tokens`), feeds (shared) + `feed_error_log` + `domain_extraction_state`, articles (shared) + `article_embeddings` (fixed dim from `EMBEDDING_MODEL`; HNSW `vector_cosine_ops`), subscriptions/categories, per-user state (`read_articles`, `seen_articles`, `bookmarks`, `article_feedback`, `user_patterns`), saved searches (+matches), preferences, notifications, ops (`admin_settings`, `cost_ledger`, `agent_runs`, `agent_locks`, `job_queue`, `outbox_events`).
 - [ ] Enable extensions: `CREATE EXTENSION vector`. Generated `tsvector` column + GIN on articles.
 - [ ] Indexes per ARCH §6.2 (unique URLs, `(feed_id, published_at DESC)`, HNSW, GIN tags, job_queue partial index).
-- [ ] Repositories (`crates/db/repos`) implementing `core::ports` with `sqlx::query!`; **idempotent upserts** for feeds/articles (ON CONFLICT) proving FND dedup.
+- [ ] Repositories (`crates/db`, one module per aggregate) with runtime `query_as` + `FromRow`; **idempotent upserts** for feeds/articles (ON CONFLICT) proving FND dedup.
 - [ ] `rustss-cli migrate` (apply) + entrypoint hook.
 - [ ] Test infra: `sqlx::test` + testcontainers Postgres/pgvector helper.
 

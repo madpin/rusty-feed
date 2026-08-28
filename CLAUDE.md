@@ -31,7 +31,7 @@ cargo run -p rustss-server
 ## Non-negotiables (see AGENTS.md §5 for the full list)
 
 - `thiserror` in libs, `anyhow` in bins; no `unwrap()`/`expect()` on fallible paths.
-- SQLx compile-checked queries; commit `.sqlx/`; per-user queries scoped by `user_id`; shared writes idempotent (`ON CONFLICT`).
+- SQLx **runtime** queries (`query`/`query_as` + `FromRow`), not `query!` (hermetic builds; validated by integration tests); per-user queries scoped by `user_id`; shared writes idempotent (`ON CONFLICT`).
 - All outbound HTTP via `SafeFetchClient` (SSRF-guarded). Secrets encrypted; never logged.
 - One embedding model per instance; never pad/truncate vectors across dimensions.
 - Recurring work is an `Agent` through the framework — no ad-hoc `tokio::spawn` loops.
@@ -39,4 +39,4 @@ cargo run -p rustss-server
 
 ## Definition of Done
 
-fmt clean · clippy `-D warnings` clean · tests green (incl. dedup invariants) · config documented · `.sqlx/` updated if queries changed · findings logged.
+fmt clean · clippy `-D warnings` clean · tests green (incl. dedup invariants with `TEST_DATABASE_URL`) · config documented · findings logged.

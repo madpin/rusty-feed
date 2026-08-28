@@ -76,7 +76,7 @@ Behavioral parity with the reference is the baseline; §21 and RustSS explicitly
 | Concern | Choice | Alternative | Why |
 |---|---|---|---|
 | Database | **PostgreSQL 16 + pgvector** | — | System of record; vector search; the reference's data model is Postgres-native |
-| DB access | **SQLx** (async, compile-time-checked SQL) | SeaORM, Diesel | Raw-SQL friendliness for pgvector, no heavy ORM, low overhead, `query!` compile-time checks |
+| DB access | **SQLx** (async; runtime queries + `FromRow`) | SeaORM, Diesel | Raw-SQL friendliness for pgvector, no heavy ORM, low overhead. We use runtime `query`/`query_as` (not `query!`) so builds are hermetic; SQL is validated by integration tests against real Postgres (FND-107) |
 | Vector types | **`pgvector`** crate (SQLx integration) | raw text casts | Typed `Vector` binding for `vector` columns |
 | Migrations | **`sqlx::migrate!`** (embedded) | refinery | Versioned SQL migrations applied safely on startup |
 | L1 cache | **`moka`** (in-process, async, TTL/LRU) | — | Always-on, zero-dependency hot cache; keeps Redis load down |

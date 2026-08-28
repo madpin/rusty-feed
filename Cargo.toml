@@ -56,6 +56,21 @@ serde_json = "1"
 figment = { version = "0.10", features = ["env"] }
 dotenvy = "0.15"
 
+# database
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "macros",
+    "migrate",
+    "uuid",
+    "time",
+    "json",
+] }
+uuid = { version = "1", features = ["v7", "serde"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+sha2 = "0.10"
+
 # observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }

@@ -16,8 +16,9 @@ THE ONE RULE — never break it:
 Non-negotiables:
 - thiserror in libraries, anyhow in bins/agent boundaries. No unwrap()/expect()
   on fallible paths outside tests/startup.
-- SQLx compile-checked queries; commit .sqlx/ offline metadata. Per-user queries
-  are scoped by user_id; shared writes are idempotent (ON CONFLICT).
+- SQLx runtime queries (query/query_as + FromRow), not query! macros (hermetic
+  builds; SQL validated by integration tests). Per-user queries are scoped by
+  user_id; shared writes are idempotent (ON CONFLICT).
 - All outbound HTTP goes through SafeFetchClient (SSRF-guarded). No direct reqwest
   to feed/article/robots/media URLs.
 - Secrets encrypted with the unified AEAD helper; never log secret material.

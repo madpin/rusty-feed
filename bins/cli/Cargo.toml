@@ -14,4 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 rustss-core = { workspace = true }
+rustss-db = { workspace = true }
 anyhow = { workspace = true }
+tokio = { workspace = true }
+dotenvy = { workspace = true }

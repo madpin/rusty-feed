@@ -10,9 +10,9 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
 COPY bins ./bins
 
-# Compile release binaries. SQLX_OFFLINE ensures compile-time query checks use
-# the committed .sqlx/ metadata rather than a live database (added in M2).
-ENV SQLX_OFFLINE=true
+# Compile release binaries. RustSS uses runtime SQLx queries (validated by the
+# integration tests against a real Postgres), so no database or offline metadata
+# is needed at build time.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     cargo build --release --bin rustss-server --bin rustss-worker --bin rustss-cli \

@@ -13,6 +13,7 @@
 
 pub mod config;
 pub mod error;
+pub mod hash;
 pub mod secret;
 
 #[cfg(feature = "telemetry")]
