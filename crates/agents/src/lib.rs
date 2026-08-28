@@ -8,10 +8,12 @@
 //! Concrete agents so far: [`FeedRefreshAgent`] (enqueue due feeds, deduped) and
 //! [`FetchFeedAgent`] (fetch + ingest one feed, via `rustss-feeds`).
 
+mod extract_content;
 mod feed_refresh;
 mod fetch_feed;
 mod worker;
 
+pub use extract_content::ExtractContentAgent;
 pub use feed_refresh::FeedRefreshAgent;
 pub use fetch_feed::FetchFeedAgent;
 pub use worker::{enqueue_feed_refresh, process, Registry, Worker, WorkerConfig};

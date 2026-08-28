@@ -12,7 +12,7 @@ use tokio::time::Duration;
 use rustss_db::{agent_runs, jobs, Db, Job};
 use rustss_feeds::SafeFetchClient;
 
-use crate::{Agent, AgentContext, FeedRefreshAgent, FetchFeedAgent};
+use crate::{Agent, AgentContext, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent};
 
 /// Maps job `kind` → agent.
 pub struct Registry {
@@ -25,7 +25,11 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 2] = [Arc::new(FeedRefreshAgent), Arc::new(FetchFeedAgent)];
+        let list: [Arc<dyn Agent>; 3] = [
+            Arc::new(FeedRefreshAgent),
+            Arc::new(FetchFeedAgent),
+            Arc::new(ExtractContentAgent::default()),
+        ];
         for agent in list {
             registry.register(agent.name().to_string(), agent);
         }

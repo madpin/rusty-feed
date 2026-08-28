@@ -12,6 +12,7 @@ description = "RustSS AGENTS: scheduler, durable job queue, run records, and age
 rustss-core = { workspace = true }
 rustss-db = { workspace = true }
 rustss-feeds = { workspace = true }
+rustss-extract = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,3 +26,4 @@ async-trait = "0.1"
 [dev-dependencies]
 wiremock = "0.6"
 sqlx = { workspace = true }
+url = { workspace = true }

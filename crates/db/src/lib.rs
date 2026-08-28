@@ -13,6 +13,7 @@ pub mod agent_runs;
 pub mod api_tokens;
 pub mod articles;
 pub mod bookmarks;
+pub mod domain_state;
 pub mod error;
 pub mod feeds;
 pub mod jobs;
@@ -26,7 +27,8 @@ pub mod users;
 
 pub use error::{DbError, Result};
 pub use models::{
-    ApiToken, Article, Feed, Job, NewArticle, OAuthAccount, Session, UpsertAction, User, UserFeed,
+    ApiToken, Article, DomainState, Feed, Job, NewArticle, OAuthAccount, Session, UpsertAction,
+    User, UserFeed,
 };
 
 use sqlx::postgres::PgPoolOptions;

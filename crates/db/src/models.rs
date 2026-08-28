@@ -122,6 +122,21 @@ pub struct Session {
 pub(crate) const SESSION_COLUMNS: &str =
     "id, user_id, token_hash, created_at, last_used_at, expires_at";
 
+/// Per-domain extraction politeness/backoff state (M8).
+#[derive(Debug, Clone, FromRow)]
+pub struct DomainState {
+    pub domain: String,
+    pub last_extracted_at: OffsetDateTime,
+    pub failure_count: i32,
+    pub rate_limit_count: i32,
+    pub crawl_delay_ms: Option<i32>,
+    pub last_error: Option<String>,
+    pub updated_at: OffsetDateTime,
+}
+
+pub(crate) const DOMAIN_STATE_COLUMNS: &str =
+    "domain, last_extracted_at, failure_count, rate_limit_count, crawl_delay_ms, last_error, updated_at";
+
 /// A claimed unit of work from the durable job queue (M7).
 #[derive(Debug, Clone, FromRow)]
 pub struct Job {

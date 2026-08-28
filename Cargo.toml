@@ -87,9 +87,10 @@ ammonia = "4"
 # HTTP client (feeds, extraction, OAuth, LLM) — rustls, no OpenSSL
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "brotli", "stream"] }
 
-# feeds
+# feeds / extraction
 feed-rs = "2"
 url = "2"
+scraper = "0.20"
 
 # observability
 tracing = "0.1"

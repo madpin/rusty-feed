@@ -11,6 +11,64 @@ use uuid::Uuid;
 use crate::error::{DbError, Result};
 use crate::models::{Article, NewArticle, UpsertAction, ARTICLE_COLUMNS};
 
+/// Store extracted full content on a shared article (first-writer enrichment):
+/// updates `content`, its hash, optionally the excerpt, and the extraction
+/// status. Content should already be sanitized by the caller.
+pub async fn set_extracted_content(
+    pool: &PgPool,
+    id: Uuid,
+    content: &str,
+    excerpt: Option<&str>,
+    status: &str,
+    error: Option<&str>,
+) -> Result<()> {
+    let content_hash = rustss_core::hash::content_hash(content);
+    sqlx::query(
+        "UPDATE articles SET content = $2, content_hash = $3, \
+         excerpt = COALESCE($4, excerpt), extraction_status = $5, extraction_error = $6, \
+         updated_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(content)
+    .bind(content_hash)
+    .bind(excerpt)
+    .bind(status)
+    .bind(error)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Article ids in a feed that have not been extraction-processed yet
+/// (`extraction_status = 'none'`), newest first.
+pub async fn list_needing_extraction(
+    pool: &PgPool,
+    feed_id: Uuid,
+    limit: i64,
+) -> Result<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "SELECT id FROM articles WHERE feed_id = $1 AND extraction_status = 'none' \
+         ORDER BY created_at DESC LIMIT $2",
+    )
+    .bind(feed_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Mark extraction failed without changing content.
+pub async fn set_extraction_failed(pool: &PgPool, id: Uuid, error: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE articles SET extraction_status = 'failed', extraction_error = $2, updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(error)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Find an article by id.
 pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Article>> {
     let sql = format!("SELECT {ARTICLE_COLUMNS} FROM articles WHERE id = $1");

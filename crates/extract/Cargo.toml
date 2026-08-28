@@ -6,4 +6,23 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS content extraction: Readability + Chromium, rate limiting, sanitize."
+description = "RustSS content extraction: readability + politeness + sanitization."
+
+[dependencies]
+rustss-core = { workspace = true }
+rustss-db = { workspace = true }
+rustss-feeds = { workspace = true }
+reqwest = { workspace = true }
+scraper = { workspace = true }
+ammonia = { workspace = true }
+url = { workspace = true }
+moka = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+futures-util = "0.3"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { workspace = true }
