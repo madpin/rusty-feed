@@ -81,9 +81,22 @@ Browser (HTMX) ─▶ Axum server (Askama HTML / JSON API)
 
 ---
 
-## 🚀 Getting started (target experience)
+## 🚀 Getting started
 
-> ⚠️ These commands describe the **planned** developer/operator workflow. They are not yet functional — the codebase is in the design phase.
+**➡️ Full step-by-step guide: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** — covers localhost (Docker Compose *and* from source), Dokploy, and Proxmox, with no Rust knowledge assumed.
+
+Quick version (Docker Compose):
+
+```bash
+git clone https://github.com/madpin/rustss.git && cd rustss
+cp .env.example .env      # set SESSION_SECRET and ENCRYPTION_SECRET (openssl rand -base64 48)
+docker compose -f docker/compose.yaml up -d
+curl http://localhost:8080/api/health
+```
+
+> **Status:** early development — the app boots, migrates its database, and serves
+> `/api/health` + `/metrics` today; the reading UI is under construction. The
+> commands below describe the developer workflow.
 
 ### Run it (Docker Compose — recommended)
 
@@ -136,6 +149,7 @@ The full configuration reference will live in `docs/configuration.md`. Env vars 
 
 | Document | What's inside |
 |---|---|
+| **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** | Step-by-step install for localhost (Docker Compose or from source), Dokploy, and Proxmox — beginner friendly |
 | **[docs/PRD.md](docs/PRD.md)** | Product requirements: personas, user flows, functional/non-functional requirements, the multi-user dedup mandate, performance targets, milestones, and fixes to the reference |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | System design: full tech stack + rationale, data model, the **AGENTS** framework, caching, algorithms & constants, security, deployment, testing, and migration |
 | **AGENTS.md** *(coming with code)* | Build/test/run commands and contributor conventions |
