@@ -141,7 +141,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 ### 5.5 Embeddings & Semantic Search
 - **FR-EMB-1 (P0):** Generate embeddings via **local ONNX model** (BGE-small-en-v1.5, 384-dim) or **OpenAI-compatible API** (e.g., `text-embedding-3-small`, 1536-dim).
 - **FR-EMB-2 (P0):** Embeddings are computed once and **stored on the shared article** (accelerating all subscribers).
-- **FR-EMB-3 (P0, correctness fix):** **No mixed-dimension corruption.** Embeddings are stored with an explicit `(model, dimension)` identity; similarity search only compares vectors of the same model/space. (Reference implementation zero-pads 384→1536 into one column — we must not repeat this. See §9 and Architecture.)
+- **FR-EMB-3 (P0, correctness fix):** **One embedding model per instance.** An instance is configured with a single active embedding model/dimension; all article embeddings belong to that one space, and the stored `(model, dimension)` identity is recorded and enforced. Similarity search only ever compares vectors of the active space. Changing the model requires an explicit re-embed/migration (admin action). This eliminates the reference's mixed-dimension corruption (it zero-pads 384→1536 into one shared column — we must not repeat this). See §9 and Architecture §13.
 - **FR-EMB-4 (P0):** Text embedded = title + excerpt + content preview (first ~2000 chars). Batch generation with configurable batch size.
 - **FR-EMB-5 (P0):** **Semantic search** via pgvector cosine similarity, normalized to [0,1]; optional **recency-weighted** ranking `final = (1-w)*similarity + w*exp(-age/decay)`; similarity threshold and result limit configurable.
 - **FR-EMB-6 (P0):** **Related articles** using a source article's stored embedding.
@@ -199,6 +199,8 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-API-2 (P0):** Consistent JSON envelopes (`{ data, message }` / `{ error, details }`) and status codes (200/400/401/403/404/409/429/500). Request validation on all mutating endpoints.
 - **FR-API-3 (P0):** `/api/health` liveness/readiness endpoint (checks DB, and reports optional-dependency status).
 - **FR-API-4 (P1):** A safe **proxy** endpoint for images/media to avoid mixed-content and leaking the reader's IP, with SSRF protection.
+- **FR-API-5 (P1) — Open-standard client API (GReader):** Expose a **Google Reader API (GReader)-compatible** endpoint surface so existing third-party RSS clients (Reeder, FeedMe, FocusReader, NetNewsWire, etc.) can connect out of the box. RustSS's own API can be new/clean; the GReader layer is an adapter on top of the same services. Scope: `ClientLogin` token auth + write token (`T`), `subscription/list` & `subscription/edit`, `tag/list`, `stream/contents` & `stream/items/ids` & `stream/items/contents`, `edit-tag` (read/star/like state), `mark-all-as-read`, and `user-info`. Reads map to shared articles; read/star/tag state maps to the per-user tables. (See Architecture §9.1.) *Rationale: interoperability with the established self-hosted ecosystem, as used by FreshRSS/Miniflux.*
+- **FR-API-6 (P2):** Additional client-compat layer (Fever API) if demand warrants — backlog.
 
 ---
 
@@ -291,7 +293,7 @@ Targets assume a modest host (≈2 vCPU / 2 GB RAM) with Postgres+Redis local, u
 ## 8. Feature Scope by Milestone
 
 ### 8.1 v1 — Parity (P0)
-All P0 requirements in §5, the multi-user dedup guarantees in §6, and the NFR targets in §7. Concretely: accounts (OAuth + local), feeds/subscriptions/categories/OPML/health/bulk-ops, refresh with conditional GET + dedup, extraction (Readability + Chromium) with rate limiting + SSRF, embeddings (local + OpenAI) with **safe multi-space storage**, semantic/related search, personalization, saved searches, LLM summarization with **durable cost tracking**, notifications, full reading UI + preferences, admin dashboard, background agents with locking + run history, and the HTTP API.
+All P0 requirements in §5, the multi-user dedup guarantees in §6, and the NFR targets in §7. Concretely: accounts (OAuth + local), feeds/subscriptions/categories/OPML/health/bulk-ops, refresh with conditional GET + dedup, extraction (Readability + Chromium) with rate limiting + SSRF, embeddings (local + OpenAI, **one model per instance** with a safe fixed-dimension store), semantic/related search, personalization, saved searches, LLM summarization with **durable cost tracking**, notifications, full reading UI + preferences, admin dashboard, background agents with locking + run history, and the HTTP API.
 
 ### 8.2 v1.1 — Parity+ (P1)
 Registration controls; OPML category selection/fix; hybrid search; "seen" state; batched health notifications; **bookmarks/favorites** + retention preservation; storage/cost admin views; media proxy.
@@ -320,7 +322,8 @@ RustSS explicitly corrects these behaviors discovered during analysis of `neuree
 ## 10. Assumptions & Constraints
 
 - Single logical Postgres (with pgvector) is the system of record. Redis is a cache/coordination layer, not a source of truth.
-- Local embedding model artifacts are bundled or fetched once at first run; first inference incurs a model-load cost (excluded from cold-start target).
+- **One embedding model per instance** (confirmed): all embeddings live in a single vector space; switching models is an explicit admin re-embed. This keeps vector storage and search simple and correct.
+- **Local embedding model artifacts are downloaded once on first run** (confirmed) and cached in a persistent volume (keeps the image small). First inference incurs a model-load cost (excluded from the cold-start target); first run needs network access to fetch weights.
 - Headless Chromium is provided by the compose stack; extraction gracefully falls back to Readability if it is unavailable.
 - Target user counts are small-to-medium (self-hosted), enabling design choices (e.g., Postgres-backed queue) that would differ at SaaS scale.
 - Behavior/algorithm constants default to the reference values (documented in the Architecture doc) but are configurable.
@@ -337,13 +340,18 @@ RustSS explicitly corrects these behaviors discovered during analysis of `neuree
 
 ---
 
-## 12. Open Questions
+## 12. Decisions & Open Questions
 
-1. **Product name / branding** for the Rust edition (keep "RustSS", or a new name; repo is `rustss`).
-2. **Local model distribution:** bundle ONNX weights in the image (larger image, offline-friendly) vs. download-on-first-run (smaller image, needs network)?
-3. **Embedding provider policy:** should an instance pin a single embedding model to avoid multi-space complexity, or fully support per-user models with space-tagged storage from day one?
-4. **Digest delivery (v2):** in-app only, or also email? (Affects whether we add an SMTP dependency.)
-5. **API compatibility:** do we need drop-in compatibility with the reference's exact routes for any existing integrations, or is a cleaned-up API acceptable?
+### 12.1 Resolved (this cycle)
+1. **Product name:** ✅ **RustSS** (repo `rustss`).
+2. **Local model distribution:** ✅ **Download on first run**, cached in a persistent volume (smaller image; first run needs network).
+3. **Embedding policy:** ✅ **One embedding model per instance** (single vector space; model change ⇒ explicit re-embed).
+4. **Client API compatibility:** ✅ A **new, clean native API** *plus* a **Google Reader (GReader)-compatible** adapter for open-standard client interoperability (FR-API-5).
+
+### 12.2 Still open
+1. **Digest delivery (v2):** in-app only, or also email? (Affects whether we add an SMTP dependency.)
+2. **Local model choice/default:** confirm BGE-small-en-v1.5 (384-dim) as the shipped default vs. an alternative (e.g., `all-MiniLM-L6-v2`); both are fastembed-supported.
+3. **GReader auth mapping:** map GReader `ClientLogin` to local-account credentials only, or also mint app-specific tokens for OAuth users? (Leaning app-specific tokens.)
 
 ---
 

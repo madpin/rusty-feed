@@ -238,6 +238,7 @@ Accounts/Auth
   oauth_accounts (id, user_id→users, provider, provider_account_id, tokens..., UNIQUE(provider, provider_account_id))
   sessions (id, user_id→users, expires_at, data)      -- tower-sessions store
   local_credentials (optional split of password data)  -- or inline on users
+  api_tokens (id, user_id→users, name, token_hash UNIQUE, scopes, last_used_at?, created_at, revoked_at?)  -- app-specific tokens (GReader/native API)
 
 Feeds (SHARED)
   feeds (id, url UNIQUE(normalized), name, site_url, description, image_url,
@@ -254,7 +255,7 @@ Articles (SHARED)
             content_hash, image_url?, published_at?, extraction_status[NONE|SUCCESS|FAILED], extraction_error?,
             summary?, key_points jsonb?, topics text[], summarized_at?, summary_model?,
             created_at, updated_at)
-  article_embeddings_<space>  -- one table per embedding space (see §13)
+  article_embeddings          -- single active embedding space per instance (see §13)
        (article_id→articles CASCADE PK, embedding vector(<dim>), model, created_at)  + HNSW index
 
 Subscriptions & Organization (PER-USER)
@@ -301,7 +302,7 @@ System / Ops
 ### 6.2 Indexing highlights
 - `feeds(url)` unique; `feeds(health_status)`, `feeds(last_fetched)`.
 - `articles(url)` unique; `articles(feed_id, published_at DESC)`, `articles(guid)`, `articles(content_hash)`, `articles(published_at DESC)`.
-- Per-space `article_embeddings_<space>`: **HNSW** on the `vector` column (`vector_cosine_ops`).
+- `article_embeddings`: **HNSW** on the `vector` column (`vector_cosine_ops`); dimension fixed to the instance's active model.
 - `user_feeds(user_id)`, `user_feeds(feed_id)`, GIN on `user_feeds(tags)`.
 - `read_articles(user_id, read_at)`, `article_feedback(user_id, created_at)`.
 - `user_patterns(user_id, weight)`.
@@ -318,7 +319,7 @@ For keyword search and the keyword component of saved searches, add a Postgres *
 This section operationalizes PRD §6.
 
 ### 7.1 Storage: shared vs. personal (enforced by schema)
-- **Shared, one row:** `feeds`, `articles`, `article_embeddings_*`, article `summary/key_points/topics`, `feed_error_log`, `domain_extraction_state`.
+- **Shared, one row:** `feeds`, `articles`, `article_embeddings`, article `summary/key_points/topics`, `feed_error_log`, `domain_extraction_state`.
 - **Personal:** `user_feeds`, `user_categories`, `read_articles`, `seen_articles`, `bookmarks`, `article_feedback`, `user_patterns`, `saved_searches(+matches)`, `user_preferences`, `user_notifications`.
 - **Derived/personal cache (not persisted authoritatively):** per-user relevance scores.
 
@@ -332,7 +333,7 @@ The heavy operations — **fetch, extract, embed, summarize** — are keyed by t
 - **Fetch/refresh** is scheduled **per feed**, not per subscription. The FeedRefresh agent builds the set of *due* feeds (union across all subscribers, deduped) and enqueues one `FetchFeed{feed_id}` job each. Conditional GET (`ETag`/`Last-Modified`) avoids re-downloading unchanged feeds.
 - **Extraction/embedding/summarization** are enqueued **per article id**. Before doing work, the agent **claims** the article for that operation:
   - *Extraction:* only for newly-ingested articles (dedup happens first); `extraction_status` gates re-runs.
-  - *Embedding:* skip if a row already exists in the target `article_embeddings_<space>`; use `INSERT ... ON CONFLICT (article_id) DO NOTHING` so concurrent workers don't double-compute.
+  - *Embedding:* skip if a row already exists in `article_embeddings`; use `INSERT ... ON CONFLICT (article_id) DO NOTHING` so concurrent workers don't double-compute.
   - *Summary:* first-writer-wins; skip if `summary/key_points/topics` already set. A short-lived Redis/advisory lock (`work:{op}:{article_id}`) prevents two workers computing the same summary simultaneously; the DB `ON CONFLICT` is the durable guard.
 - **Result:** for a feed/article shared by N users, network + CPU + LLM work per refresh cycle is **O(1)**, not O(N). Only cheap per-user rows (notifications, saved-search matches, read state) scale with N.
 
@@ -452,6 +453,23 @@ This uniformity is what lets the v2 backlog (clustering, digests) land without t
 - **DTOs & envelopes:** API success `{ "data": ..., "message"?: ... }`, error `{ "error": ..., "details"?: ... }`; status codes per PRD §5 FR-API-2. A single `AppError → IntoResponse` mapping (see §19) ensures consistency and no internal leakage.
 - **Progressive enhancement:** core flows (read, mark-read, add feed, feedback) work without JS via standard form posts; HTMX enhances them. Matches the reference's Server-Actions philosophy.
 
+### 9.1 Open-Standard Client API (GReader compatibility)
+
+RustSS ships a **clean native JSON API** *and* a **Google Reader API (GReader)-compatible** adapter so the large ecosystem of existing RSS clients (Reeder, FeedMe, FocusReader, NetNewsWire, Fluent Reader, …) works out of the box — the same approach FreshRSS and Miniflux take. (PRD FR-API-5.)
+
+- **Design:** the GReader layer is a **thin adapter** mounted under `/api/greader/` (e.g. `/accounts/ClientLogin`, `/reader/api/0/*`). It translates GReader requests/responses to/from the same domain services the native API and UI use — no duplicate business logic. Its job is purely protocol/shape translation and identifier mapping.
+- **Auth:** `POST /accounts/ClientLogin` (email + password → `Auth` token) and a write **`T` token** (`/reader/api/0/token`). Tokens are minted as **app-specific tokens** (stored hashed) so both local-account and OAuth users can generate a client credential without exposing their real password. Rate-limited like other auth endpoints.
+- **Core endpoints (v1 target):**
+  - `GET /reader/api/0/user-info`
+  - `GET /reader/api/0/subscription/list`, `POST /reader/api/0/subscription/edit` (subscribe/unsubscribe/rename/label)
+  - `GET /reader/api/0/tag/list` (folders/labels ↔ user categories; `state/com.google/starred` ↔ bookmarks)
+  - `GET /reader/api/0/stream/contents/{streamId}`, `GET /reader/api/0/stream/items/ids`, `POST /reader/api/0/stream/items/contents`
+  - `POST /reader/api/0/edit-tag` (read/unread, starred, etc.), `POST /reader/api/0/mark-all-as-read`
+- **Identifier & state mapping:**
+  - Stream IDs: `feed/{url}`, `user/-/state/com.google/reading-list|read|starred`, `user/-/label/{category}`.
+  - Article "items" reference the **shared** `articles`; read state → `read_articles`, starred → `bookmarks`, labels → `user_categories`/`user_feed_categories`. All per-user, so multi-user isolation holds.
+- **Non-goals:** 100% coverage of every historical GReader quirk. We target the subset that popular clients actually use (matching Miniflux/FreshRSS behavior), and document supported endpoints. Conformance is guarded by integration tests that replay real client request sequences.
+
 ---
 
 ## 10. Caching Strategy
@@ -469,7 +487,7 @@ Two-tier cache behind a single `Cache` port, with **shared vs. per-user key sepa
 |---|---|---|
 | `feed:{feed_id}` | shared | 1h |
 | `feed:articles:{feed_id}:{page}` | shared | 5m |
-| `embedding:{article_id}:{space}` | shared | 24h |
+| `embedding:{article_id}` | shared | 24h |
 | `summary:{article_id}` / `keypoints` / `topics` | shared | 7d |
 | `search:{hash(query,opts)}` | shared | 30m |
 | `related:{article_id}:{opts}` | shared | 24h |
@@ -537,22 +555,22 @@ Effective value = first present of **feed → category → user prefs → system
 
 ## 13. Embeddings, Semantic Search & Vector Storage
 
-### 13.1 The multi-space fix (correctness)
-The reference stores 384-dim local vectors zero-padded into a single `vector(1536)` column shared with 1536-dim OpenAI vectors — silently corrupting similarity when providers mix. We fix this with **space-tagged storage**:
+### 13.1 One embedding space per instance (the correctness fix)
+**Decision (confirmed):** an instance uses exactly **one** embedding model. The reference stores 384-dim local vectors zero-padded into a single `vector(1536)` column shared with 1536-dim OpenAI vectors — silently corrupting similarity when providers mix. We eliminate the whole failure mode by pinning a single space:
 
-- An **embedding space** = `(model, dimension, distance)`, e.g. `local_bge_384` (384, cosine) or `openai_te3s_1536` (1536, cosine).
-- Each space gets its **own table** `article_embeddings_<space>(article_id PK → articles, embedding vector(<dim>), model, created_at)` with its **own HNSW index** (`vector_cosine_ops`). This is required because a pgvector column has a fixed dimension and one index per column.
-- A **`VectorStore` port** abstracts these; a registry maps `model → (table, dim)`.
-- **Search/related** always compare within a single space (the searcher's active model). Cross-space comparison is impossible by construction.
-- **Default deployment** configures exactly **one** active space (the recommended, simplest mode — see PRD Open Question #3). Additional spaces are opt-in and backfilled by `EmbedArticleAgent`.
+- An **embedding space** = `(model, dimension, distance)`, e.g. `local_bge_384` (384, cosine). The active space is fixed at deploy via `EMBEDDING_MODEL`.
+- Embeddings live in a single table `article_embeddings(article_id PK → articles, embedding vector(<dim>), model, created_at)` whose column dimension matches the active model, with **one HNSW index** (`vector_cosine_ops`). (A pgvector column has a fixed dimension, so the dim is a deploy-time constant baked into the migration for that space.)
+- The stored `model` is **guarded**: writes assert the vector's model matches the instance's active model; a mismatch is a hard error, never a silent pad/truncate.
+- **Changing the model** is an explicit admin operation: create the new-dim table/index, run `EmbedArticleAgent` to re-embed all articles, then swap the active space and drop the old table. Documented in `docs/MIGRATION.md`.
+- A **`VectorStore` port** abstracts this so the multi-space design remains *possible* later (per-model tables) without complicating the v1 common case.
 
 ### 13.2 Generation
-- **Local:** `fastembed` (ONNX/`ort`), BGE-small-en-v1.5, mean-pooled + L2-normalized, 384-dim, CPU. Model weights bundled or fetched once (PRD Open Question #2).
+- **Local (default):** `fastembed` (ONNX/`ort`), BGE-small-en-v1.5, mean-pooled + L2-normalized, 384-dim, CPU. **Model weights are downloaded on first run** (confirmed) into a persistent cache dir (`MODEL_CACHE_DIR`, mounted as a volume) — the image stays small; first run needs network. Load is lazy + cached in-process; a startup warm-up is optional.
 - **OpenAI-compatible:** `async-openai`, batch up to provider limit; typed cost via `cost_ledger`.
-- **Text embedded:** `title + "\n\n" + excerpt + "\n\n" + content[..2000]`. Batched (configurable size, default 10; streaming batch 25). Idempotent insert (skip if present in target space) → O(1) across users.
+- **Text embedded:** `title + "\n\n" + excerpt + "\n\n" + content[..2000]`. Batched (configurable size, default 10; streaming batch 25). Idempotent insert (skip if present) → O(1) across users.
 
 ### 13.3 Query path
-- Embed the query with the active space's model → pgvector KNN (`ORDER BY embedding <=> $1 LIMIT k`) with HNSW → normalize similarity → optional recency blend → filter by `min_score` → optional `feed_id`/date filters. Keyword/hybrid uses the `tsvector` index.
+- Embed the query with the instance's model → pgvector KNN (`ORDER BY embedding <=> $1 LIMIT k`) with HNSW → normalize similarity → optional recency blend → filter by `min_score` → optional `feed_id`/date filters. Keyword/hybrid uses the `tsvector` index.
 
 ---
 
@@ -578,7 +596,7 @@ The reference stores 384-dim local vectors zero-padded into a single `vector(153
 ## 16. Configuration
 
 - **Source:** environment variables (12-factor) layered with an optional file via **`figment`**; `.env` supported in dev (`dotenvy`). Parsed into a **typed, validated `AppConfig`** at startup; the process refuses to boot on invalid/missing required config (parity with the reference's `@t3-oss/env` approach).
-- **Key groups** (superset of reference): database URL; Redis URL/password + `CACHE_ENABLED`; auth (`SESSION_SECRET`, OAuth client IDs/secrets, provider URLs, `REGISTRATION_MODE`); embeddings (`EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, batch sizes, `EMBEDDING_AUTO_GENERATE`); LLM (`LLM_PROVIDER`, models, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OLLAMA_BASE_URL`); extraction (`EXTRACTION_*`, `CHROMIUM_ENABLED`/endpoint, `EXTRACTION_DELAY_MS`, `RESPECT_ROBOTS_TXT`); jobs (`ENABLE_CRON_JOBS`, `FEED_REFRESH_SCHEDULE`, `CLEANUP_SCHEDULE`, `FEED_REFRESH_CONCURRENCY`, `SAVED_SEARCH_CONCURRENCY`, `JOB_LOCK_TIMEOUT`, `RUN_EMBEDDED_WORKER`); crypto (`ENCRYPTION_SECRET`); server (`BIND_ADDR`, `BASE_URL`, `LOG_LEVEL`).
+- **Key groups** (superset of reference): database URL; Redis URL/password + `CACHE_ENABLED`; auth (`SESSION_SECRET`, OAuth client IDs/secrets, provider URLs, `REGISTRATION_MODE`); embeddings (`EMBEDDING_PROVIDER`, `EMBEDDING_MODEL` — the single active model, `MODEL_CACHE_DIR` for downloaded weights, batch sizes, `EMBEDDING_AUTO_GENERATE`); LLM (`LLM_PROVIDER`, models, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OLLAMA_BASE_URL`); extraction (`EXTRACTION_*`, `CHROMIUM_ENABLED`/endpoint, `EXTRACTION_DELAY_MS`, `RESPECT_ROBOTS_TXT`); jobs (`ENABLE_CRON_JOBS`, `FEED_REFRESH_SCHEDULE`, `CLEANUP_SCHEDULE`, `FEED_REFRESH_CONCURRENCY`, `SAVED_SEARCH_CONCURRENCY`, `JOB_LOCK_TIMEOUT`, `RUN_EMBEDDED_WORKER`); crypto (`ENCRYPTION_SECRET`); server (`BIND_ADDR`, `BASE_URL`, `LOG_LEVEL`).
 
 ---
 
@@ -628,7 +646,7 @@ The reference stores 384-dim local vectors zero-padded into a single `vector(153
 The reference uses Postgres/pgvector already, so migration is primarily **schema reshaping + secret re-encryption**, not a datastore change.
 
 1. **Schema:** create the Rust schema; map reference tables 1:1 where identical (users, feeds, articles, user_feeds, categories, read/feedback/patterns, saved searches, preferences, notifications, admin_settings, cron/job tables → `agent_runs`/`agent_locks`).
-2. **Embeddings:** migrate the single `articles.embedding` column into the appropriate `article_embeddings_<space>` table **only for rows whose provider/dim is known**; ambiguous/padded vectors are dropped and **re-embedded** by the agent (correctness > preserving corrupt vectors).
+2. **Embeddings:** migrate the reference's single `articles.embedding` column into `article_embeddings` **only if** the source rows match the instance's chosen active model/dimension; otherwise drop them and **re-embed** with the agent (correctness > preserving padded/mismatched vectors). Since RustSS pins one model per instance, this is a one-shot backfill.
 3. **Secrets:** decrypt LLM keys/cookies using the reference's two schemes, re-encrypt under the unified AEAD (a one-shot `rustss-cli migrate-secrets`). If the old `ENCRYPTION_SECRET` is unavailable, affected users re-enter keys.
 4. **IDs:** reference uses cuid/nanoid strings; keep them as-is for existing rows (columns are `text`/`uuid`-compatible) or remap with a translation table; new rows use UUIDv7.
 5. **Bookmarks/seen:** new tables start empty; retention immediately honors bookmarks going forward.
@@ -645,11 +663,13 @@ A dedicated `docs/MIGRATION.md` will detail scripts once the schema is finalized
 | 1 | **Axum + Askama + HTMX** (no SPA) | Low memory, fast, all-Rust, progressive enhancement; fits self-hosting | Some rich interactions need more server round-trips vs. an SPA |
 | 2 | **SQLx (compile-checked SQL)** over an ORM | pgvector raw-SQL fit, low overhead, query correctness at compile time | Less "magic"; more explicit SQL |
 | 3 | **Postgres-backed job queue** (Redis optional) | Durable, transactional with content writes (outbox), no extra infra dependency for correctness | Redis still used for cache/nudges; queue throughput bounded by Postgres |
-| 4 | **Space-tagged embeddings, table-per-space** | Correct similarity across providers; per-space HNSW | Multiple tables/indexes if multiple models enabled |
+| 4 | **One embedding space per instance** (single fixed-dim table + model guard) | Eliminates mixed-dim corruption; simplest correct design; one HNSW index | Model change requires an explicit re-embed/migration |
 | 5 | **Unified XChaCha20-Poly1305 secrets** | One secure scheme; fixes dual-format debt | One-time secret migration required |
 | 6 | **Server+worker one codebase, deploy 1 or 2 ways** | Simple by default, scalable when needed | Must keep worker/server wiring clean (DI at bin level) |
 | 7 | **Centralized `SafeFetchClient`** | Uniform SSRF protection on every egress | All fetch paths must route through it (enforced by layering) |
 | 8 | **UUIDv7 PKs** | Time-sortable, index-friendly, distributed-safe | Differs from reference's cuid (handled in migration) |
+| 9 | **GReader-compatible API adapter** (native API + GReader layer) | Interop with the existing RSS client ecosystem; no duplicate business logic | Must track a de-facto (un-versioned) protocol; scoped to the popular subset |
+| 10 | **Download embedding model on first run** (volume cache) | Small image; offline after first fetch | First run needs network; cold cache adds one-time download |
 
 ---
 

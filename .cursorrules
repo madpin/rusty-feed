@@ -1,0 +1,36 @@
+# RustSS — Cursor rules
+
+The canonical contributor guide is AGENTS.md. Read AGENTS.md, docs/PRD.md,
+docs/ARCHITECTURE.md, docs/DEVELOPMENT_PLAN.md, and docs/FINDINGS.md before coding.
+
+Project: RustSS — a self-hosted, multi-user, AI-augmented RSS reader in Rust
+(Axum + Askama/HTMX, PostgreSQL/pgvector, Redis, background "AGENTS" workers).
+It is a ground-up Rust reimplementation of the original `neureed` (Next.js/TS).
+
+THE ONE RULE — never break it:
+  Content is shared; state is personal. Feeds/articles/embeddings/summaries are
+  stored and computed ONCE and shared across subscribers; per-user data layers on
+  top. A feed followed by N users must be O(1) work, not O(N).
+  (docs/ARCHITECTURE.md §7, docs/PRD.md §6)
+
+Non-negotiables:
+- thiserror in libraries, anyhow in bins/agent boundaries. No unwrap()/expect()
+  on fallible paths outside tests/startup.
+- SQLx compile-checked queries; commit .sqlx/ offline metadata. Per-user queries
+  are scoped by user_id; shared writes are idempotent (ON CONFLICT).
+- All outbound HTTP goes through SafeFetchClient (SSRF-guarded). No direct reqwest
+  to feed/article/robots/media URLs.
+- Secrets encrypted with the unified AEAD helper; never log secret material.
+- One embedding model per instance; never pad/truncate vectors across dimensions.
+- Caching via the Cache port; shared vs per-user key separation; invalidate with
+  SCAN/tags, never KEYS.
+- Recurring/background work is an Agent run through the framework (scheduler/queue/
+  lock/run-record); no ad-hoc tokio::spawn loops.
+- Follow the milestone plan in docs/DEVELOPMENT_PLAN.md.
+
+When you find a smell/bug/risk, add an entry to docs/FINDINGS.md and reference the
+FND-* id in your commit.
+
+Before every commit: cargo fmt --all --check; cargo clippy --all-targets
+--all-features -- -D warnings; cargo test. Use Conventional Commits with a body
+that explains WHY. Do not push unless asked. Never weaken security to pass CI.
