@@ -10,7 +10,10 @@
 
 pub mod auth;
 mod error;
+pub mod extract;
+pub mod ratelimit;
 mod state;
+mod tokens;
 
 pub use error::{AppError, Result};
 pub use state::{AppSettings, AppState};
@@ -35,6 +38,8 @@ pub fn router(state: AppState) -> Router {
             get(auth::handlers::register_page).post(auth::handlers::register_submit),
         )
         .route("/logout", post(auth::handlers::logout_submit))
+        .route("/settings/tokens", get(tokens::list).post(tokens::create))
+        .route("/settings/tokens/{id}/revoke", post(tokens::revoke))
         .route("/api/health", get(health))
         .route("/api/health/ready", get(ready))
         .route("/metrics", get(metrics))

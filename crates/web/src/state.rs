@@ -1,10 +1,13 @@
 //! Shared application state passed to Axum handlers.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use rustss_cache::Cache;
 use rustss_core::config::RegistrationMode;
 use rustss_db::Db;
+
+use crate::ratelimit::RateLimiter;
 
 /// Instance-level settings the web layer needs at request time.
 #[derive(Debug, Clone)]
@@ -33,6 +36,8 @@ pub struct AppState {
     pub db: Db,
     pub cache: Cache,
     pub settings: Arc<AppSettings>,
+    /// Per-IP limiter for authentication endpoints.
+    pub auth_limiter: RateLimiter,
     metrics: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
@@ -48,6 +53,8 @@ impl AppState {
             db,
             cache,
             settings: Arc::new(settings),
+            // 10 auth attempts per minute per client IP.
+            auth_limiter: RateLimiter::new(10, Duration::from_secs(60)),
             metrics: Arc::new(metrics_renderer),
         }
     }

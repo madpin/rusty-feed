@@ -15,6 +15,7 @@ use crate::auth::extractor::MaybeUser;
 use crate::auth::password::{hash_password, verify_password};
 use crate::auth::{csrf, session};
 use crate::error::AppError;
+use crate::extract::ClientIp;
 use crate::state::AppState;
 
 #[derive(Template)]
@@ -101,9 +102,13 @@ pub async fn login_page(
 /// `POST /login` — verify credentials and start a session.
 pub async fn login_submit(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     jar: CookieJar,
     Form(form): Form<LoginForm>,
 ) -> Result<Response, AppError> {
+    if !state.auth_limiter.check(&ip).await {
+        return Err(AppError::RateLimited);
+    }
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
@@ -149,9 +154,13 @@ pub async fn register_page(
 /// `POST /register` — create a local account and start a session.
 pub async fn register_submit(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     jar: CookieJar,
     Form(form): Form<RegisterForm>,
 ) -> Result<Response, AppError> {
+    if !state.auth_limiter.check(&ip).await {
+        return Err(AppError::RateLimited);
+    }
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }

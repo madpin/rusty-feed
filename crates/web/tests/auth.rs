@@ -230,6 +230,136 @@ async fn post_without_csrf_is_forbidden() {
 }
 
 #[tokio::test]
+async fn rate_limit_blocks_excessive_logins() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state); // fresh limiter: 10/min per IP
+    let mut last = StatusCode::OK;
+    for _ in 0..11 {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/login")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header("x-forwarded-for", "203.0.113.7")
+                    .body(Body::from("email=x%40y.com&password=z&csrf_token=nope"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        last = resp.status();
+    }
+    // First 10 fail CSRF (403) but pass rate limit; the 11th is throttled.
+    assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn api_token_create_list_revoke() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let email = unique_email();
+
+    // Register and capture the session.
+    let resp = app
+        .clone()
+        .oneshot(Request::get("/register").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/register")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                .body(Body::from(format!(
+                    "name=&email={email}&password=password123&csrf_token={csrf}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = find_cookie(&set_cookies(&resp), "rustss_sid")
+        .unwrap()
+        .to_string();
+
+    // GET the tokens page (issues a CSRF cookie).
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/settings/tokens")
+                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let tcsrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+
+    // Create a token; the raw value is shown once.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/settings/tokens")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header(
+                    "cookie",
+                    cookie_header(&[("rustss_sid", &sid), ("rustss_csrf", &tcsrf)]),
+                )
+                .body(Body::from(format!("name=Reeder&csrf_token={tcsrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Reeder"));
+    assert!(body.contains("won't be shown again"));
+
+    // The token exists in the database.
+    let email_local = email.replace("%40", "@");
+    let user = rustss_db::users::find_by_email(state.db.pool(), &email_local)
+        .await
+        .unwrap()
+        .unwrap();
+    let toks = rustss_db::api_tokens::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    assert_eq!(toks.len(), 1);
+    assert!(toks[0].revoked_at.is_none());
+
+    // Revoke it.
+    let resp = app
+        .oneshot(
+            Request::post(format!("/settings/tokens/{}/revoke", toks[0].id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header(
+                    "cookie",
+                    cookie_header(&[("rustss_sid", &sid), ("rustss_csrf", &tcsrf)]),
+                )
+                .body(Body::from(format!("csrf_token={tcsrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let toks = rustss_db::api_tokens::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    assert!(toks[0].revoked_at.is_some(), "token should be revoked");
+}
+
+#[tokio::test]
 async fn admin_extractor_enforces_role() {
     let Some(state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");

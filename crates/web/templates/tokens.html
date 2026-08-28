@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}API tokens — RustSS{% endblock %}
+{% block content %}
+<h1>API tokens</h1>
+<p class="muted">Use these to connect RSS clients (e.g. a Google Reader-compatible app) or scripts.</p>
+
+{% if let Some(raw) = new_token %}
+<p class="alert">Copy your new token now — it won't be shown again:</p>
+<pre style="white-space: pre-wrap; word-break: break-all;">{{ raw }}</pre>
+{% endif %}
+
+<form method="post" action="/settings/tokens">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <label>Token name
+    <input type="text" name="name" placeholder="e.g. Reeder on my phone" required />
+  </label>
+  <button type="submit">Create token</button>
+</form>
+
+<h2>Your tokens</h2>
+<ul>
+{% for t in tokens %}
+  <li>
+    <strong>{{ t.name }}</strong> — created {{ t.created }}{% if t.revoked %} <em>(revoked)</em>{% endif %}
+    {% if !t.revoked %}
+    <form method="post" action="/settings/tokens/{{ t.id }}/revoke" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit">Revoke</button>
+    </form>
+    {% endif %}
+  </li>
+{% else %}
+  <li class="muted">No tokens yet.</li>
+{% endfor %}
+</ul>
+<p class="muted"><a href="/">← Back</a></p>
+{% endblock %}

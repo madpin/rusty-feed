@@ -61,10 +61,13 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("failed to bind {addr}"))?;
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("server error")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("server error")?;
 
     tracing::info!("shutdown complete");
     Ok(())
