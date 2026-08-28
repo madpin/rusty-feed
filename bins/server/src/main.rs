@@ -58,7 +58,20 @@ async fn main() -> anyhow::Result<()> {
         oauth_providers,
     };
 
-    let state = AppState::new(db, cache, settings, move || metrics.render());
+    // One embedding model per instance, shared by the search path and worker.
+    let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
+        provider: config.embedding_provider,
+        model: config.embedding_model.clone(),
+        openai_api_key: config
+            .openai_api_key
+            .as_ref()
+            .map(|s| s.expose().to_string()),
+        openai_base_url: config.openai_base_url.clone(),
+    })
+    .context("failed to build embedder")?;
+
+    let state = AppState::new(db, cache, settings, move || metrics.render())
+        .with_embedder(embedder.clone());
 
     // Embedded AGENTS worker (default): refreshes feeds in the background.
     // Disable with RUN_EMBEDDED_WORKER=false to run `rustss-worker` separately.
@@ -67,8 +80,10 @@ async fn main() -> anyhow::Result<()> {
         let worker = rustss_agents::Worker::new(
             state.db.clone(),
             state.fetch.clone(),
+            embedder,
             rustss_agents::WorkerConfig {
                 concurrency: config.feed_refresh_concurrency,
+                embed_on_ingest: config.embedding_auto_generate,
                 ..rustss_agents::WorkerConfig::default()
             },
         );

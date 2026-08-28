@@ -1,0 +1,43 @@
+{% extends "app_base.html" %}
+{% block title %}Search{% endblock %}
+{% block sidebar %}
+<h2>Reading</h2>
+<ul>
+  <li><a href="/articles">All articles</a></li>
+  <li><a href="/articles?unread=1">Unread only</a></li>
+  <li><a href="/search">Search</a></li>
+  <li><a href="/feeds">Manage feeds</a></li>
+</ul>
+{% endblock %}
+{% block content %}
+<h1>Semantic search</h1>
+<form method="get" action="/search" class="stack">
+  <label>Search your subscriptions
+    <input type="search" name="q" value="{{ query }}" placeholder="e.g. what's new in async Rust" autofocus />
+  </label>
+  <button type="submit" class="primary">Search</button>
+</form>
+
+{% if searched %}
+{% if hits.is_empty() %}
+<div class="empty-state">
+  <p><strong>No matches.</strong></p>
+  <p class="muted">Try different words, or subscribe to more feeds. (Results appear once
+     articles have been embedded.)</p>
+</div>
+{% else %}
+<ul class="article-list">
+  {% for h in hits %}
+  <li class="article-card">
+    <h3><a href="/articles/{{ h.id }}">{{ h.title }}</a></h3>
+    <div class="meta">
+      {{ h.feed_name }}{% if let Some(when) = h.published %} · {{ when }}{% endif %}
+      · <span class="badge">{{ h.similarity }}% match</span>
+    </div>
+    {% if let Some(excerpt) = h.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -8,11 +8,13 @@
 //! Concrete agents so far: [`FeedRefreshAgent`] (enqueue due feeds, deduped) and
 //! [`FetchFeedAgent`] (fetch + ingest one feed, via `rustss-feeds`).
 
+mod embed_article;
 mod extract_content;
 mod feed_refresh;
 mod fetch_feed;
 mod worker;
 
+pub use embed_article::EmbedArticleAgent;
 pub use extract_content::ExtractContentAgent;
 pub use feed_refresh::FeedRefreshAgent;
 pub use fetch_feed::FetchFeedAgent;
@@ -28,11 +30,22 @@ use rustss_feeds::SafeFetchClient;
 pub struct AgentContext {
     pub db: Db,
     pub fetch: SafeFetchClient,
+    /// Whether new/extracted articles should be enqueued for embedding.
+    pub embed_on_ingest: bool,
 }
 
 impl AgentContext {
     pub fn new(db: Db, fetch: SafeFetchClient) -> Self {
-        Self { db, fetch }
+        Self {
+            db,
+            fetch,
+            embed_on_ingest: false,
+        }
+    }
+
+    pub fn with_embed_on_ingest(mut self, enabled: bool) -> Self {
+        self.embed_on_ingest = enabled;
+        self
     }
 }
 

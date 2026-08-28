@@ -14,6 +14,7 @@ pub mod api_tokens;
 pub mod articles;
 pub mod bookmarks;
 pub mod domain_state;
+pub mod embeddings;
 pub mod error;
 pub mod feeds;
 pub mod jobs;

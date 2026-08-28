@@ -17,6 +17,7 @@ rustss-core = { workspace = true, features = ["telemetry"] }
 rustss-agents = { workspace = true }
 rustss-db = { workspace = true }
 rustss-feeds = { workspace = true }
+rustss-embed = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }

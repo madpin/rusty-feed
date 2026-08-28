@@ -40,8 +40,11 @@ impl Agent for FetchFeedAgent {
 
         // If the feed opts into full-text extraction, enqueue one (deduped)
         // extract job per not-yet-processed article — once per shared article.
+        // (Embedding for those articles is enqueued after extraction.) Otherwise,
+        // embed directly on ingest when enabled.
         let (extraction_enabled, _) = feed_extraction(&feed.extraction_settings);
         let mut extract_jobs = 0u64;
+        let mut embed_jobs = 0u64;
         if extraction_enabled {
             let pending =
                 articles::list_needing_extraction(ctx.db.pool(), feed_id, EXTRACT_ENQUEUE_LIMIT)
@@ -62,6 +65,14 @@ impl Agent for FetchFeedAgent {
                     extract_jobs += 1;
                 }
             }
+        } else if ctx.embed_on_ingest {
+            let pending =
+                articles::list_needing_embedding(ctx.db.pool(), feed_id, EXTRACT_ENQUEUE_LIMIT)
+                    .await?;
+            for article_id in pending {
+                crate::worker::enqueue_embed(&ctx.db, article_id).await?;
+                embed_jobs += 1;
+            }
         }
 
         Ok(json!({
@@ -71,6 +82,7 @@ impl Agent for FetchFeedAgent {
             "skipped": stats.skipped,
             "not_modified": stats.not_modified,
             "extract_jobs": extract_jobs,
+            "embed_jobs": embed_jobs,
         }))
     }
 }

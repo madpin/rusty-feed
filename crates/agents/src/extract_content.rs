@@ -93,6 +93,10 @@ impl Agent for ExtractContentAgent {
                     None,
                 )
                 .await?;
+                // Embed using the freshly-extracted content.
+                if ctx.embed_on_ingest {
+                    crate::worker::enqueue_embed(&ctx.db, article_id).await?;
+                }
                 Ok(json!({ "status": "success", "extractor": e.extractor }))
             }
             ExtractOutcome::Disallowed => {

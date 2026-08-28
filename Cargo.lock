@@ -2589,6 +2589,7 @@ dependencies = [
  "async-trait",
  "rustss-core",
  "rustss-db",
+ "rustss-embed",
  "rustss-extract",
  "rustss-feeds",
  "serde",
@@ -2660,6 +2661,18 @@ dependencies = [
 [[package]]
 name = "rustss-embed"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "reqwest",
+ "rustss-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "wiremock",
+]
 
 [[package]]
 name = "rustss-extract"
@@ -2717,6 +2730,7 @@ dependencies = [
  "rustss-cache",
  "rustss-core",
  "rustss-db",
+ "rustss-embed",
  "rustss-web",
  "tokio",
  "tracing",
@@ -2741,6 +2755,7 @@ dependencies = [
  "rustss-cache",
  "rustss-core",
  "rustss-db",
+ "rustss-embed",
  "rustss-feeds",
  "serde",
  "serde_json",
@@ -2762,6 +2777,7 @@ dependencies = [
  "rustss-agents",
  "rustss-core",
  "rustss-db",
+ "rustss-embed",
  "rustss-feeds",
  "tokio",
  "tracing",

@@ -23,11 +23,23 @@ async fn main() -> anyhow::Result<()> {
 
     let fetch =
         SafeFetchClient::new(Duration::from_secs(30)).context("failed to build HTTP client")?;
+    let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
+        provider: config.embedding_provider,
+        model: config.embedding_model.clone(),
+        openai_api_key: config
+            .openai_api_key
+            .as_ref()
+            .map(|s| s.expose().to_string()),
+        openai_base_url: config.openai_base_url.clone(),
+    })
+    .context("failed to build embedder")?;
     let worker = Worker::new(
         db,
         fetch,
+        embedder,
         WorkerConfig {
             concurrency: config.feed_refresh_concurrency,
+            embed_on_ingest: config.embedding_auto_generate,
             ..WorkerConfig::default()
         },
     );

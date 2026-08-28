@@ -56,6 +56,20 @@ pub async fn list_needing_extraction(
     .await?)
 }
 
+/// Article ids in a feed that have no embedding yet, newest first.
+pub async fn list_needing_embedding(pool: &PgPool, feed_id: Uuid, limit: i64) -> Result<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "SELECT a.id FROM articles a \
+         LEFT JOIN article_embeddings e ON e.article_id = a.id \
+         WHERE a.feed_id = $1 AND e.article_id IS NULL \
+         ORDER BY a.created_at DESC LIMIT $2",
+    )
+    .bind(feed_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Mark extraction failed without changing content.
 pub async fn set_extraction_failed(pool: &PgPool, id: Uuid, error: &str) -> Result<()> {
     sqlx::query(

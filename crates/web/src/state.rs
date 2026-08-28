@@ -3,10 +3,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::sync::Arc as StdArc;
+
 use rustss_cache::Cache;
 use rustss_core::config::RegistrationMode;
 use rustss_core::Secret;
 use rustss_db::Db;
+use rustss_embed::{Embedder, HashEmbedder};
 use rustss_feeds::SafeFetchClient;
 
 use crate::ratelimit::RateLimiter;
@@ -66,6 +69,8 @@ pub struct AppState {
     pub settings: Arc<AppSettings>,
     /// SSRF-guarded HTTP client for fetching/refreshing feeds.
     pub fetch: SafeFetchClient,
+    /// The instance's single embedding model (for semantic search).
+    pub embedder: StdArc<dyn Embedder>,
     /// Per-IP limiter for authentication endpoints.
     pub auth_limiter: RateLimiter,
     metrics: Arc<dyn Fn() -> String + Send + Sync>,
@@ -84,6 +89,7 @@ impl AppState {
             cache,
             settings: Arc::new(settings),
             fetch: SafeFetchClient::default(),
+            embedder: StdArc::new(HashEmbedder::default()),
             // 10 auth attempts per minute per client IP.
             auth_limiter: RateLimiter::new(10, Duration::from_secs(60)),
             metrics: Arc::new(metrics_renderer),
@@ -93,6 +99,12 @@ impl AppState {
     /// Override the fetch client (e.g. tests using an allow-private client).
     pub fn with_fetch(mut self, fetch: SafeFetchClient) -> Self {
         self.fetch = fetch;
+        self
+    }
+
+    /// Set the instance embedding model.
+    pub fn with_embedder(mut self, embedder: StdArc<dyn Embedder>) -> Self {
+        self.embedder = embedder;
         self
     }
 

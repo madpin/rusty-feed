@@ -18,6 +18,7 @@ rustss-web = { workspace = true }
 rustss-db = { workspace = true }
 rustss-cache = { workspace = true }
 rustss-agents = { workspace = true }
+rustss-embed = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

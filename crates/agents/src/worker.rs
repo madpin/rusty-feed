@@ -10,9 +10,12 @@ use tokio::sync::watch;
 use tokio::time::Duration;
 
 use rustss_db::{agent_runs, jobs, Db, Job};
+use rustss_embed::Embedder;
 use rustss_feeds::SafeFetchClient;
 
-use crate::{Agent, AgentContext, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent};
+use crate::{
+    Agent, AgentContext, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
+};
 
 /// Maps job `kind` → agent.
 pub struct Registry {
@@ -25,10 +28,11 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 3] = [
+        let list: [Arc<dyn Agent>; 4] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
             Arc::new(ExtractContentAgent::default()),
+            Arc::new(EmbedArticleAgent::default()),
         ];
         for agent in list {
             registry.register(agent.name().to_string(), agent);
@@ -63,6 +67,8 @@ pub struct WorkerConfig {
     pub concurrency: usize,
     pub poll_interval: Duration,
     pub scheduler_interval: Duration,
+    /// Enqueue embedding jobs for new/extracted articles.
+    pub embed_on_ingest: bool,
 }
 
 impl Default for WorkerConfig {
@@ -72,6 +78,7 @@ impl Default for WorkerConfig {
             concurrency: 4,
             poll_interval: Duration::from_secs(2),
             scheduler_interval: Duration::from_secs(60),
+            embed_on_ingest: false,
         }
     }
 }
@@ -84,10 +91,18 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn new(db: Db, fetch: SafeFetchClient, config: WorkerConfig) -> Self {
+    pub fn new(
+        db: Db,
+        fetch: SafeFetchClient,
+        embedder: Arc<dyn Embedder>,
+        config: WorkerConfig,
+    ) -> Self {
+        let mut registry = Registry::with_defaults();
+        registry.register("embed_article", Arc::new(EmbedArticleAgent::new(embedder)));
+        let ctx = AgentContext::new(db, fetch).with_embed_on_ingest(config.embed_on_ingest);
         Self {
-            ctx: Arc::new(AgentContext::new(db, fetch)),
-            registry: Arc::new(Registry::with_defaults()),
+            ctx: Arc::new(ctx),
+            registry: Arc::new(registry),
             config,
         }
     }
@@ -171,6 +186,21 @@ impl Worker {
             let _ = handle.await;
         }
     }
+}
+
+/// Enqueue a single (deduped) `embed_article` job.
+pub(crate) async fn enqueue_embed(db: &Db, article_id: uuid::Uuid) -> anyhow::Result<()> {
+    let dedup = format!("embed:{article_id}");
+    jobs::enqueue(
+        db.pool(),
+        "embed_article",
+        serde_json::json!({ "article_id": article_id }),
+        Some(&dedup),
+        None,
+        3,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Enqueue a single (deduped) `feed_refresh` job. Public so a freshly-started
