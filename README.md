@@ -1,8 +1,8 @@
-# NeuReed (Rust Edition) &nbsp;·&nbsp; `rustss`
+# RustSS &nbsp;·&nbsp; `rustss`
 
 > Your RSS reader, but it actually understands what you read — and it runs as a single fast binary you own.
 
-**NeuReed** is a self-hosted, multi-user, AI-augmented RSS/Atom reader. It learns what each user cares about and surfaces it using **semantic (vector) search**, **per-user personalization**, and optional **LLM summarization** — while staying lean enough to run on a home server or a small VPS.
+**RustSS** is a self-hosted, multi-user, AI-augmented RSS/Atom reader. It learns what each user cares about and surfaces it using **semantic (vector) search**, **per-user personalization**, and optional **LLM summarization** — while staying lean enough to run on a home server or a small VPS.
 
 This repository (`rustss`) is a **ground-up reimplementation in Rust** of the original [`neureed`](https://github.com/madpin/neureed) (a Next.js 16 / TypeScript app). The goal: the same (and eventually more) capabilities, with a **fraction of the memory footprint**, higher throughput, and dramatically simpler operations.
 
@@ -12,7 +12,7 @@ This repository (`rustss`) is a **ground-up reimplementation in Rust** of the or
 
 ## ✨ Vision
 
-RSS is the best way to own your information diet — but classic readers drown you in noise. NeuReed makes the feed *smart*:
+RSS is the best way to own your information diet — but classic readers drown you in noise. RustSS makes the feed *smart*:
 
 - **🧠 It learns you.** Thumbs up/down and natural reading behavior train a per-user model; articles you'll care about float to the top.
 - **🔍 Search by meaning.** "machine learning tutorials for beginners" finds the right articles even when they never use those words (pgvector embeddings).
@@ -23,11 +23,11 @@ RSS is the best way to own your information diet — but classic readers drown y
 
 ---
 
-## 🎯 Why a Rust rewrite?
+## 🎯 Why RustSS?
 
-The original NeuReed is feature-rich and proven — its data model and algorithms are our source of truth. The Rust edition keeps that behavior while re-architecting the runtime for the things self-hosters feel every day:
+The original `neureed` is feature-rich and proven — its data model and algorithms are our source of truth. RustSS keeps that behavior while re-architecting the runtime for the things self-hosters feel every day:
 
-| | Original (`neureed`) | NeuReed (Rust Edition) |
+| | Original (`neureed`) | RustSS |
 |---|---|---|
 | Runtime | Node.js 24 / Next.js 16 | Rust + Tokio (single binary) |
 | UI | React SPA (SSR + client) | Server-rendered HTML + HTMX + Alpine |
@@ -57,30 +57,6 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 - OAuth (Google/GitHub/Generic) **and** local accounts (Argon2id)
 
 **Planned (v1.1+ / v2):** bookmarks/favorites + smarter retention, "seen" state, news **clustering + LLM digests**, configurable keyboard shortcuts, i18n, ADHD-friendly reading formatting, media/YouTube embeds, storage/log admin tooling. Full list in **[docs/PRD.md §8](docs/PRD.md)**.
-
----
-
-## 🛠️ Tech stack
-
-Chosen for performance, low footprint, and self-hosting ergonomics. Full rationale in **[docs/ARCHITECTURE.md §3](docs/ARCHITECTURE.md)**.
-
-| Layer | Choice |
-|---|---|
-| **Language / runtime** | Rust · Tokio (async) |
-| **Web framework** | [Axum](https://github.com/tokio-rs/axum) + `tower` / `tower-http` |
-| **UI** | [Askama](https://github.com/rinja-rs/askama) templates · [HTMX](https://htmx.org) · [Alpine.js](https://alpinejs.dev) · [Tailwind CSS](https://tailwindcss.com) |
-| **Database** | PostgreSQL 16 + [pgvector](https://github.com/pgvector/pgvector) |
-| **DB access** | [SQLx](https://github.com/launchbadge/sqlx) (compile-time-checked SQL) + `pgvector` crate |
-| **Cache** | [`moka`](https://github.com/moka-rs/moka) (in-process L1) + Redis via [`fred`](https://github.com/aembke/fred.rs) (L2) |
-| **Background jobs (AGENTS)** | [`apalis`](https://github.com/geofmureithi/apalis) over Postgres · advisory-lock singletons · outbox events |
-| **Feeds** | [`feed-rs`](https://github.com/feed-rs/feed-rs) · [`reqwest`](https://github.com/seanmonstar/reqwest) (rustls) |
-| **Extraction** | [`article_scraper`](https://gitlab.com/news-flash/article_scraper) (Readability) · [`chromiumoxide`](https://github.com/mattsse/chromiumoxide) · [`ammonia`](https://github.com/rust-ammonia/ammonia) (sanitize) |
-| **Embeddings** | [`fastembed`](https://github.com/Anush008/fastembed-rs) (local ONNX, BGE-small) · OpenAI-compatible API |
-| **LLM** | [`async-openai`](https://github.com/64bit/async-openai) (OpenAI / Azure / Ollama `/v1`) |
-| **Auth** | [`oauth2`](https://github.com/ramosbugs/oauth2-rs) · [`argon2`](https://github.com/RustCrypto/password-hashes) · [`tower-sessions`](https://github.com/maxcountryman/tower-sessions) (Postgres store) |
-| **Crypto** | XChaCha20-Poly1305 (`chacha20poly1305`) + HKDF-SHA256 |
-| **Config / errors** | [`figment`](https://github.com/SergioBenitez/Figment) · `thiserror` + `anyhow` |
-| **Observability** | `tracing` · `metrics` (Prometheus) · optional OpenTelemetry |
 
 ---
 
@@ -128,12 +104,12 @@ The first account you register becomes the **admin**. New users are auto-subscri
 docker compose up -d postgres redis chromium   # dependencies only
 cp .env.example .env
 
-cargo run -p neureed-cli -- migrate            # apply DB migrations
-cargo run -p neureed-server                    # start the server (embedded worker by default)
+cargo run -p rustss-cli -- migrate            # apply DB migrations
+cargo run -p rustss-server                    # start the server (embedded worker by default)
 
 # Useful:
-cargo run -p neureed-worker                    # run AGENTS separately (scaled mode)
-cargo run -p neureed-cli -- create-admin       # bootstrap an admin
+cargo run -p rustss-worker                    # run AGENTS separately (scaled mode)
+cargo run -p rustss-cli -- create-admin       # bootstrap an admin
 cargo test                                     # unit + integration tests
 cargo clippy -D warnings && cargo fmt --check  # lint & format
 ```
@@ -141,7 +117,7 @@ cargo clippy -D warnings && cargo fmt --check  # lint & format
 ### Configuration (essentials)
 
 ```bash
-DATABASE_URL=postgres://neureed:neureed@localhost:5432/neureed
+DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
 REDIS_URL=redis://localhost:6379
 SESSION_SECRET=<32+ random bytes>
 ENCRYPTION_SECRET=<32+ random bytes>         # encrypts API keys & feed cookies
@@ -150,11 +126,6 @@ ENCRYPTION_SECRET=<32+ random bytes>         # encrypts API keys & feed cookies
 GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
 GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
 REGISTRATION_MODE=open                        # open | invite | closed
-
-# AI (optional)
-EMBEDDING_PROVIDER=local                      # local (ONNX, free) | openai
-OPENAI_API_KEY=sk-...                         # for OpenAI embeddings/summaries
-OLLAMA_BASE_URL=http://localhost:11434        # for local LLM summaries
 ```
 
 The full configuration reference will live in `docs/configuration.md`. Env vars are typed and validated at startup — the app refuses to boot on invalid config.
@@ -200,7 +171,7 @@ Work is committed iteratively per milestone using **[Conventional Commits](https
 
 ## 🙏 Credits
 
-- Reimplementation of the original **[NeuReed](https://github.com/madpin/neureed)** by [@madpin](https://github.com/madpin).
+- Based on the original **[NeuReed](https://github.com/madpin/neureed)** by [@madpin](https://github.com/madpin).
 - Built on the shoulders of the Rust and PostgreSQL/pgvector communities.
 
 ## 📜 License

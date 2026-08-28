@@ -1,4 +1,4 @@
-# NeuReed (Rust Edition) — Product Requirements Document
+# RustSS — Product Requirements Document
 
 **Status:** Draft for review
 **Version:** 0.1.0
@@ -10,11 +10,11 @@
 
 ## 1. Overview
 
-NeuReed is a **self-hosted, intelligent RSS/Atom reader** that learns what each user cares about and surfaces it using semantic (vector) search, per-user personalization, and optional LLM summarization. This document specifies the requirements for a **ground-up reimplementation in Rust** of the existing `neureed` product.
+RustSS is a **self-hosted, intelligent RSS/Atom reader** that learns what each user cares about and surfaces it using semantic (vector) search, per-user personalization, and optional LLM summarization. This document specifies the requirements for a **ground-up reimplementation in Rust** of the existing `neureed` product.
 
 The reimplementation exists to deliver the same (and eventually a superset of the) product capabilities with **dramatically lower memory footprint, higher throughput, and simpler operations** — the qualities that matter most for software people run on their own hardware (a NAS, a small VPS, a home server, or a single container).
 
-This is **not** a rewrite for its own sake. The reference implementation is feature-rich and battle-tested; its **data model and algorithms are the source of truth** for behavior. The Rust edition preserves that behavior while fixing a set of known deficiencies (documented in §9) and re-architecting the runtime for performance and operability.
+This is **not** a rewrite for its own sake. The reference implementation is feature-rich and battle-tested; its **data model and algorithms are the source of truth** for behavior. RustSS preserves that behavior while fixing a set of known deficiencies (documented in §9) and re-architecting the runtime for performance and operability.
 
 ### 1.1 Product one-liner
 
@@ -303,7 +303,7 @@ News **clustering + LLM cluster digests**; ADHD-friendly reading formatting; con
 
 ## 9. Known Reference-Implementation Deficiencies to Fix
 
-The Rust edition explicitly corrects these behaviors discovered during analysis of `neureed`:
+RustSS explicitly corrects these behaviors discovered during analysis of `neureed`:
 
 1. **Conditional GET not wired into refresh.** ETag/Last-Modified columns exist but are never populated/used → every refresh does a full GET. **Fix:** implement conditional GET end-to-end (FR-REFRESH-3).
 2. **Mixed-dimension embedding corruption.** Local (384-dim) vectors are zero-padded into the same `vector(1536)` column as OpenAI vectors, silently breaking similarity when providers are mixed across articles. **Fix:** model/space-tagged embedding storage (FR-EMB-3).
@@ -339,7 +339,7 @@ The Rust edition explicitly corrects these behaviors discovered during analysis 
 
 ## 12. Open Questions
 
-1. **Product name / branding** for the Rust edition (keep "NeuReed", or a new name; repo is `rustss`).
+1. **Product name / branding** for the Rust edition (keep "RustSS", or a new name; repo is `rustss`).
 2. **Local model distribution:** bundle ONNX weights in the image (larger image, offline-friendly) vs. download-on-first-run (smaller image, needs network)?
 3. **Embedding provider policy:** should an instance pin a single embedding model to avoid multi-space complexity, or fully support per-user models with space-tagged storage from day one?
 4. **Digest delivery (v2):** in-app only, or also email? (Affects whether we add an SMTP dependency.)

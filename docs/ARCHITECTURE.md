@@ -1,4 +1,4 @@
-# NeuReed (Rust Edition) — Architecture Document
+# RustSS — Architecture Document
 
 **Status:** Draft for review
 **Version:** 0.1.0
@@ -36,9 +36,9 @@
 
 ## 1. Purpose & Scope
 
-This document defines the technical architecture for the Rust reimplementation of `neureed` — a self-hosted, multi-user, AI-augmented RSS reader. It proposes a **complete tech stack**, the **data model**, the **background-agent framework**, and the strategies (caching, dedup, security, deployment) needed to satisfy the PRD, with special emphasis on the **multi-user content-deduplication** guarantee and **self-hosted performance/footprint**.
+This document defines the technical architecture for RustSS — a self-hosted, multi-user, AI-augmented RSS reader. It proposes a **complete tech stack**, the **data model**, the **background-agent framework**, and the strategies (caching, dedup, security, deployment) needed to satisfy the PRD, with special emphasis on the **multi-user content-deduplication** guarantee and **self-hosted performance/footprint**.
 
-Behavioral parity with the reference is the baseline; §21 and the PRD §9 enumerate deliberate improvements.
+Behavioral parity with the reference is the baseline; §21 and RustSS explicitly corrects these behaviors discovered during analysis of `neureed`.
 
 ---
 
@@ -147,7 +147,7 @@ Behavioral parity with the reference is the baseline; §21 and the PRD §9 enume
                                                   │ HTML over HTTP     │ JSON over HTTP
                                                   ▼                    ▼
         ┌──────────────────────────────────────────────────────────────────────────────────┐
-        │                             neureed-server (Axum)                                  │
+        │                             rustss-server (Axum)                                  │
         │                                                                                    │
         │  tower-http (trace, compression, timeout, CORS) → auth/session → CSRF → routers    │
         │                                                                                    │
@@ -170,7 +170,7 @@ Behavioral parity with the reference is the baseline; §21 and the PRD §9 enume
                     │ SKIP LOCKED / apalis
                     ▼
         ┌──────────────────────────────────────────────────────────────────────────────────┐
-        │                     neureed-worker (AGENTS runtime)                                │
+        │                     rustss-worker (AGENTS runtime)                                │
         │  Scheduler (cron) → enqueue │ Queue consumers (bounded) │ Singleton locks (advisory)│
         │                                                                                    │
         │  FeedRefresh → FetchFeed → ExtractContent → EmbedArticle → SavedSearchMatch        │
@@ -595,9 +595,9 @@ The reference stores 384-dim local vectors zero-padded into a single `vector(153
 ## 18. Deployment Topology
 
 - **Default (single-node, self-hosted):** one container running server **with embedded worker** (`RUN_EMBEDDED_WORKER=true`) + Postgres/pgvector + Redis + headless Chromium, via **Docker Compose**. Lowest ops overhead.
-- **Scaled:** N stateless `neureed-server` replicas (no embedded worker) behind a load balancer + M `neureed-worker` replicas; all share Postgres + Redis. Agents coordinate via advisory locks + the Postgres queue, so scheduled jobs run once and queue work is load-balanced.
+- **Scaled:** N stateless `rustss-server` replicas (no embedded worker) behind a load balancer + M `rustss-worker` replicas; all share Postgres + Redis. Agents coordinate via advisory locks + the Postgres queue, so scheduled jobs run once and queue work is load-balanced.
 - **Images:** multi-stage build → small runtime image (distroless/Debian-slim), non-root, multi-arch (amd64/arm64). Chromium in a separate layer/service to keep the app image `< 150 MB`.
-- **Migrations:** applied by an entrypoint/CLI step (`neureed-cli migrate`) before serving; safe/idempotent; opt-in auto-run.
+- **Migrations:** applied by an entrypoint/CLI step (`rustss-cli migrate`) before serving; safe/idempotent; opt-in auto-run.
 - **Assets:** Tailwind compiled at build; CSS/JS embedded via `rust-embed` for a single self-contained binary.
 
 ---
@@ -629,7 +629,7 @@ The reference uses Postgres/pgvector already, so migration is primarily **schema
 
 1. **Schema:** create the Rust schema; map reference tables 1:1 where identical (users, feeds, articles, user_feeds, categories, read/feedback/patterns, saved searches, preferences, notifications, admin_settings, cron/job tables → `agent_runs`/`agent_locks`).
 2. **Embeddings:** migrate the single `articles.embedding` column into the appropriate `article_embeddings_<space>` table **only for rows whose provider/dim is known**; ambiguous/padded vectors are dropped and **re-embedded** by the agent (correctness > preserving corrupt vectors).
-3. **Secrets:** decrypt LLM keys/cookies using the reference's two schemes, re-encrypt under the unified AEAD (a one-shot `neureed-cli migrate-secrets`). If the old `ENCRYPTION_SECRET` is unavailable, affected users re-enter keys.
+3. **Secrets:** decrypt LLM keys/cookies using the reference's two schemes, re-encrypt under the unified AEAD (a one-shot `rustss-cli migrate-secrets`). If the old `ENCRYPTION_SECRET` is unavailable, affected users re-enter keys.
 4. **IDs:** reference uses cuid/nanoid strings; keep them as-is for existing rows (columns are `text`/`uuid`-compatible) or remap with a translation table; new rows use UUIDv7.
 5. **Bookmarks/seen:** new tables start empty; retention immediately honors bookmarks going forward.
 6. **Cutover:** run both against the same DB is **not** supported; do a maintenance-window migration with `pg_dump` backup first.
