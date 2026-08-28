@@ -48,6 +48,8 @@ pub struct AppSettings {
     pub base_url: String,
     /// Configured OAuth providers (empty if none).
     pub oauth_providers: Vec<OAuthProvider>,
+    /// Whether an LLM is configured (enables the "Summarize" action).
+    pub summarization_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -57,6 +59,7 @@ impl Default for AppSettings {
             cookie_secure: false,
             base_url: "http://localhost:8080".to_string(),
             oauth_providers: Vec::new(),
+            summarization_enabled: false,
         }
     }
 }

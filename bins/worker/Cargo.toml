@@ -18,6 +18,7 @@ rustss-agents = { workspace = true }
 rustss-db = { workspace = true }
 rustss-feeds = { workspace = true }
 rustss-embed = { workspace = true }
+rustss-llm = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }

@@ -51,13 +51,6 @@ async fn main() -> anyhow::Result<()> {
         let names: Vec<&str> = oauth_providers.iter().map(|p| p.slug.as_str()).collect();
         tracing::info!("OAuth providers enabled: {}", names.join(", "));
     }
-    let settings = AppSettings {
-        registration_mode: config.registration_mode,
-        cookie_secure: base_url.starts_with("https://"),
-        base_url,
-        oauth_providers,
-    };
-
     // One embedding model per instance, shared by the search path and worker.
     let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
         provider: config.embedding_provider,
@@ -70,6 +63,26 @@ async fn main() -> anyhow::Result<()> {
     })
     .context("failed to build embedder")?;
 
+    // Optional LLM client for summaries (None ⇒ summarization disabled).
+    let llm = rustss_llm::build_client(rustss_llm::LlmConfig {
+        provider: config.llm_provider,
+        model: config.llm_summary_model.clone(),
+        openai_api_key: config
+            .openai_api_key
+            .as_ref()
+            .map(|s| s.expose().to_string()),
+        openai_base_url: config.openai_base_url.clone(),
+        ollama_base_url: config.ollama_base_url.clone(),
+    });
+
+    let settings = AppSettings {
+        registration_mode: config.registration_mode,
+        cookie_secure: base_url.starts_with("https://"),
+        base_url,
+        oauth_providers,
+        summarization_enabled: llm.is_some(),
+    };
+
     let state = AppState::new(db, cache, settings, move || metrics.render())
         .with_embedder(embedder.clone());
 
@@ -81,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
             state.db.clone(),
             state.fetch.clone(),
             embedder,
+            llm,
             rustss_agents::WorkerConfig {
                 concurrency: config.feed_refresh_concurrency,
                 embed_on_ingest: config.embedding_auto_generate,

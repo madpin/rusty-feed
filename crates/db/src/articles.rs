@@ -83,6 +83,66 @@ pub async fn set_extraction_failed(pool: &PgPool, id: Uuid, error: &str) -> Resu
     Ok(())
 }
 
+/// A stored article summary for display.
+#[derive(Debug, Clone)]
+pub struct ArticleSummary {
+    pub summary: String,
+    pub key_points: Vec<String>,
+    pub topics: Vec<String>,
+}
+
+/// Fetch an article's summary, if it has one.
+pub async fn get_summary(pool: &PgPool, id: Uuid) -> Result<Option<ArticleSummary>> {
+    let row: Option<(Option<String>, Option<serde_json::Value>, Vec<String>)> = sqlx::query_as(
+        "SELECT summary, key_points, topics FROM articles \
+         WHERE id = $1 AND summarized_at IS NOT NULL",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(summary, key_points, topics)| ArticleSummary {
+        summary: summary.unwrap_or_default(),
+        key_points: key_points
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default(),
+        topics,
+    }))
+}
+
+/// Whether an article already has a summary.
+pub async fn is_summarized(pool: &PgPool, id: Uuid) -> Result<bool> {
+    let found: Option<i32> =
+        sqlx::query_scalar("SELECT 1 FROM articles WHERE id = $1 AND summarized_at IS NOT NULL")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(found.is_some())
+}
+
+/// Store a summary on a shared article, **first-writer-wins** (only if not
+/// already summarized). Returns whether this call wrote it.
+pub async fn set_summary(
+    pool: &PgPool,
+    id: Uuid,
+    summary: &str,
+    key_points: &[String],
+    topics: &[String],
+    model: &str,
+) -> Result<bool> {
+    let written: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE articles SET summary = $2, key_points = $3, topics = $4, summary_model = $5, \
+         summarized_at = now() WHERE id = $1 AND summarized_at IS NULL RETURNING id",
+    )
+    .bind(id)
+    .bind(summary)
+    .bind(serde_json::json!(key_points))
+    .bind(topics)
+    .bind(model)
+    .fetch_optional(pool)
+    .await?;
+    Ok(written.is_some())
+}
+
 /// Find an article by id.
 pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Article>> {
     let sql = format!("SELECT {ARTICLE_COLUMNS} FROM articles WHERE id = $1");

@@ -12,6 +12,7 @@
 //! encode per-user duplication of shared content. See `docs/ARCHITECTURE.md` §7.
 
 pub mod config;
+pub mod crypto;
 pub mod error;
 pub mod hash;
 pub mod secret;

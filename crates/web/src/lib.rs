@@ -8,6 +8,7 @@
 //! logout) with DB-backed sessions, and health/metrics. The reading UI and
 //! feature APIs arrive in later milestones per `docs/DEVELOPMENT_PLAN.md`.
 
+mod admin;
 pub mod auth;
 mod error;
 pub mod extract;
@@ -61,6 +62,7 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/bookmark", post(reader::bookmark))
         .route("/articles/{id}/unbookmark", post(reader::unbookmark))
         .route("/articles/{id}/feedback", post(reader::feedback))
+        .route("/articles/{id}/summarize", post(reader::summarize))
         .route("/feeds", get(feeds::page).post(feeds::add))
         .route("/feeds/refresh-all", post(feeds::refresh_all))
         .route("/feeds/{id}/refresh", post(feeds::refresh))
@@ -72,6 +74,7 @@ pub fn router(state: AppState) -> Router {
         .route("/searches/{id}/delete", post(saved::delete))
         .route("/notifications", get(saved::notifications_page))
         .route("/notifications/read", post(saved::mark_read))
+        .route("/admin/costs", get(admin::costs))
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
         .route("/settings/reset-learning", post(prefs::reset_learning))
         .route("/settings/tokens", get(tokens::list).post(tokens::create))

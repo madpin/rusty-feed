@@ -12,10 +12,11 @@ use tokio::time::Duration;
 use rustss_db::{agent_runs, jobs, Db, Job};
 use rustss_embed::Embedder;
 use rustss_feeds::SafeFetchClient;
+use rustss_llm::LlmClient;
 
 use crate::{
     Agent, AgentContext, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
-    PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent,
+    PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent, SummarizeArticleAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -29,7 +30,7 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 7] = [
+        let list: [Arc<dyn Agent>; 8] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
             Arc::new(ExtractContentAgent::default()),
@@ -37,6 +38,7 @@ impl Registry {
             Arc::new(PatternDecayAgent),
             Arc::new(SavedSearchScanAgent),
             Arc::new(SavedSearchMatchAgent::default()),
+            Arc::new(SummarizeArticleAgent::default()),
         ];
         for agent in list {
             registry.register(agent.name().to_string(), agent);
@@ -99,6 +101,7 @@ impl Worker {
         db: Db,
         fetch: SafeFetchClient,
         embedder: Arc<dyn Embedder>,
+        llm: Option<Arc<dyn LlmClient>>,
         config: WorkerConfig,
     ) -> Self {
         let mut registry = Registry::with_defaults();
@@ -109,6 +112,10 @@ impl Worker {
         registry.register(
             "saved_search_match",
             Arc::new(SavedSearchMatchAgent::new(embedder)),
+        );
+        registry.register(
+            "summarize_article",
+            Arc::new(SummarizeArticleAgent::new(llm)),
         );
         let ctx = AgentContext::new(db, fetch).with_embed_on_ingest(config.embed_on_ingest);
         Self {

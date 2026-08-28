@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{articles, bookmarks, feeds, patterns, read_articles};
+use rustss_db::{articles, bookmarks, feeds, jobs, patterns, read_articles};
 use rustss_search::personalize;
 use rustss_search::{extract_keywords, relevance_score, ExplicitFeedback};
 
@@ -74,6 +74,10 @@ struct ArticleTemplate {
     content: String, // sanitized HTML
     is_read: bool,
     is_bookmarked: bool,
+    summary: Option<String>,
+    key_points: Vec<String>,
+    topics: Vec<String>,
+    can_summarize: bool,
 }
 
 #[derive(Deserialize)]
@@ -363,6 +367,31 @@ fn estimate_reading_seconds(content: &str) -> f64 {
     words / 200.0 * 60.0
 }
 
+/// `POST /articles/{id}/summarize` — enqueue a (deduped) summary job.
+pub async fn summarize(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<ActionForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    authorize_action(&state, user.id, id).await?;
+    let dedup = format!("summarize:{id}");
+    jobs::enqueue(
+        state.db.pool(),
+        "summarize_article",
+        serde_json::json!({ "article_id": id, "user_id": user.id }),
+        Some(&dedup),
+        None,
+        3,
+    )
+    .await?;
+    Ok((jar, Redirect::to(&format!("/articles/{id}"))).into_response())
+}
+
 /// `GET /articles/{id}` — standalone reading view.
 pub async fn read(
     State(state): State<AppState>,
@@ -387,6 +416,12 @@ pub async fn read(
         .map(|f| f.name)
         .unwrap_or_default();
     let is_bookmarked = bookmarks::is_bookmarked(state.db.pool(), user.id, id).await?;
+    let stored_summary = articles::get_summary(state.db.pool(), id).await?;
+    let can_summarize = state.settings.summarization_enabled && stored_summary.is_none();
+    let (summary, key_points, topics) = match stored_summary {
+        Some(s) => (Some(s.summary), s.key_points, s.topics),
+        None => (None, Vec::new(), Vec::new()),
+    };
 
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = ArticleTemplate {
@@ -402,6 +437,10 @@ pub async fn read(
         is_read: prefs.auto_mark_read
             || read_articles::is_read(state.db.pool(), user.id, id).await?,
         is_bookmarked,
+        summary,
+        key_points,
+        topics,
+        can_summarize,
     }
     .render()
     .map(Html)

@@ -39,6 +39,26 @@
       <button type="submit" title="Less like this">👎</button>
     </form>
   </div>
+
+  {% if let Some(text) = summary %}
+  <div class="summary-box">
+    <h2>AI summary</h2>
+    <p>{{ text }}</p>
+    {% if !key_points.is_empty() %}
+    <ul>{% for p in key_points %}<li>{{ p }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if !topics.is_empty() %}
+    <p class="muted">Topics: {% for t in topics %}<span class="badge">{{ t }}</span> {% endfor %}</p>
+    {% endif %}
+  </div>
+  {% else if can_summarize %}
+  <form method="post" action="/articles/{{ id }}/summarize">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit">✨ Summarize</button>
+    <span class="muted">Queued in the background — refresh in a moment.</span>
+  </form>
+  {% endif %}
+
   <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}">
     {{ content|safe }}
   </div>

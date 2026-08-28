@@ -6,4 +6,20 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS LLM: OpenAI/Ollama clients, summarization, durable cost ledger."
+description = "RustSS LLM: OpenAI-compatible/Ollama client, summarization, cost."
+
+[dependencies]
+rustss-core = { workspace = true }
+rustss-db = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { workspace = true }
+wiremock = "0.6"

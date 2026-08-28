@@ -33,10 +33,21 @@ async fn main() -> anyhow::Result<()> {
         openai_base_url: config.openai_base_url.clone(),
     })
     .context("failed to build embedder")?;
+    let llm = rustss_llm::build_client(rustss_llm::LlmConfig {
+        provider: config.llm_provider,
+        model: config.llm_summary_model.clone(),
+        openai_api_key: config
+            .openai_api_key
+            .as_ref()
+            .map(|s| s.expose().to_string()),
+        openai_base_url: config.openai_base_url.clone(),
+        ollama_base_url: config.ollama_base_url.clone(),
+    });
     let worker = Worker::new(
         db,
         fetch,
         embedder,
+        llm,
         WorkerConfig {
             concurrency: config.feed_refresh_concurrency,
             embed_on_ingest: config.embedding_auto_generate,

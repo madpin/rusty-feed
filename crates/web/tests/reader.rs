@@ -368,6 +368,78 @@ async fn feedback_records_patterns_and_relevance_sort_works() {
 }
 
 #[tokio::test]
+async fn summarize_enqueues_a_job() {
+    use rustss_db::models::NewArticle;
+    use rustss_db::{articles, feeds, jobs, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "F",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let (article, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            guid: None,
+            title: "To summarize".into(),
+            author: None,
+            content: "long content here".into(),
+            excerpt: None,
+            image_url: None,
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Get a CSRF token from the article page.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{}", article.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+
+    let resp = app
+        .oneshot(
+            Request::post(format!("/articles/{}/summarize", article.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let dedup = format!("summarize:{}", article.id);
+    assert_eq!(jobs::count_active_by_dedup(pool, &dedup).await.unwrap(), 1);
+}
+
+#[tokio::test]
 async fn static_css_is_served() {
     // No DB needed — build a lazy-pool state.
     let db = Db::connect_lazy("postgres://u:p@localhost/none").unwrap();
