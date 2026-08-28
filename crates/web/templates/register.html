@@ -20,6 +20,12 @@
   </label>
   <button type="submit">Create account</button>
 </form>
+{% if !providers.is_empty() %}
+<p class="muted">or</p>
+{% for p in providers %}
+<p><a href="/auth/oauth/{{ p.slug }}">Continue with {{ p.name }}</a></p>
+{% endfor %}
+{% endif %}
 <p class="muted">Already have an account? <a href="/login">Sign in</a></p>
 {% endif %}
 {% endblock %}

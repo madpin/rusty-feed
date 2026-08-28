@@ -13,12 +13,15 @@ pub mod articles;
 pub mod error;
 pub mod feeds;
 pub mod models;
+pub mod oauth_accounts;
 pub mod sessions;
 pub mod subscriptions;
 pub mod users;
 
 pub use error::{DbError, Result};
-pub use models::{ApiToken, Article, Feed, NewArticle, Session, UpsertAction, User, UserFeed};
+pub use models::{
+    ApiToken, Article, Feed, NewArticle, OAuthAccount, Session, UpsertAction, User, UserFeed,
+};
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

@@ -79,6 +79,28 @@ pub struct AppConfig {
     #[serde(default)]
     pub registration_mode: RegistrationMode,
 
+    // ── OAuth providers (all optional) ──
+    #[serde(default)]
+    pub google_client_id: Option<String>,
+    #[serde(default)]
+    pub google_client_secret: Option<Secret>,
+    #[serde(default)]
+    pub github_client_id: Option<String>,
+    #[serde(default)]
+    pub github_client_secret: Option<Secret>,
+    #[serde(default)]
+    pub oauth_client_id: Option<String>,
+    #[serde(default)]
+    pub oauth_client_secret: Option<Secret>,
+    #[serde(default)]
+    pub oauth_auth_url: Option<String>,
+    #[serde(default)]
+    pub oauth_token_url: Option<String>,
+    #[serde(default)]
+    pub oauth_userinfo_url: Option<String>,
+    #[serde(default)]
+    pub oauth_provider_name: Option<String>,
+
     // ── Embeddings (one model per instance) ──
     #[serde(default)]
     pub embedding_provider: EmbeddingProvider,

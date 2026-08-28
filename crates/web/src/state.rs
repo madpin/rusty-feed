@@ -5,9 +5,33 @@ use std::time::Duration;
 
 use rustss_cache::Cache;
 use rustss_core::config::RegistrationMode;
+use rustss_core::Secret;
 use rustss_db::Db;
 
 use crate::ratelimit::RateLimiter;
+
+/// How a provider's userinfo response is shaped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    /// OIDC-style: userinfo returns `sub` + `email` (Google, generic OIDC).
+    Oidc,
+    /// GitHub: numeric `id`, and email may require the `/user/emails` endpoint.
+    GitHub,
+}
+
+/// A configured OAuth provider.
+#[derive(Debug, Clone)]
+pub struct OAuthProvider {
+    pub slug: String,
+    pub display_name: String,
+    pub client_id: String,
+    pub client_secret: Secret,
+    pub auth_url: String,
+    pub token_url: String,
+    pub userinfo_url: String,
+    pub scopes: String,
+    pub kind: ProviderKind,
+}
 
 /// Instance-level settings the web layer needs at request time.
 #[derive(Debug, Clone)]
@@ -16,8 +40,10 @@ pub struct AppSettings {
     pub registration_mode: RegistrationMode,
     /// Whether to mark cookies `Secure` (true when served over HTTPS).
     pub cookie_secure: bool,
-    /// Public base URL (used for absolute links).
+    /// Public base URL (used for absolute links and OAuth redirect URIs).
     pub base_url: String,
+    /// Configured OAuth providers (empty if none).
+    pub oauth_providers: Vec<OAuthProvider>,
 }
 
 impl Default for AppSettings {
@@ -26,6 +52,7 @@ impl Default for AppSettings {
             registration_mode: RegistrationMode::Open,
             cookie_secure: false,
             base_url: "http://localhost:8080".to_string(),
+            oauth_providers: Vec::new(),
         }
     }
 }

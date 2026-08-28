@@ -11,12 +11,13 @@
 pub mod auth;
 mod error;
 pub mod extract;
+pub mod oauth;
 pub mod ratelimit;
 mod state;
 mod tokens;
 
 pub use error::{AppError, Result};
-pub use state::{AppSettings, AppState};
+pub use state::{AppSettings, AppState, OAuthProvider, ProviderKind};
 
 use axum::extract::State;
 use axum::http::header;
@@ -38,6 +39,8 @@ pub fn router(state: AppState) -> Router {
             get(auth::handlers::register_page).post(auth::handlers::register_submit),
         )
         .route("/logout", post(auth::handlers::logout_submit))
+        .route("/auth/oauth/{provider}", get(oauth::start))
+        .route("/auth/oauth/{provider}/callback", get(oauth::callback))
         .route("/settings/tokens", get(tokens::list).post(tokens::create))
         .route("/settings/tokens/{id}/revoke", post(tokens::revoke))
         .route("/api/health", get(health))

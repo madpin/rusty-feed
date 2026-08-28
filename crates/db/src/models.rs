@@ -122,6 +122,19 @@ pub struct Session {
 pub(crate) const SESSION_COLUMNS: &str =
     "id, user_id, token_hash, created_at, last_used_at, expires_at";
 
+/// A linked third-party identity (OAuth). Minimal projection used at login.
+#[derive(Debug, Clone, FromRow)]
+pub struct OAuthAccount {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub provider: String,
+    pub provider_account_id: String,
+    pub created_at: OffsetDateTime,
+}
+
+pub(crate) const OAUTH_ACCOUNT_COLUMNS: &str =
+    "id, user_id, provider, provider_account_id, created_at";
+
 /// An app-specific API token (native API + GReader). Only the hash is stored.
 #[derive(Debug, Clone, FromRow)]
 pub struct ApiToken {

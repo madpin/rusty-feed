@@ -585,7 +585,7 @@ Effective value = first present of **feed → category → user prefs → system
 
 ## 15. Authentication & Authorization
 
-- **OAuth2** (`oauth2`): Google, GitHub, and a configurable Generic OAuth2/OIDC provider; standard code+PKCE flow; account linked in `oauth_accounts`.
+- **OAuth2/OIDC** (implemented directly over `reqwest`; FND-117): Google, GitHub, and a configurable generic OIDC provider; authorization-code flow with PKCE (S256) + `state` CSRF (both stashed in short-lived HTTP-only cookies between redirect and callback); profile fetched from userinfo; account linked in `oauth_accounts` (find-by-subject → match-by-email → create).
 - **Local accounts:** email + password hashed with **Argon2id**; optional email verification; registration mode (open/invite/closed) via admin/env; **first registered user becomes ADMIN** if none exists (self-host bootstrap).
 - **Sessions:** a small, dependency-light DB-backed scheme (FND-116) — the browser holds an opaque random token in a secure, HTTP-only, SameSite=Lax cookie; only its SHA-256 hash is stored in `sessions`, so a DB read never exposes live tokens. CSRF is a double-submit cookie token for cookie-auth mutations.
 - **Authorization:** role checks (`ADMIN|USER|GUEST`) via an extractor/middleware; every data query is **scoped by `user_id`** for per-user tables; shared-content reads require an active subscription where appropriate. Admin routes gated server-side.

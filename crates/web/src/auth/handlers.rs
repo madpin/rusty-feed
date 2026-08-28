@@ -25,11 +25,31 @@ struct HomeTemplate {
     csrf_token: String,
 }
 
+/// A configured OAuth provider, for rendering "Continue with …" buttons.
+#[derive(Clone)]
+struct ProviderButton {
+    slug: String,
+    name: String,
+}
+
+fn provider_buttons(state: &AppState) -> Vec<ProviderButton> {
+    state
+        .settings
+        .oauth_providers
+        .iter()
+        .map(|p| ProviderButton {
+            slug: p.slug.clone(),
+            name: p.display_name.clone(),
+        })
+        .collect()
+}
+
 #[derive(Template)]
 #[template(path = "login.html")]
 struct LoginTemplate {
     error: Option<String>,
     csrf_token: String,
+    providers: Vec<ProviderButton>,
 }
 
 #[derive(Template)]
@@ -38,6 +58,7 @@ struct RegisterTemplate {
     error: Option<String>,
     csrf_token: String,
     registration_open: bool,
+    providers: Vec<ProviderButton>,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +116,7 @@ pub async fn login_page(
     let body = render(&LoginTemplate {
         error: None,
         csrf_token,
+        providers: provider_buttons(&state),
     })?;
     Ok((jar, body).into_response())
 }
@@ -128,6 +150,7 @@ pub async fn login_submit(
     let body = render(&LoginTemplate {
         error: Some("Invalid email or password.".to_string()),
         csrf_token,
+        providers: provider_buttons(&state),
     })?;
     Ok((jar, body).into_response())
 }
@@ -147,6 +170,7 @@ pub async fn register_page(
         error: None,
         csrf_token,
         registration_open: open,
+        providers: provider_buttons(&state),
     })?;
     Ok((jar, body).into_response())
 }
@@ -169,6 +193,7 @@ pub async fn register_submit(
     let user_count = users::count(state.db.pool()).await?;
     let bootstrap = user_count == 0; // first user always allowed + becomes admin
     let allowed = matches!(state.settings.registration_mode, RegistrationMode::Open) || bootstrap;
+    let providers = provider_buttons(&state);
 
     // Helper to re-render the form with an error message.
     let reshow = |jar: CookieJar, message: &str| -> Result<Response, AppError> {
@@ -177,6 +202,7 @@ pub async fn register_submit(
             error: Some(message.to_string()),
             csrf_token,
             registration_open: true,
+            providers: providers.clone(),
         })?;
         Ok((jar, body).into_response())
     };
@@ -187,6 +213,7 @@ pub async fn register_submit(
             error: None,
             csrf_token,
             registration_open: false,
+            providers: providers.clone(),
         })?;
         return Ok((jar, body).into_response());
     }

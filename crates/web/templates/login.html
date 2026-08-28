@@ -13,5 +13,11 @@
   </label>
   <button type="submit">Sign in</button>
 </form>
+{% if !providers.is_empty() %}
+<p class="muted">or</p>
+{% for p in providers %}
+<p><a href="/auth/oauth/{{ p.slug }}">Continue with {{ p.name }}</a></p>
+{% endfor %}
+{% endif %}
 <p class="muted">No account? <a href="/register">Register</a></p>
 {% endblock %}

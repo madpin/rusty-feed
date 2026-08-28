@@ -11,7 +11,7 @@ use anyhow::Context;
 use rustss_cache::{Cache, CacheConfig};
 use rustss_core::AppConfig;
 use rustss_db::Db;
-use rustss_web::{AppSettings, AppState};
+use rustss_web::{AppSettings, AppState, OAuthProvider, ProviderKind};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -46,10 +46,16 @@ async fn main() -> anyhow::Result<()> {
     .await;
 
     let base_url = config.base_url();
+    let oauth_providers = build_oauth_providers(&config);
+    if !oauth_providers.is_empty() {
+        let names: Vec<&str> = oauth_providers.iter().map(|p| p.slug.as_str()).collect();
+        tracing::info!("OAuth providers enabled: {}", names.join(", "));
+    }
     let settings = AppSettings {
         registration_mode: config.registration_mode,
         cookie_secure: base_url.starts_with("https://"),
         base_url,
+        oauth_providers,
     };
 
     let state = AppState::new(db, cache, settings, move || metrics.render());
@@ -71,6 +77,65 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("shutdown complete");
     Ok(())
+}
+
+/// Assemble the enabled OAuth providers from configuration.
+fn build_oauth_providers(config: &AppConfig) -> Vec<OAuthProvider> {
+    use rustss_core::Secret;
+    let mut providers = Vec::new();
+
+    if let (Some(id), Some(secret)) = (&config.google_client_id, &config.google_client_secret) {
+        providers.push(OAuthProvider {
+            slug: "google".to_string(),
+            display_name: "Google".to_string(),
+            client_id: id.clone(),
+            client_secret: Secret::new(secret.expose()),
+            auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+            token_url: "https://oauth2.googleapis.com/token".to_string(),
+            userinfo_url: "https://openidconnect.googleapis.com/v1/userinfo".to_string(),
+            scopes: "openid email profile".to_string(),
+            kind: ProviderKind::Oidc,
+        });
+    }
+
+    if let (Some(id), Some(secret)) = (&config.github_client_id, &config.github_client_secret) {
+        providers.push(OAuthProvider {
+            slug: "github".to_string(),
+            display_name: "GitHub".to_string(),
+            client_id: id.clone(),
+            client_secret: Secret::new(secret.expose()),
+            auth_url: "https://github.com/login/oauth/authorize".to_string(),
+            token_url: "https://github.com/login/oauth/access_token".to_string(),
+            userinfo_url: "https://api.github.com/user".to_string(),
+            scopes: "read:user user:email".to_string(),
+            kind: ProviderKind::GitHub,
+        });
+    }
+
+    if let (Some(id), Some(secret), Some(auth), Some(token), Some(userinfo)) = (
+        &config.oauth_client_id,
+        &config.oauth_client_secret,
+        &config.oauth_auth_url,
+        &config.oauth_token_url,
+        &config.oauth_userinfo_url,
+    ) {
+        providers.push(OAuthProvider {
+            slug: "oauth".to_string(),
+            display_name: config
+                .oauth_provider_name
+                .clone()
+                .unwrap_or_else(|| "SSO".to_string()),
+            client_id: id.clone(),
+            client_secret: Secret::new(secret.expose()),
+            auth_url: auth.clone(),
+            token_url: token.clone(),
+            userinfo_url: userinfo.clone(),
+            scopes: "openid email profile".to_string(),
+            kind: ProviderKind::Oidc,
+        });
+    }
+
+    providers
 }
 
 /// Wait for Ctrl-C or SIGTERM for graceful shutdown.

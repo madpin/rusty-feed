@@ -20,6 +20,13 @@ pub fn sha256_hex(data: &[u8]) -> String {
     hex_encode(&hasher.finalize())
 }
 
+/// Raw SHA-256 digest of arbitrary bytes (e.g. for PKCE code challenges).
+pub fn sha256_bytes(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
 /// Encode bytes as a lowercase hex string (e.g. for random opaque tokens).
 pub fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
