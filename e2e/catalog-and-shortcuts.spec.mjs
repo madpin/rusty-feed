@@ -29,6 +29,7 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await expect(page.getByRole("status").filter({ hasText: "Subscribed to 2 source" })).toBeVisible();
 
   await page.goto("/feeds");
+  await expect(page.getByText(/Last updated:/).first()).toBeVisible();
   await page.getByLabel("Folder name").fill("Browser folder");
   await page.getByRole("button", { name: "Create folder" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Browser folder" })).toBeVisible();

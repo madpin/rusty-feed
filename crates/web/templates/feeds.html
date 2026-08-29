@@ -80,6 +80,7 @@
           <span class="badge health-{{ f.health }}">{{ f.health }}</span>
           <span class="badge content-mode-{{ f.content_mode }}">{{ f.content_mode_label }}</span>
           <div class="meta">{{ f.refresh_cadence }} · {{ f.url }}</div>
+          <div class="feed-update-meta"{% if let Some(updated_at) = f.last_updated_at %} title="Last successful update: {{ updated_at }}"{% endif %}>Last updated: {{ f.last_updated }}</div>
           <div class="feed-organization-meta">Folder: {{ f.folder_name }}</div>
           {% if !f.tags.is_empty() %}<div class="feed-tags">{% for tag in f.tags %}<span class="badge">#{{ tag }}</span>{% endfor %}</div>{% endif %}
         </div>

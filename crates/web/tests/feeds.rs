@@ -179,6 +179,20 @@ async fn add_feed_ingests_and_shows_articles() {
         .await
         .unwrap();
 
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let feeds_page = body_string(response).await;
+    assert!(feeds_page.contains("Last updated: just now"));
+    assert!(feeds_page.contains("Last successful update:"));
+
     // They show up in the reader.
     let resp = app
         .clone()

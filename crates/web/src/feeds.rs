@@ -33,6 +33,8 @@ struct FeedRow {
     content_mode: String,
     content_mode_label: String,
     refresh_cadence: String,
+    last_updated: String,
+    last_updated_at: Option<String>,
     tags: Vec<String>,
     tags_input: String,
     tag_choices: Vec<TagChoice>,
@@ -162,6 +164,24 @@ fn refresh_cadence(feed: &Feed) -> String {
         "Retry weekly while the feed is failing".to_string()
     } else {
         "Retry daily while the feed is failing".to_string()
+    }
+}
+
+fn last_updated_label(updated_at: Option<OffsetDateTime>, now: OffsetDateTime) -> String {
+    let Some(updated_at) = updated_at else {
+        return "Not updated yet".to_string();
+    };
+    let elapsed = (now - updated_at).whole_seconds().max(0);
+    if elapsed < 60 {
+        "just now".to_string()
+    } else if elapsed < Duration::HOUR.whole_seconds() {
+        format!("{} min ago", elapsed / 60)
+    } else if elapsed < Duration::DAY.whole_seconds() {
+        format!("{} hr ago", elapsed / Duration::HOUR.whole_seconds())
+    } else if elapsed < Duration::WEEK.whole_seconds() {
+        format!("{} days ago", elapsed / Duration::DAY.whole_seconds())
+    } else {
+        updated_at.date().to_string()
     }
 }
 
@@ -300,6 +320,10 @@ fn feed_row(
         })
         .collect();
     let refresh_cadence = refresh_cadence(&feed);
+    let last_updated = last_updated_label(feed.last_successful_fetch_at, OffsetDateTime::now_utc());
+    let last_updated_at = feed
+        .last_successful_fetch_at
+        .map(|updated_at| updated_at.to_string());
     FeedRow {
         id: feed.id.to_string(),
         initial: feed_initial(&feed.name),
@@ -309,6 +333,8 @@ fn feed_row(
         content_mode: settings.mode.as_str().to_string(),
         content_mode_label: settings.mode.label().to_string(),
         refresh_cadence,
+        last_updated,
+        last_updated_at,
         tags,
         tags_input,
         tag_choices,
