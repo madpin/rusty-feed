@@ -50,7 +50,7 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 - Per-user personalization (TF keyword patterns, sigmoid relevance scoring, time-decay)
 - Saved searches with a boolean+semantic DSL (`AND`/`OR`/`NOT`/phrases/groups) and match notifications
 - On-demand LLM article summaries from the Library or reader (summary + key points + topics), with a provider cascade and cost tracking
-- Feed magazine: 70 verified starter sources across news, technology, research, science, security, public-interest, and culture; automatic country/category/language filtering, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
+- Feed magazine: 97 verified starter sources across news, technology, research, science, security, public-interest, and culture; automatic country/category/language filtering, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
 - Personal feed organization: nested folder tree, one folder per feed, multi-valued tags, category/tag-scoped reading, downloaded source icons, and a reduced sidebar mode
 - Feed health tracking (healthy/warning/error/manual-disabled): normal cadence for 1–2 failures, daily after 3, weekly after 14 failing days, resolved structured error history, and last-successful-update timestamps
 - Three reading modes (side panel / inline / standalone), original and RSS-comment links, themes, deep typography/display preferences, and arrow-key-first shortcuts
@@ -109,7 +109,7 @@ docker compose --env-file .env -f docker/compose.yaml up -d  # full stack
 open http://localhost:8080
 ```
 
-The first account you register becomes the **admin**. New users can choose any mix of curated magazine sources or add their own feed URL.
+The first account you register becomes the **admin**. New users can choose from 97 curated magazine sources with country and language filters, or add their own feed URL.
 
 ### Develop locally
 

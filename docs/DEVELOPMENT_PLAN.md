@@ -281,7 +281,7 @@ DoD commit: `feat(llm): summarization + durable cost ledger + unified secrets`.
 **Refs:** ARCH §9.1, §17; PRD §5.2/§5.9/§5.11/§5.13; FND-105.
 
 Tasks:
-- [x] Curated feed magazine: 70 starter sources, country/category/language facets, automatic facet filtering, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
+- [x] Curated feed magazine: 97 starter sources, country/category/language facets, automatic facet filtering, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
 - [x] Configurable keyboard shortcuts: arrow-key-first defaults, capture/reset controls, server-side validation, and safe Library article/feed actions.
 - [x] Personal feed organization: nested folder tree, one current folder per feed, normalized multi-valued tags, scoped Library/mark-all-read filters, cached source icons, and a persisted reduced sidebar.
 - [x] Feed health baseline: structured safe failure history, one-attempt health cycles, daily checks after three failures, weekly checks after 14 failing days, manual-disabled preservation, and an admin operations viewer. Notifications and explicit pause/reset controls remain with bulk operations.

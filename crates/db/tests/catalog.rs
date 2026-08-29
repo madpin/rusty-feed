@@ -69,11 +69,28 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
     let starters = catalog::list_published_for_user(pool, user.id, None, None, None)
         .await
         .unwrap();
-    assert!(starters.len() >= 70);
+    assert!(starters.len() >= 97);
     assert!(starters.iter().any(|entry| entry.title == "Go Blog"));
     assert!(starters
         .iter()
         .any(|entry| entry.title == "Al Jazeera English"));
+    for (country, language, title) in [
+        ("Brazil", "pt", "Agência Brasil — Últimas"),
+        ("South Africa", "en", "GroundUp News"),
+        ("Spain", "es", "Xataka"),
+        ("Argentina", "es", "Chequeado"),
+        ("Germany", "de", "netzpolitik.org"),
+        ("Hungary", "hu", "Telex — Legfrissebb"),
+        ("Poland", "pl", "OKO.press"),
+        ("Russia", "ru", "Meduza"),
+    ] {
+        assert!(
+            starters.iter().any(|entry| {
+                entry.country == country && entry.language == language && entry.title == title
+            }),
+            "missing curated source for {country}"
+        );
+    }
 
     let base = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
     let bodies = ["short", "medium length", "longer RSS body"];

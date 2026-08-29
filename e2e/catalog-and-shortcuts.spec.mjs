@@ -14,12 +14,16 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await page.goto("/catalog");
   await expect(page.getByRole("heading", { name: "Discover feeds" })).toBeVisible();
   await expect(page.getByText("Add your own feed URL")).toBeVisible();
-  expect(await page.locator(".catalog-card").count()).toBeGreaterThanOrEqual(70);
+  expect(await page.locator(".catalog-card").count()).toBeGreaterThanOrEqual(97);
   await expect(page.getByText("Go Blog")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Al Jazeera English" })).toBeVisible();
   await page.getByLabel("Category").selectOption("Culture & Arts");
   await expect(page).toHaveURL(/category=Culture/);
   await expect(page.getByRole("heading", { name: "Smithsonian Arts and Culture" })).toBeVisible();
+  await page.goto("/catalog");
+  await page.getByLabel("Country").selectOption("Brazil");
+  await expect(page).toHaveURL(/country=Brazil/);
+  await expect(page.getByRole("heading", { name: "Agência Brasil — Últimas" })).toBeVisible();
   await page.goto("/catalog");
   const goBlogCard = page.locator(".catalog-card").filter({
     has: page.getByRole("heading", { name: "Go Blog" }),
