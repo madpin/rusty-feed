@@ -97,6 +97,7 @@ async fn article_ingest_is_idempotent_and_updates_on_change() {
     let mut new = NewArticle {
         feed_id: feed.id,
         url: article_url.clone(),
+        comments_url: None,
         guid: Some(unique("guid")),
         title: "Original title".into(),
         author: Some("Reporter".into()),
@@ -148,6 +149,7 @@ async fn extracted_content_survives_unchanged_refresh_and_stale_write_is_rejecte
     let mut incoming = NewArticle {
         feed_id: feed.id,
         url: format!("https://example.com/{}", unique("article")),
+        comments_url: None,
         guid: Some(unique("guid")),
         title: "Source title".to_string(),
         author: None,
@@ -185,6 +187,19 @@ async fn extracted_content_survives_unchanged_refresh_and_stale_write_is_rejecte
     assert_eq!(unchanged.content, "Full public page body");
     assert_eq!(unchanged.content_source, "article_page");
     assert_eq!(unchanged.feed_content.as_deref(), Some("RSS fallback v1"));
+    incoming.comments_url = Some("https://news.ycombinator.com/item?id=42".to_string());
+    let (metadata_only, action) = articles::upsert(pool, &incoming).await.unwrap();
+    assert_eq!(action, UpsertAction::Updated);
+    assert_eq!(metadata_only.content, "Full public page body");
+    assert_eq!(metadata_only.content_revision, extracted_revision);
+    assert_eq!(
+        metadata_only.comments_url.as_deref(),
+        Some("https://news.ycombinator.com/item?id=42")
+    );
+    assert!(articles::get_summary(pool, metadata_only.id)
+        .await
+        .unwrap()
+        .is_some());
     assert_eq!(
         articles::set_extracted_content(
             pool,
@@ -234,6 +249,7 @@ async fn unsubscribe_removes_only_personal_state() {
         &NewArticle {
             feed_id: feed.id,
             url: article_url.clone(),
+            comments_url: None,
             guid: None,
             title: "Post".into(),
             author: None,

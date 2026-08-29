@@ -24,6 +24,13 @@ fn rss(run: &str) -> String {
     )
 }
 
+fn rss_with_comments(run: &str, comments_url: &str) -> String {
+    rss(run).replace(
+        "<description>First</description>",
+        &format!("<comments>{comments_url}</comments><description>First</description>"),
+    )
+}
+
 fn rss_with_icon(run: &str, icon_url: &str) -> String {
     rss(run).replace(
         "<item><title>One</title>",
@@ -128,6 +135,88 @@ async fn refresh_ingests_articles() {
         .await
         .unwrap();
     assert_eq!(arts.len(), 2);
+}
+
+#[tokio::test]
+async fn refresh_persists_a_distinct_rss_comments_link() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let run = uuid::Uuid::now_v7().to_string();
+    let server = MockServer::start().await;
+    let comments_url = "https://news.ycombinator.com/item?id=123";
+    Mock::given(method("GET"))
+        .and(path("/feed.xml"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(rss_with_comments(&run, comments_url)),
+        )
+        .mount(&server)
+        .await;
+    let (feed, _) = rustss_db::feeds::upsert_by_url(
+        db.pool(),
+        &format!("{}/feed.xml?run={run}", server.uri()),
+        "Mock News",
+        None,
+    )
+    .await
+    .unwrap();
+    let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
+    refresh_feed(&db, &client, &feed).await.unwrap();
+    let articles = rustss_db::articles::list_for_feed(db.pool(), feed.id, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        articles
+            .iter()
+            .find_map(|article| article.comments_url.as_deref()),
+        Some(comments_url)
+    );
+}
+
+#[tokio::test]
+async fn refresh_records_a_safe_parse_failure() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/feed.xml"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not a feed"))
+        .mount(&server)
+        .await;
+    let token = "RAW_QUERY_TOKEN_SENTINEL";
+    let (feed, _) = rustss_db::feeds::upsert_by_url(
+        db.pool(),
+        &format!("{}/feed.xml?token={token}", server.uri()),
+        "Broken feed",
+        None,
+    )
+    .await
+    .unwrap();
+    let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
+    assert!(refresh_feed(&db, &client, &feed).await.is_err());
+    let stored = rustss_db::feeds::find_by_id(db.pool(), feed.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.health_status, "warning");
+    assert_eq!(
+        stored.last_error.as_deref(),
+        Some("Feed response could not be parsed")
+    );
+    let event = rustss_db::feeds::list_recent_errors(db.pool(), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.feed_id == feed.id)
+        .unwrap();
+    assert_eq!(event.error_type, "parse");
 }
 
 #[tokio::test]

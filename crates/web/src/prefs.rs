@@ -64,11 +64,11 @@ fn default_shortcuts_enabled() -> bool {
 }
 
 fn default_next_article() -> String {
-    "j".to_string()
+    "ArrowDown".to_string()
 }
 
 fn default_previous_article() -> String {
-    "k".to_string()
+    "ArrowUp".to_string()
 }
 
 fn default_save_article() -> String {
@@ -80,11 +80,11 @@ fn default_mark_unread() -> String {
 }
 
 fn default_next_feed() -> String {
-    "]".to_string()
+    "ArrowRight".to_string()
 }
 
 fn default_previous_feed() -> String {
-    "[".to_string()
+    "ArrowLeft".to_string()
 }
 
 impl Default for KeyboardShortcuts {
@@ -537,6 +537,6 @@ mod tests {
         .unwrap();
         assert!(partial.enabled);
         assert_eq!(partial.next_article, "ArrowDown");
-        assert_eq!(partial.previous_article, "k");
+        assert_eq!(partial.previous_article, "ArrowUp");
     }
 }

@@ -9,6 +9,7 @@
   <div class="reader-meta">
     {% if let Some(when) = published %}{{ when }} · {% endif %}
     <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
+    {% if let Some(comments_url) = comments_url %} · <a href="{{ comments_url }}" target="_blank" rel="noopener noreferrer">Open comments</a>{% endif %}
   </div>
   {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
   {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
@@ -38,14 +39,14 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="up" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" class="feedback-button" data-feedback-button="up" aria-pressed="{% if is_liked %}true{% else %}false{% endif %}">More like this</button>
+      <button type="submit" class="feedback-button" data-feedback-button="up" aria-label="More like this" title="More like this" aria-pressed="{% if is_liked %}true{% else %}false{% endif %}">👍</button>
     </form>
     <form method="post" class="js-action" action="/articles/{{ id }}/feedback"
           data-target="#article-{{ id }}" data-feedback-value="down" data-success-message="RustSS will show you fewer articles like this.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="down" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" class="feedback-button" data-feedback-button="down" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">Less like this</button>
+      <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">👎</button>
     </form>
   </div>
 

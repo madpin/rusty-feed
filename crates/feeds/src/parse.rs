@@ -1,12 +1,98 @@
 //! Parse RSS/Atom/JSON feeds (via `feed-rs`) into ingestable articles.
 
+use feed_rs::model::FeedType;
 use feed_rs::parser;
+use quick_xml::escape::unescape;
+use quick_xml::events::Event;
+use quick_xml::Reader;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use rustss_db::models::NewArticle;
 
 use crate::error::FeedError;
+
+fn safe_comments_url(value: &str) -> Option<String> {
+    let mut url = url::Url::parse(value.trim()).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
+fn scan_rss2_comments(bytes: &[u8]) -> Result<Vec<Option<String>>, FeedError> {
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().trim_text(true);
+    let mut buffer = Vec::new();
+    let mut depth = 0usize;
+    let mut item_depth = None;
+    let mut comments_depth = None;
+    let mut comment = String::new();
+    let mut result = Vec::new();
+    loop {
+        match reader
+            .read_event_into(&mut buffer)
+            .map_err(|_| FeedError::Parse("Could not read RSS comment links".to_string()))?
+        {
+            Event::Start(event) => {
+                depth += 1;
+                if item_depth.is_none() && event.name().as_ref() == b"item" {
+                    item_depth = Some(depth);
+                    result.push(None);
+                } else if item_depth.is_some_and(|item_depth| depth == item_depth + 1)
+                    && event.name().as_ref() == b"comments"
+                {
+                    comments_depth = Some(depth);
+                    comment.clear();
+                }
+            }
+            Event::Text(text) if comments_depth.is_some() => {
+                let text = text.xml10_content().map_err(|_| {
+                    FeedError::Parse("Could not decode RSS comment links".to_string())
+                })?;
+                comment.push_str(&text);
+            }
+            Event::GeneralRef(reference) if comments_depth.is_some() => {
+                let reference = reference.xml10_content().map_err(|_| {
+                    FeedError::Parse("Could not decode RSS comment links".to_string())
+                })?;
+                let escaped = format!("&{reference};");
+                let text = unescape(&escaped).map_err(|_| {
+                    FeedError::Parse("Could not decode RSS comment links".to_string())
+                })?;
+                comment.push_str(&text);
+            }
+            Event::CData(text) if comments_depth.is_some() => {
+                let text = text.xml10_content().map_err(|_| {
+                    FeedError::Parse("Could not decode RSS comment links".to_string())
+                })?;
+                comment.push_str(&text);
+            }
+            Event::End(event) => {
+                if comments_depth == Some(depth) && event.name().as_ref() == b"comments" {
+                    if let Some(slot) = result.last_mut() {
+                        *slot = safe_comments_url(&comment);
+                    }
+                    comments_depth = None;
+                }
+                if item_depth == Some(depth) && event.name().as_ref() == b"item" {
+                    item_depth = None;
+                    comments_depth = None;
+                }
+                depth = depth.saturating_sub(1);
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buffer.clear();
+    }
+    Ok(result)
+}
 
 /// A parsed feed: its metadata plus the articles ready to upsert.
 pub struct ParsedFeed {
@@ -19,6 +105,17 @@ pub struct ParsedFeed {
 /// Parse feed bytes for the given (already-created) feed id.
 pub fn parse_feed(feed_id: Uuid, bytes: &[u8]) -> Result<ParsedFeed, FeedError> {
     let feed = parser::parse(bytes).map_err(|e| FeedError::Parse(e.to_string()))?;
+    let comments_by_item = if matches!(feed.feed_type, FeedType::RSS2) {
+        let comments = scan_rss2_comments(bytes)?;
+        if comments.len() != feed.entries.len() {
+            return Err(FeedError::Parse(
+                "RSS item/comment link alignment mismatch".to_string(),
+            ));
+        }
+        Some(comments)
+    } else {
+        None
+    };
 
     let title = feed.title.map(|t| t.content).filter(|s| !s.is_empty());
     let site_url = feed
@@ -35,7 +132,19 @@ pub fn parse_feed(feed_id: Uuid, bytes: &[u8]) -> Result<ParsedFeed, FeedError> 
         .filter(|url| !url.trim().is_empty());
 
     let mut articles = Vec::new();
-    for entry in feed.entries {
+    for (index, entry) in feed.entries.into_iter().enumerate() {
+        let comments_url = comments_by_item
+            .as_ref()
+            .and_then(|comments| comments.get(index))
+            .cloned()
+            .flatten()
+            .or_else(|| {
+                entry
+                    .links
+                    .iter()
+                    .find(|link| link.rel.as_deref() == Some("replies"))
+                    .and_then(|link| safe_comments_url(&link.href))
+            });
         // A stable, unique URL is required (it is the global dedup key).
         let Some(url) = entry
             .links
@@ -90,6 +199,7 @@ pub fn parse_feed(feed_id: Uuid, bytes: &[u8]) -> Result<ParsedFeed, FeedError> 
         articles.push(NewArticle {
             feed_id,
             url,
+            comments_url,
             guid: (!entry.id.is_empty()).then(|| entry.id.clone()),
             title,
             author,
@@ -164,6 +274,24 @@ mod tests {
         assert_eq!(a.title, "First Post");
         assert_eq!(a.guid.as_deref(), Some("guid-1"));
         assert_eq!(a.excerpt.as_deref(), Some("Hello world"));
+    }
+
+    #[test]
+    fn preserves_rss_comments_links_without_replacing_original_urls() {
+        let rss = br#"<?xml version="1.0"?><rss version="2.0" xmlns:slash="http://purl.org/rss/1.0/modules/slash/"><channel>
+          <title>Hacker News</title>
+          <item><title>First</title><link>https://example.com/first</link><description>First</description></item>
+          <item><title>Second</title><link>https://example.com/second</link><comments>https://news.ycombinator.com/item?id=123&amp;source=rss</comments><slash:comments>42</slash:comments><description>Second</description></item>
+        </channel></rss>"#;
+        let parsed = parse_feed(Uuid::now_v7(), rss).unwrap();
+        assert_eq!(parsed.articles[0].url, "https://example.com/first");
+        assert_eq!(parsed.articles[0].comments_url, None);
+        assert_eq!(parsed.articles[1].url, "https://example.com/second");
+        assert_eq!(
+            parsed.articles[1].comments_url.as_deref(),
+            Some("https://news.ycombinator.com/item?id=123&source=rss")
+        );
+        assert_eq!(safe_comments_url("javascript:alert(1)"), None);
     }
 
     #[test]

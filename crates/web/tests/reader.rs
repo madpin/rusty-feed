@@ -284,6 +284,7 @@ async fn reading_actions_and_detail_work() {
         &NewArticle {
             feed_id: feed.id,
             url: art_url,
+            comments_url: Some("https://news.ycombinator.com/item?id=42".to_string()),
             guid: Some(uuid::Uuid::now_v7().to_string()),
             title: "Hello World Article".into(),
             author: None,
@@ -404,6 +405,8 @@ async fn reading_actions_and_detail_work() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains("Hello World Article"));
+    assert!(body.contains("Open comments"));
+    assert!(body.contains("https://news.ycombinator.com/item?id=42"));
     assert!(body.contains("Body text"));
     assert!(body.contains("https://ex.com/cover.png"));
     assert!(
@@ -426,6 +429,7 @@ async fn reading_actions_and_detail_work() {
     assert!(panel.contains("data-panel-article"));
     assert!(panel.contains("data-panel-read=\"true\""));
     assert!(panel.contains("Hello World Article"));
+    assert!(panel.contains("Open comments"));
 }
 
 #[tokio::test]
@@ -458,6 +462,7 @@ async fn feedback_records_patterns_and_relevance_sort_works() {
         &NewArticle {
             feed_id: feed.id,
             url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
             guid: None,
             title: "Async Rust Concurrency".into(),
             author: None,
@@ -514,7 +519,7 @@ async fn feedback_records_patterns_and_relevance_sort_works() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains("Async Rust Concurrency"));
-    assert!(body.contains("for you"));
+    assert!(body.contains("Personalized"));
 }
 
 #[tokio::test]
@@ -547,6 +552,7 @@ async fn summarize_enqueues_a_job() {
         &NewArticle {
             feed_id: feed.id,
             url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
             guid: None,
             title: "To summarize".into(),
             author: None,

@@ -62,9 +62,9 @@ pub async fn upsert_by_url(
     }
 }
 
-/// List feeds due for a refresh, system-wide (not per-user): not disabled, and
-/// either never fetched, past its `fetch_interval_minutes`, or due for a weekly
-/// icon attempt. Ordered oldest first. This is what makes refresh O(1) per shared feed.
+/// List feeds due for a refresh, system-wide (not per-user): either never fetched,
+/// past the health-aware cadence, or due for a weekly icon attempt. Ordered oldest
+/// first. This is what makes refresh O(1) per shared feed.
 pub async fn list_due(pool: &PgPool, limit: i64) -> Result<Vec<Feed>> {
     let sql = format!(
         "SELECT {FEED_COLUMNS} FROM feeds \
@@ -73,9 +73,13 @@ pub async fn list_due(pool: &PgPool, limit: i64) -> Result<Vec<Feed>> {
                 OR EXISTS (SELECT 1 FROM feed_catalog_entries ce \
                            WHERE ce.feed_id = feeds.id AND ce.published)) \
            AND (last_fetched_at IS NULL \
-                OR last_fetched_at + make_interval(mins => fetch_interval_minutes) <= now() \
-                OR NOT EXISTS (SELECT 1 FROM feed_icons fi WHERE fi.feed_id = feeds.id \
-                    AND fi.last_attempt_at > now() - interval '7 days')) \
+                OR last_fetched_at + make_interval(mins => CASE \
+                    WHEN consecutive_failures >= 3 AND failure_started_at <= now() - interval '14 days' \
+                        THEN greatest(fetch_interval_minutes, 10080) \
+                    WHEN consecutive_failures >= 3 THEN greatest(fetch_interval_minutes, 1440) \
+                    ELSE fetch_interval_minutes END) <= now() \
+                OR (consecutive_failures = 0 AND NOT EXISTS (SELECT 1 FROM feed_icons fi \
+                    WHERE fi.feed_id = feeds.id AND fi.last_attempt_at > now() - interval '7 days'))) \
          ORDER BY last_fetched_at ASC NULLS FIRST \
          LIMIT $1"
     );
@@ -110,10 +114,68 @@ pub struct AdminFeed {
     pub url: String,
     pub health_status: String,
     pub fetch_interval_minutes: i32,
+    pub consecutive_failures: i32,
+    pub failure_started_at: Option<time::OffsetDateTime>,
     pub extraction_settings: Option<Json>,
     pub subscriber_count: i64,
     pub article_count: i64,
     pub last_post_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FeedErrorEvent {
+    pub feed_id: Uuid,
+    pub feed_name: String,
+    pub occurred_at: time::OffsetDateTime,
+    pub error_type: String,
+    pub http_status: Option<i32>,
+    pub health_status: String,
+    pub consecutive_failures: i32,
+    pub resolved: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FetchFailure {
+    Network,
+    InvalidUrl,
+    UnsupportedScheme,
+    ResponseTooLarge,
+    Http(i32),
+    Parse,
+    Database,
+}
+
+impl FetchFailure {
+    fn error_type(self) -> &'static str {
+        match self {
+            Self::Network => "network",
+            Self::InvalidUrl => "invalid_url",
+            Self::UnsupportedScheme => "unsupported_scheme",
+            Self::ResponseTooLarge => "response_too_large",
+            Self::Http(_) => "http",
+            Self::Parse => "parse",
+            Self::Database => "database",
+        }
+    }
+
+    fn summary(self) -> String {
+        match self {
+            Self::Network => "Network request failed".to_string(),
+            Self::InvalidUrl => "Feed URL was rejected".to_string(),
+            Self::UnsupportedScheme => "Feed URL scheme is unsupported".to_string(),
+            Self::ResponseTooLarge => "Feed response exceeded the size limit".to_string(),
+            Self::Http(status) => format!("HTTP {status}"),
+            Self::Parse => "Feed response could not be parsed".to_string(),
+            Self::Database => "Feed state update failed".to_string(),
+        }
+    }
+
+    fn http_status(self) -> Option<i32> {
+        match self {
+            Self::Http(status) => Some(status),
+            _ => None,
+        }
+    }
 }
 
 pub async fn count(pool: &PgPool) -> Result<i64> {
@@ -125,13 +187,26 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
 pub async fn list_admin(pool: &PgPool, limit: i64) -> Result<Vec<AdminFeed>> {
     Ok(sqlx::query_as(
         "SELECT f.id, f.name, f.url, f.health_status, f.fetch_interval_minutes, \
-           f.extraction_settings, s.subscriber_count, a.article_count, a.last_post_at \
+           f.consecutive_failures, f.failure_started_at, f.extraction_settings, \
+           s.subscriber_count, a.article_count, a.last_post_at \
          FROM feeds f \
          LEFT JOIN LATERAL (SELECT count(*)::bigint AS subscriber_count \
                             FROM user_feeds WHERE feed_id = f.id) s ON true \
          LEFT JOIN LATERAL (SELECT count(*)::bigint AS article_count, max(published_at) AS last_post_at \
                             FROM articles WHERE feed_id = f.id) a ON true \
          ORDER BY f.updated_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn list_recent_errors(pool: &PgPool, limit: i64) -> Result<Vec<FeedErrorEvent>> {
+    Ok(sqlx::query_as(
+        "SELECT e.feed_id, f.name AS feed_name, e.occurred_at, e.error_type, e.http_status, \
+         f.health_status, f.consecutive_failures, e.resolved \
+         FROM feed_error_log e JOIN feeds f ON f.id = e.feed_id \
+         ORDER BY e.occurred_at DESC LIMIT $1",
     )
     .bind(limit)
     .fetch_all(pool)
@@ -197,35 +272,59 @@ pub async fn record_fetch_success(
     etag: Option<&str>,
     last_modified: Option<&str>,
 ) -> Result<()> {
+    let mut transaction = pool.begin().await?;
     sqlx::query(
         "UPDATE feeds SET last_fetched_at = now(), last_successful_fetch_at = now(), \
          etag = $2, last_modified = $3, error_count = 0, consecutive_failures = 0, \
-         health_status = 'healthy', last_error = NULL WHERE id = $1",
+         failure_started_at = NULL, health_status = 'healthy', last_error = NULL, http_status = NULL WHERE id = $1",
     )
     .bind(feed_id)
     .bind(etag)
     .bind(last_modified)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
+    sqlx::query("UPDATE feed_error_log SET resolved = true WHERE feed_id = $1 AND NOT resolved")
+        .bind(feed_id)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
     Ok(())
 }
 
-/// Record a failed fetch: bump counters and downgrade health (auto-disable at the
-/// configured threshold).
-pub async fn record_fetch_failure(pool: &PgPool, feed_id: Uuid, error: &str) -> Result<()> {
+/// Record a typed failed fetch and preserve the failure window used for retry cadence.
+pub async fn record_fetch_failure(
+    pool: &PgPool,
+    feed_id: Uuid,
+    failure: FetchFailure,
+) -> Result<()> {
+    let error_type = failure.error_type();
+    let error = failure.summary();
+    let http_status = failure.http_status();
+    let mut transaction = pool.begin().await?;
     sqlx::query(
         "UPDATE feeds SET last_fetched_at = now(), error_count = error_count + 1, \
-         consecutive_failures = consecutive_failures + 1, last_error = $2, \
-         health_status = CASE \
-            WHEN consecutive_failures + 1 >= auto_disable_threshold THEN 'disabled' \
-            WHEN consecutive_failures + 1 >= 3 THEN 'error' \
-            ELSE 'warning' END \
+         consecutive_failures = consecutive_failures + 1, \
+         failure_started_at = coalesce(failure_started_at, now()), last_error = $2, http_status = $3, \
+         health_status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'error' ELSE 'warning' END \
          WHERE id = $1",
     )
     .bind(feed_id)
-    .bind(error)
-    .execute(pool)
+    .bind(&error)
+    .bind(http_status)
+    .execute(&mut *transaction)
     .await?;
+    sqlx::query(
+        "INSERT INTO feed_error_log (id, feed_id, error_type, error_message, http_status) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(feed_id)
+    .bind(error_type)
+    .bind(&error)
+    .bind(http_status)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
     Ok(())
 }
 

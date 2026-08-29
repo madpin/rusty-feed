@@ -95,6 +95,7 @@ pub fn router(state: AppState) -> Router {
             get(admin::catalog_page).post(admin::create_catalog_entry),
         )
         .route("/admin/catalog/{id}", post(admin::update_catalog_entry))
+        .route("/admin/logs", get(admin::logs))
         .route("/admin/costs", get(admin::costs))
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
         .route("/settings/layout", post(prefs::save_layout))

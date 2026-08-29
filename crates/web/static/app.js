@@ -177,6 +177,69 @@
     });
   }
 
+  function filterSelectOptions(select, query) {
+    if (!select) return;
+    var text = (query || "").trim().toLowerCase();
+    Array.prototype.forEach.call(select.options, function (option) {
+      option.hidden = Boolean(text && option.value && option.textContent.toLowerCase().indexOf(text) === -1);
+    });
+  }
+
+  function initializeFeedOrganizer() {
+    var dialog = document.querySelector("[data-feed-organizer]");
+    var form = dialog ? dialog.querySelector("[data-feed-organizer-form]") : null;
+    if (!dialog || !form || typeof dialog.showModal !== "function") return;
+    document.documentElement.classList.add("feed-organizer-ready");
+    var title = dialog.querySelector("[data-feed-organizer-title]");
+    var folderSelect = dialog.querySelector("[data-folder-select]");
+    var folderSearch = dialog.querySelector("[data-folder-search]");
+    var tagsInput = dialog.querySelector("[data-feed-organizer-tags]");
+    var tagSelect = dialog.querySelector("[data-tag-select]");
+    var tagSearch = dialog.querySelector("[data-tag-search]");
+    function close() {
+      if (dialog.open) dialog.close();
+    }
+    function selectTags(tags) {
+      if (!tagSelect) return tags;
+      var known = {};
+      Array.prototype.forEach.call(tagSelect.options, function (option) {
+        known[option.value] = true;
+        option.selected = tags.indexOf(option.value) !== -1;
+      });
+      return tags.filter(function (tag) { return !known[tag]; });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll("[data-feed-organizer-trigger]"), function (trigger) {
+      trigger.addEventListener("click", function () {
+        var tags = (trigger.getAttribute("data-feed-tags") || "")
+          .split(",")
+          .map(function (tag) { return tag.trim(); })
+          .filter(Boolean);
+        form.action = "/feeds/" + encodeURIComponent(trigger.getAttribute("data-feed-id")) + "/organization";
+        if (title) title.textContent = "Organize " + (trigger.getAttribute("data-feed-name") || "feed");
+        if (folderSelect) folderSelect.value = trigger.getAttribute("data-feed-folder-id") || "";
+        if (folderSearch) {
+          folderSearch.value = "";
+          filterSelectOptions(folderSelect, "");
+        }
+        var customTags = selectTags(tags);
+        if (tagsInput) tagsInput.value = customTags.join(", ");
+        if (tagSearch) {
+          tagSearch.value = "";
+          filterSelectOptions(tagSelect, "");
+        }
+        dialog.showModal();
+      });
+    });
+    Array.prototype.forEach.call(dialog.querySelectorAll("[data-feed-organizer-close]"), function (button) {
+      button.addEventListener("click", close);
+    });
+    if (folderSearch) folderSearch.addEventListener("input", function () { filterSelectOptions(folderSelect, folderSearch.value); });
+    if (tagSearch) tagSearch.addEventListener("input", function () { filterSelectOptions(tagSelect, tagSearch.value); });
+    dialog.addEventListener("click", function (event) {
+      if (event.target === dialog) close();
+    });
+  }
+
   function initializeSidebarToggle() {
     var root = document.documentElement;
     var buttons = document.querySelectorAll("[data-sidebar-toggle]");
@@ -387,9 +450,16 @@
       });
   });
 
+  document.addEventListener("change", function (event) {
+    var form = event.target.closest ? event.target.closest("[data-catalog-filters]") : null;
+    if (!form || event.target.disabled) return;
+    form.requestSubmit();
+  });
+
   // Implicit reading signal: on an article page, report time spent when the
   // reader leaves, so personalization can learn from completion/bounce.
   initializeReadingTracking(document);
+  initializeFeedOrganizer();
   initializeSidebarToggle();
   initializePanelResize();
 
@@ -600,12 +670,12 @@
     var button = event.target.closest ? event.target.closest("[data-reset-shortcuts]") : null;
     if (!button) return;
     var defaults = {
-      shortcut_next_article: "j",
-      shortcut_previous_article: "k",
+      shortcut_next_article: "ArrowDown",
+      shortcut_previous_article: "ArrowUp",
       shortcut_save_article: "s",
       shortcut_mark_unread: "u",
-      shortcut_next_feed: "]",
-      shortcut_previous_feed: "[",
+      shortcut_next_feed: "ArrowRight",
+      shortcut_previous_feed: "ArrowLeft",
     };
     shortcutInputs().forEach(function (input) {
       input.value = defaults[input.name] || "";

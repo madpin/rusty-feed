@@ -87,7 +87,7 @@
 
   <fieldset>
     <legend>Keyboard shortcuts</legend>
-    <p class="muted">Click a binding, then press the key combination you want. Clear a field to disable it. Article and feed navigation works from the Library; Save and Mark unread also work in a reader. Shortcuts do not run while you are typing in a field.</p>
+    <p class="muted">The defaults use Arrow Up/Down for articles, Arrow Left/Right for feeds, S to save, and U to mark unread. Click a binding to change it or clear a field to disable it. Shortcuts do not run while you are typing in a field.</p>
     <label class="check-row"><input type="checkbox" name="shortcuts_enabled" value="true"{% if ui.shortcuts.enabled %} checked{% endif %} /> <span>Enable keyboard shortcuts</span></label>
     <div class="form-grid shortcut-grid">
       <label>Next article <input class="shortcut-input" data-shortcut-input type="text" name="shortcut_next_article" value="{{ ui.shortcuts.next_article }}" autocomplete="off" /></label>

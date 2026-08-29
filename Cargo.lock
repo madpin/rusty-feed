@@ -2846,6 +2846,7 @@ version = "0.1.0"
 dependencies = [
  "feed-rs",
  "futures-util",
+ "quick-xml",
  "reqwest",
  "rustss-core",
  "rustss-db",

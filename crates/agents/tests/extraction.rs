@@ -81,6 +81,7 @@ async fn extract_content_agent_enriches_article() {
         &rustss_db::models::NewArticle {
             feed_id: feed.id,
             url: art_url,
+            comments_url: None,
             guid: None,
             title: "Item".into(),
             author: None,
@@ -143,6 +144,7 @@ async fn rate_limited_extraction_records_and_signals_retry() {
         &rustss_db::models::NewArticle {
             feed_id: feed.id,
             url: art_url.clone(),
+            comments_url: None,
             guid: None,
             title: "Item".into(),
             author: None,
@@ -276,6 +278,7 @@ async fn ignored_robots_policy_skips_the_robots_request() {
         &rustss_db::models::NewArticle {
             feed_id: feed.id,
             url: format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7()),
+            comments_url: None,
             guid: None,
             title: "Item".into(),
             author: None,
@@ -329,6 +332,7 @@ async fn rss_and_legacy_paywalled_modes_do_not_fetch_article_pages() {
             &rustss_db::models::NewArticle {
                 feed_id: feed.id,
                 url: format!("{}/article-{mode}", server.uri()),
+                comments_url: None,
                 guid: None,
                 title: "Item".into(),
                 author: None,

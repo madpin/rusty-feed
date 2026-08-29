@@ -27,7 +27,8 @@ use crate::icons::{favicon_url, resolve_icon_url, try_refresh_feed_icon};
 /// Max feed body we will buffer (protects against huge/hostile responses).
 const MAX_FEED_BYTES: usize = 10 * 1024 * 1024;
 
-pub const FETCH_FEED_MAX_ATTEMPTS: i32 = 5;
+/// One queued fetch represents one health attempt; `list_due` owns retry pacing.
+pub const FETCH_FEED_MAX_ATTEMPTS: i32 = 1;
 
 pub async fn enqueue_fetch_feed(db: &Db, feed_id: Uuid) -> rustss_db::Result<Option<Uuid>> {
     let dedup = format!("fetch_feed:{feed_id}");
@@ -102,6 +103,18 @@ fn header_string(value: Option<&reqwest::header::HeaderValue>) -> Option<String>
     value.and_then(|v| v.to_str().ok()).map(String::from)
 }
 
+fn fetch_failure_kind(error: &FeedError) -> rustss_db::feeds::FetchFailure {
+    match error {
+        FeedError::Http(_) => rustss_db::feeds::FetchFailure::Network,
+        FeedError::InvalidUrl(_) => rustss_db::feeds::FetchFailure::InvalidUrl,
+        FeedError::UnsupportedScheme(_) => rustss_db::feeds::FetchFailure::UnsupportedScheme,
+        FeedError::TooLarge => rustss_db::feeds::FetchFailure::ResponseTooLarge,
+        FeedError::Status(status) => rustss_db::feeds::FetchFailure::Http(*status as i32),
+        FeedError::Parse(_) => rustss_db::feeds::FetchFailure::Parse,
+        FeedError::Db(_) => rustss_db::feeds::FetchFailure::Database,
+    }
+}
+
 async fn read_capped(resp: reqwest::Response, max: usize) -> Result<Vec<u8>> {
     let mut stream = resp.bytes_stream();
     let mut buf = Vec::new();
@@ -136,10 +149,14 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
     .await
     {
         Ok(o) => o,
-        Err(e) => {
-            let _ =
-                rustss_db::feeds::record_fetch_failure(db.pool(), feed.id, &e.to_string()).await;
-            return Err(e);
+        Err(error) => {
+            let _ = rustss_db::feeds::record_fetch_failure(
+                db.pool(),
+                feed.id,
+                fetch_failure_kind(&error),
+            )
+            .await;
+            return Err(error);
         }
     };
 
@@ -149,8 +166,11 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
             .clone()
             .or_else(|| favicon_url(feed.site_url.as_deref(), &feed.url))
         {
-            if let Err(error) = try_refresh_feed_icon(db, client, feed.id, &icon_url).await {
-                tracing::debug!(feed_id = %feed.id, error = %error, "feed icon refresh failed");
+            if try_refresh_feed_icon(db, client, feed.id, &icon_url)
+                .await
+                .is_err()
+            {
+                tracing::debug!(feed_id = %feed.id, "feed icon refresh failed");
             }
         }
         rustss_db::feeds::record_fetch_success(
@@ -166,7 +186,18 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
         });
     }
 
-    let parsed = parse_feed(feed.id, &outcome.body)?;
+    let parsed = match parse_feed(feed.id, &outcome.body) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let _ = rustss_db::feeds::record_fetch_failure(
+                db.pool(),
+                feed.id,
+                fetch_failure_kind(&error),
+            )
+            .await;
+            return Err(error);
+        }
+    };
 
     // Keep the canonical feed name/site fresh from the source (per-user custom
     // names are stored separately and untouched).
@@ -209,8 +240,11 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
     .await?;
     if let Some(icon_url) = icon_url {
         let _ = rustss_db::feeds::update_image_url(db.pool(), feed.id, &icon_url).await;
-        if let Err(error) = try_refresh_feed_icon(db, client, feed.id, &icon_url).await {
-            tracing::debug!(feed_id = %feed.id, error = %error, "feed icon refresh failed");
+        if try_refresh_feed_icon(db, client, feed.id, &icon_url)
+            .await
+            .is_err()
+        {
+            tracing::debug!(feed_id = %feed.id, "feed icon refresh failed");
         }
     }
 

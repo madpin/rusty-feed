@@ -43,6 +43,7 @@ async fn make_article(db: &Db, title: &str, content: &str) -> Article {
         &NewArticle {
             feed_id: feed.id,
             url: format!("https://ex.com/{}", Uuid::now_v7()),
+            comments_url: None,
             guid: None,
             title: title.into(),
             author: None,

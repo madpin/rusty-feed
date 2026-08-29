@@ -11,7 +11,7 @@
   {% if !feeds.is_empty() %}
   <form method="post" action="/feeds/refresh-all">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <button type="submit">Queue all refreshes</button>
+    <button type="submit">Refresh all</button>
   </form>
   {% endif %}
 </div>
@@ -27,13 +27,13 @@
     <label>Feed URL
       <input type="url" name="url" placeholder="https://example.com/feed.xml" required />
     </label>
-    <div class="form-actions"><button type="submit" class="primary">Subscribe and queue refresh</button></div>
+    <div class="form-actions"><button type="submit" class="primary">Subscribe and refresh</button></div>
   </form>
 </section>
 
 <section class="panel">
   <h2>Folders and categories</h2>
-  <p class="muted">Folders are personal. A feed can belong to more than one folder, and folders can be nested.</p>
+  <p class="muted">Folders are personal and can be nested. Each feed has one folder; tags remain flexible and multi-valued.</p>
   <form method="post" action="/feeds/categories" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <label>Folder name
@@ -48,9 +48,9 @@
     <div class="form-actions"><button type="submit">Create folder</button></div>
   </form>
   {% if !categories.is_empty() %}
-  <div class="folder-summary" aria-label="Your folders">
-    {% for category in categories %}<span class="badge">{{ category.name }}</span>{% endfor %}
-  </div>
+  <ul class="folder-tree-manage" aria-label="Your folder tree">
+    {% for category in categories %}<li style="--folder-depth: {{ category.depth }}"><span aria-hidden="true">▣</span><span>{{ category.tree_name }}</span></li>{% endfor %}
+  </ul>
   {% endif %}
 </section>
 
@@ -58,7 +58,7 @@
   <div class="section-heading">
     <div>
       <h2>Your feeds</h2>
-      <p class="muted">Feed icons are downloaded from feed metadata when available, with a safe favicon fallback. Categories and tags stay personal while content remains shared.</p>
+      <p class="muted">Feed icons are downloaded from feed metadata when available, with a safe favicon fallback. Folders and tags stay personal while content remains shared.</p>
     </div>
   </div>
   {% if feeds.is_empty() %}
@@ -79,16 +79,17 @@
           <strong><a href="/articles?feed={{ f.id }}">{{ f.name }}</a></strong>
           <span class="badge health-{{ f.health }}">{{ f.health }}</span>
           <span class="badge content-mode-{{ f.content_mode }}">{{ f.content_mode_label }}</span>
-          <div class="meta">Refresh every {{ f.fetch_interval_minutes }} minutes · {{ f.url }}</div>
-          {% if !f.category_names.is_empty() %}<div class="feed-organization-meta">Folders: {{ f.category_names }}</div>{% endif %}
+          <div class="meta">{{ f.refresh_cadence }} · {{ f.url }}</div>
+          <div class="feed-organization-meta">Folder: {{ f.folder_name }}</div>
           {% if !f.tags.is_empty() %}<div class="feed-tags">{% for tag in f.tags %}<span class="badge">#{{ tag }}</span>{% endfor %}</div>{% endif %}
         </div>
       </div>
       <div class="feed-actions">
         <form method="post" action="/feeds/{{ f.id }}/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <button type="submit">Queue refresh</button>
+          <button type="submit">Refresh</button>
         </form>
+        <button type="button" class="feed-organize-trigger" data-feed-organizer-trigger data-feed-id="{{ f.id }}" data-feed-name="{{ f.name }}" data-feed-tags="{{ f.tags_input }}" data-feed-folder-id="{{ f.folder_id }}">Organize</button>
         {% if f.can_configure %}<a href="/feeds/{{ f.id }}/settings" class="btn">Content settings</a>{% endif %}
         <form method="post" action="/feeds/{{ f.id }}/unsubscribe"
               onsubmit="return confirm('Unsubscribe from this feed?');">
@@ -100,20 +101,21 @@
         <summary>Organize folders and tags</summary>
         <form method="post" action="/feeds/{{ f.id }}/organization" class="stack">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <label>Folder
+            <select name="folder_id">
+              <option value="">Unfiled</option>
+              {% for category in f.category_choices %}<option value="{{ category.id }}"{% if category.selected %} selected{% endif %}>{{ category.name }}</option>{% endfor %}
+            </select>
+          </label>
           <label>Tags
             <input type="text" name="tags" value="{{ f.tags_input }}" maxlength="819" placeholder="technology, work, read later" />
           </label>
-          {% if f.category_choices.is_empty() %}
-          <p class="muted">Create a folder above to place this feed in one or more categories.</p>
-          {% else %}
-          <fieldset>
-            <legend>Folders</legend>
-            <div class="check-options">
-              {% for category in f.category_choices %}
-              <label class="check-row"><input type="checkbox" name="category_id" value="{{ category.id }}"{% if category.selected %} checked{% endif %} /> <span>{{ category.name }}</span></label>
-              {% endfor %}
-            </div>
-          </fieldset>
+          {% if !f.tag_choices.is_empty() %}
+          <label>Existing tags
+            <select multiple name="tag_option" size="5">
+              {% for tag in f.tag_choices %}<option value="{{ tag.name }}"{% if tag.selected %} selected{% endif %}>{{ tag.name }}</option>{% endfor %}
+            </select>
+          </label>
           {% endif %}
           <div class="form-actions"><button type="submit">Save organization</button></div>
         </form>
@@ -121,6 +123,31 @@
     </li>
     {% endfor %}
   </ul>
+  <dialog class="feed-organizer-dialog" data-feed-organizer aria-labelledby="feed-organizer-title">
+    <form method="post" action="/feeds/placeholder/organization" class="stack" data-feed-organizer-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <div class="dialog-heading"><div><p class="eyebrow">Personal organization</p><h2 id="feed-organizer-title" data-feed-organizer-title>Organize feed</h2></div><button type="button" class="button-quiet" data-feed-organizer-close aria-label="Close organization dialog">Close</button></div>
+      <label>Folder
+        <input type="search" data-folder-search placeholder="Search folders" autocomplete="off" />
+        <select name="folder_id" data-folder-select size="8">
+          <option value="">Unfiled</option>
+          {% for category in categories %}<option value="{{ category.id }}">{{ category.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Tags
+        <input type="text" name="tags" data-feed-organizer-tags maxlength="819" placeholder="Add tags separated by commas" />
+      </label>
+      {% if !tag_options.is_empty() %}
+      <label>Existing tags
+        <input type="search" data-tag-search placeholder="Search existing tags" autocomplete="off" />
+        <select multiple name="tag_option" data-tag-select size="7">
+          {% for tag in tag_options %}<option value="{{ tag.name }}">{{ tag.name }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <div class="dialog-actions"><button type="button" data-feed-organizer-close>Cancel</button><button type="submit" class="primary">Save organization</button></div>
+    </form>
+  </dialog>
   {% endif %}
 </section>
 {% endblock %}

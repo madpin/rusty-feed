@@ -41,7 +41,9 @@ pub async fn try_refresh_feed_icon(
         Ok(Ok((content_type, content))) => {
             feed_icons::record_success(db.pool(), feed_id, source_url, content_type, &content).await
         }
-        Ok(Err(error)) => feed_icons::record_failure(db.pool(), feed_id, source_url, &error).await,
+        Ok(Err(_)) => {
+            feed_icons::record_failure(db.pool(), feed_id, source_url, "icon download failed").await
+        }
         Err(_) => {
             feed_icons::record_failure(db.pool(), feed_id, source_url, "icon download timed out")
                 .await

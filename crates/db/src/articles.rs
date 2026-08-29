@@ -316,6 +316,7 @@ pub fn should_update(existing: &Article, new: &NewArticle) -> bool {
     }
     if existing.title != new.title
         || existing.author != new.author
+        || existing.comments_url != new.comments_url
         || existing.feed_excerpt != new.excerpt
         || existing.image_url != new.image_url
     {
@@ -357,16 +358,17 @@ async fn create(pool: &PgPool, new: &NewArticle) -> Result<Article> {
     let feed_hash = content_hash(&feed_content);
     let sql = format!(
         "INSERT INTO articles \
-         (id, feed_id, url, guid, title, author, content, excerpt, content_hash, \
+         (id, feed_id, url, comments_url, guid, title, author, content, excerpt, content_hash, \
           feed_content, feed_excerpt, feed_content_hash, content_source, content_revision, \
           image_url, published_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $7, $8, $9, 'feed', 1, $10, $11) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $8, $9, $10, 'feed', 1, $11, $12) \
          RETURNING {ARTICLE_COLUMNS}"
     );
     Ok(sqlx::query_as::<_, Article>(&sql)
         .bind(Uuid::now_v7())
         .bind(new.feed_id)
         .bind(&new.url)
+        .bind(&new.comments_url)
         .bind(&new.guid)
         .bind(&new.title)
         .bind(&new.author)
@@ -387,26 +389,27 @@ async fn update(pool: &PgPool, existing: &Article, new: &NewArticle) -> Result<A
         || (existing.content_source == "feed" && existing.feed_excerpt != new.excerpt);
     let effective_changed = fallback_changed || existing.title != new.title;
     let sql = format!(
-        "UPDATE articles SET title = $2, author = $3, feed_content = $4, feed_excerpt = $5, \
-         feed_content_hash = $6, image_url = $7, published_at = $8, \
-         content = CASE WHEN $9 THEN $4 ELSE content END, \
-         excerpt = CASE WHEN $9 THEN $5 ELSE excerpt END, \
-         content_hash = CASE WHEN $9 THEN $6 ELSE content_hash END, \
-         content_source = CASE WHEN $9 THEN 'feed' ELSE content_source END, \
-         extraction_status = CASE WHEN $9 THEN 'none' ELSE extraction_status END, \
-         extraction_error = CASE WHEN $9 THEN NULL ELSE extraction_error END, \
-         content_revision = CASE WHEN $10 THEN content_revision + 1 ELSE content_revision END, \
-         summary = CASE WHEN $10 THEN NULL ELSE summary END, \
-         key_points = CASE WHEN $10 THEN NULL ELSE key_points END, \
-         topics = CASE WHEN $10 THEN '{{}}' ELSE topics END, \
-         summarized_at = CASE WHEN $10 THEN NULL ELSE summarized_at END, \
-         summary_model = CASE WHEN $10 THEN NULL ELSE summary_model END, updated_at = now() \
+        "UPDATE articles SET title = $2, author = $3, comments_url = $4, feed_content = $5, \
+         feed_excerpt = $6, feed_content_hash = $7, image_url = $8, published_at = $9, \
+         content = CASE WHEN $10 THEN $5 ELSE content END, \
+         excerpt = CASE WHEN $10 THEN $6 ELSE excerpt END, \
+         content_hash = CASE WHEN $10 THEN $7 ELSE content_hash END, \
+         content_source = CASE WHEN $10 THEN 'feed' ELSE content_source END, \
+         extraction_status = CASE WHEN $10 THEN 'none' ELSE extraction_status END, \
+         extraction_error = CASE WHEN $10 THEN NULL ELSE extraction_error END, \
+         content_revision = CASE WHEN $11 THEN content_revision + 1 ELSE content_revision END, \
+         summary = CASE WHEN $11 THEN NULL ELSE summary END, \
+         key_points = CASE WHEN $11 THEN NULL ELSE key_points END, \
+         topics = CASE WHEN $11 THEN '{{}}' ELSE topics END, \
+         summarized_at = CASE WHEN $11 THEN NULL ELSE summarized_at END, \
+         summary_model = CASE WHEN $11 THEN NULL ELSE summary_model END, updated_at = now() \
          WHERE id = $1 RETURNING {ARTICLE_COLUMNS}"
     );
     Ok(sqlx::query_as::<_, Article>(&sql)
         .bind(existing.id)
         .bind(&new.title)
         .bind(&new.author)
+        .bind(&new.comments_url)
         .bind(&feed_content)
         .bind(&new.excerpt)
         .bind(&feed_hash)

@@ -304,7 +304,7 @@ async fn admin_can_set_shared_article_page_policy() {
 }
 
 #[tokio::test]
-async fn users_organize_feeds_into_multiple_folders_and_tags() {
+async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
     let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -397,8 +397,8 @@ async fn users_organize_feeds_into_multiple_folders_and_tags() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "csrf_token={csrf}&tags=Rust%2C+Work&category_id={}&category_id={}",
-                    work.id, research.id
+                    "csrf_token={csrf}&tags=Rust%2C+Work&folder_id={}",
+                    research.id
                 )))
                 .unwrap(),
         )
@@ -407,7 +407,7 @@ async fn users_organize_feeds_into_multiple_folders_and_tags() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_string(response).await;
     assert!(body.contains("Feed organization saved."));
-    assert!(body.contains("Folders: Work, Work / Research"));
+    assert!(body.contains("Folder: Work / Research"));
     assert!(body.contains("#rust"));
     let mut organizations = subscriptions::list_organization(state.db.pool(), user.id)
         .await
@@ -417,7 +417,7 @@ async fn users_organize_feeds_into_multiple_folders_and_tags() {
         organization.tags,
         vec!["rust".to_string(), "work".to_string()]
     );
-    assert_eq!(organization.category_ids, vec![research.id, work.id]);
+    assert_eq!(organization.category_id, Some(research.id));
 
     articles::upsert(
         state.db.pool(),
@@ -427,6 +427,7 @@ async fn users_organize_feeds_into_multiple_folders_and_tags() {
                 "https://organization-ui.example/article/{}",
                 uuid::Uuid::now_v7()
             ),
+            comments_url: None,
             guid: None,
             title: "Folder article".to_string(),
             author: None,

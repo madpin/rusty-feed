@@ -77,17 +77,16 @@ pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<UserFeed>
 pub struct FeedOrganization {
     pub feed_id: Uuid,
     pub tags: Vec<String>,
-    pub category_ids: Vec<Uuid>,
+    pub category_id: Option<Uuid>,
 }
 
 pub async fn list_organization(pool: &PgPool, user_id: Uuid) -> Result<Vec<FeedOrganization>> {
     Ok(sqlx::query_as(
-        "SELECT uf.feed_id, uf.tags, \
-         coalesce(array_agg(c.id ORDER BY c.name) FILTER (WHERE c.id IS NOT NULL), '{}') AS category_ids \
-         FROM user_feeds uf \
-         LEFT JOIN user_feed_categories ufc ON ufc.user_feed_id = uf.id \
-         LEFT JOIN user_categories c ON c.id = ufc.user_category_id AND c.user_id = uf.user_id \
-         WHERE uf.user_id = $1 GROUP BY uf.feed_id, uf.tags",
+        "SELECT uf.feed_id, uf.tags, category.id AS category_id FROM user_feeds uf \
+         LEFT JOIN LATERAL (SELECT c.id FROM user_feed_categories ufc \
+              JOIN user_categories c ON c.id = ufc.user_category_id AND c.user_id = uf.user_id \
+              WHERE ufc.user_feed_id = uf.id ORDER BY ufc.created_at, c.name LIMIT 1) category ON true \
+         WHERE uf.user_id = $1",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -99,7 +98,7 @@ pub async fn update_organization(
     user_id: Uuid,
     feed_id: Uuid,
     tags: &[String],
-    category_ids: &[Uuid],
+    category_id: Option<Uuid>,
 ) -> Result<()> {
     let mut transaction = pool.begin().await?;
     let user_feed_id: Option<Uuid> = sqlx::query_scalar(
@@ -112,16 +111,16 @@ pub async fn update_organization(
     let Some(user_feed_id) = user_feed_id else {
         return Err(DbError::NotFound);
     };
-    let category_ids: std::collections::BTreeSet<Uuid> = category_ids.iter().copied().collect();
-    let valid_category_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM user_categories WHERE user_id = $1 AND id = ANY($2)",
-    )
-    .bind(user_id)
-    .bind(category_ids.iter().copied().collect::<Vec<_>>())
-    .fetch_one(&mut *transaction)
-    .await?;
-    if valid_category_count != category_ids.len() as i64 {
-        return Err(DbError::NotFound);
+    if let Some(category_id) = category_id {
+        let valid: Option<i32> =
+            sqlx::query_scalar("SELECT 1 FROM user_categories WHERE user_id = $1 AND id = $2")
+                .bind(user_id)
+                .bind(category_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
+        if valid.is_none() {
+            return Err(DbError::NotFound);
+        }
     }
     sqlx::query(
         "UPDATE user_feeds SET tags = $3, updated_at = now() WHERE id = $1 AND user_id = $2",
@@ -135,7 +134,7 @@ pub async fn update_organization(
         .bind(user_feed_id)
         .execute(&mut *transaction)
         .await?;
-    for category_id in category_ids {
+    if let Some(category_id) = category_id {
         sqlx::query(
             "INSERT INTO user_feed_categories (id, user_feed_id, user_category_id) VALUES ($1, $2, $3)",
         )

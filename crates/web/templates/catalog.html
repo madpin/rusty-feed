@@ -14,7 +14,7 @@
 {% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
 {% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
 
-<form method="get" action="/catalog" class="catalog-filters panel">
+<form method="get" action="/catalog" class="catalog-filters panel" data-catalog-filters>
   <label>Category
     <select name="category">
       <option value="">All categories</option>

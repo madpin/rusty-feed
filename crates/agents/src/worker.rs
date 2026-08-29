@@ -268,13 +268,13 @@ pub async fn process(ctx: &AgentContext, registry: &Registry, job: Job) {
                     agent_runs::finish(pool, rid, "success", duration_ms, Some(stats), None).await;
             }
         }
-        Err(e) => {
-            let msg = e.to_string();
-            let outcome = jobs::fail(pool, &job, &msg, backoff_for(job.attempts)).await;
-            tracing::warn!(kind = %job.kind, attempts = job.attempts, ?outcome, error = %msg, "job failed");
+        Err(_) => {
+            let message = "Agent execution failed";
+            let outcome = jobs::fail(pool, &job, message, backoff_for(job.attempts)).await;
+            tracing::warn!(kind = %job.kind, attempts = job.attempts, ?outcome, "job failed");
             if let Some(rid) = run_id {
                 let _ =
-                    agent_runs::finish(pool, rid, "failed", duration_ms, None, Some(&msg)).await;
+                    agent_runs::finish(pool, rid, "failed", duration_ms, None, Some(message)).await;
             }
         }
     }

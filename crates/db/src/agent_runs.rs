@@ -43,6 +43,26 @@ pub async fn finish(
     Ok(())
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RecentAgentRun {
+    pub agent_name: String,
+    pub status: String,
+    pub started_at: time::OffsetDateTime,
+    pub duration_ms: Option<i64>,
+    pub stats: Option<Json>,
+    pub has_error: bool,
+}
+
+pub async fn list_recent(pool: &PgPool, limit: i64) -> Result<Vec<RecentAgentRun>> {
+    Ok(sqlx::query_as(
+        "SELECT agent_name, status, started_at, duration_ms, stats, \
+         error_message IS NOT NULL AS has_error FROM agent_runs ORDER BY started_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Count runs for an agent with a given status (tests/inspection).
 pub async fn count_by_status(pool: &PgPool, agent_name: &str, status: &str) -> Result<i64> {
     Ok(

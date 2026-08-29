@@ -36,6 +36,7 @@ pub struct Feed {
     pub last_modified: Option<String>,
     pub last_fetched_at: Option<OffsetDateTime>,
     pub last_successful_fetch_at: Option<OffsetDateTime>,
+    pub failure_started_at: Option<OffsetDateTime>,
     pub fetch_interval_minutes: i32,
     pub health_status: String,
     pub consecutive_failures: i32,
@@ -54,7 +55,7 @@ pub struct Feed {
 
 /// Columns for `feeds` (excludes nothing; kept in sync with [`Feed`]).
 pub(crate) const FEED_COLUMNS: &str = "id, url, name, site_url, description, image_url, etag, \
-    last_modified, last_fetched_at, last_successful_fetch_at, fetch_interval_minutes, health_status, \
+    last_modified, last_fetched_at, last_successful_fetch_at, failure_started_at, fetch_interval_minutes, health_status, \
     consecutive_failures, error_count, last_error, auto_disable_threshold, notify_on_error, \
     http_status, redirect_url, extraction_settings, respect_robots_txt, extraction_delay_ms, \
     created_at, updated_at";
@@ -66,6 +67,7 @@ pub struct Article {
     pub id: Uuid,
     pub feed_id: Uuid,
     pub url: String,
+    pub comments_url: Option<String>,
     pub guid: Option<String>,
     pub title: String,
     pub author: Option<String>,
@@ -93,7 +95,7 @@ pub struct Article {
 
 /// Columns for `articles` (deliberately excludes the generated `search_vector`).
 pub(crate) const ARTICLE_COLUMNS: &str =
-    "id, feed_id, url, guid, title, author, content, excerpt, \
+    "id, feed_id, url, comments_url, guid, title, author, content, excerpt, \
     content_hash, feed_content, feed_excerpt, feed_content_hash, content_source, content_revision, \
     image_url, published_at, extraction_status, extraction_error, summary, key_points, topics, \
     summarized_at, summary_model, created_at, updated_at";
@@ -204,6 +206,7 @@ pub(crate) const API_TOKEN_COLUMNS: &str =
 pub struct NewArticle {
     pub feed_id: Uuid,
     pub url: String,
+    pub comments_url: Option<String>,
     pub guid: Option<String>,
     pub title: String,
     pub author: Option<String>,

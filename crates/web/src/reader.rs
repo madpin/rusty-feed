@@ -46,6 +46,7 @@ struct ArticleView {
     score: Option<i64>,
 }
 
+#[derive(Clone)]
 struct FeedNav {
     id: String,
     name: String,
@@ -55,12 +56,13 @@ struct FeedNav {
     href: String,
 }
 
-struct CategoryNav {
+struct FolderNav {
     name: String,
     indent: String,
     feed_count: i64,
     active: bool,
     href: String,
+    feeds: Vec<FeedNav>,
 }
 
 struct TagNav {
@@ -70,11 +72,12 @@ struct TagNav {
     href: String,
 }
 
-struct CategoryNavContext<'a> {
+struct FolderNavContext<'a> {
     selected: Option<Uuid>,
     tag: Option<&'a str>,
     unread: bool,
     sort: &'a str,
+    feeds_by_folder: &'a mut HashMap<Uuid, Vec<FeedNav>>,
 }
 
 #[derive(Template)]
@@ -86,8 +89,8 @@ struct ArticlesTemplate {
     ui: prefs::Preferences,
     is_admin: bool,
     articles: Vec<ArticleView>,
-    feeds: Vec<FeedNav>,
-    categories: Vec<CategoryNav>,
+    folders: Vec<FolderNav>,
+    unfiled_feeds: Vec<FeedNav>,
     tags: Vec<TagNav>,
     recent_url: String,
     unread_url: String,
@@ -119,6 +122,7 @@ struct ArticleTemplate {
     title: String,
     feed_name: String,
     url: String,
+    comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
     content: String, // sanitized HTML
@@ -141,6 +145,7 @@ struct ArticlePanelTemplate {
     title: String,
     feed_name: String,
     url: String,
+    comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
     content: String,
@@ -160,6 +165,7 @@ struct ReaderView {
     title: String,
     feed_name: String,
     url: String,
+    comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
     content: String,
@@ -230,10 +236,18 @@ fn safe_next(next: Option<String>) -> String {
     }
 }
 
-fn safe_media_url(value: Option<&str>) -> Option<String> {
+fn safe_external_url(value: Option<&str>) -> Option<String> {
     let value = value?;
-    let url = url::Url::parse(value).ok()?;
-    matches!(url.scheme(), "http" | "https").then(|| url.to_string())
+    let mut url = url::Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    url.set_fragment(None);
+    Some(url.to_string())
 }
 
 fn feed_initial(name: &str) -> String {
@@ -289,13 +303,13 @@ fn articles_url(
     }
 }
 
-fn append_category_nav(
+fn append_folder_nav(
     parent_id: Option<Uuid>,
     depth: usize,
     children: &mut BTreeMap<Option<Uuid>, Vec<categories::CategoryWithFeedCount>>,
     seen: &mut HashSet<Uuid>,
-    output: &mut Vec<CategoryNav>,
-    context: &CategoryNavContext<'_>,
+    output: &mut Vec<FolderNav>,
+    context: &mut FolderNavContext<'_>,
 ) {
     let Some(categories) = children.remove(&parent_id) else {
         return;
@@ -304,22 +318,27 @@ fn append_category_nav(
         if !seen.insert(category.id) {
             continue;
         }
-        output.push(CategoryNav {
+        let category_id = category.id;
+        output.push(FolderNav {
             name: category.name,
             indent: "↳ ".repeat(depth),
             feed_count: category.feed_count,
-            active: Some(category.id) == context.selected,
+            active: Some(category_id) == context.selected,
             href: articles_url(
                 None,
-                Some(category.id),
+                Some(category_id),
                 context.tag,
                 context.unread,
                 context.sort,
                 None,
             ),
+            feeds: context
+                .feeds_by_folder
+                .remove(&category_id)
+                .unwrap_or_default(),
         });
-        append_category_nav(
-            Some(category.id),
+        append_folder_nav(
+            Some(category_id),
             depth + 1,
             children,
             seen,
@@ -354,13 +373,14 @@ fn category_scope_ids(
     scope
 }
 
-fn category_nav(
+fn folder_nav(
     categories: Vec<categories::CategoryWithFeedCount>,
     selected: Option<Uuid>,
     tag: Option<&str>,
     unread: bool,
     sort: &str,
-) -> Vec<CategoryNav> {
+    feeds_by_folder: &mut HashMap<Uuid, Vec<FeedNav>>,
+) -> Vec<FolderNav> {
     let mut children = BTreeMap::<Option<Uuid>, Vec<_>>::new();
     for category in categories {
         children
@@ -368,30 +388,36 @@ fn category_nav(
             .or_default()
             .push(category);
     }
-    let context = CategoryNavContext {
+    let mut context = FolderNavContext {
         selected,
         tag,
         unread,
         sort,
+        feeds_by_folder,
     };
     let mut output = Vec::new();
     let mut seen = HashSet::new();
-    append_category_nav(None, 0, &mut children, &mut seen, &mut output, &context);
+    append_folder_nav(None, 0, &mut children, &mut seen, &mut output, &mut context);
     for category in children.into_values().flatten() {
         if seen.insert(category.id) {
-            output.push(CategoryNav {
+            let category_id = category.id;
+            output.push(FolderNav {
                 name: category.name,
                 indent: String::new(),
                 feed_count: category.feed_count,
-                active: Some(category.id) == context.selected,
+                active: Some(category_id) == context.selected,
                 href: articles_url(
                     None,
-                    Some(category.id),
+                    Some(category_id),
                     context.tag,
                     context.unread,
                     context.sort,
                     None,
                 ),
+                feeds: context
+                    .feeds_by_folder
+                    .remove(&category_id)
+                    .unwrap_or_default(),
             });
         }
     }
@@ -453,9 +479,9 @@ pub async fn list(
         (Some(category), Some(tag)) => format!("{category} · #{tag}"),
         (Some(category), None) => format!("Folder: {category}"),
         (None, Some(tag)) => format!("Tag: #{tag}"),
-        (None, None) if unread_only => "Unread articles".to_string(),
-        (None, None) if sort == "relevance" => "For you".to_string(),
-        (None, None) => "All articles".to_string(),
+        (None, None) if unread_only => "Unread only".to_string(),
+        (None, None) if sort == "relevance" => "Personalized".to_string(),
+        (None, None) => "Most recent".to_string(),
     };
     let organizations: HashMap<Uuid, subscriptions::FeedOrganization> = organizations
         .into_iter()
@@ -463,49 +489,53 @@ pub async fn list(
         .collect();
     let feed_ids: Vec<Uuid> = feed_records.iter().map(|feed| feed.id).collect();
     let icon_ids = feed_icons::available_for_feeds(state.db.pool(), &feed_ids).await?;
-    let feeds = feed_records
-        .into_iter()
-        .filter_map(|feed| {
-            let organization = organizations.get(&feed.id);
-            let in_category = category_id.is_none_or(|_| {
-                organization.is_some_and(|organization| {
-                    organization
-                        .category_ids
-                        .iter()
-                        .any(|category_id| category_scope.contains(category_id))
-                })
-            });
-            let has_tag = tag.as_ref().is_none_or(|tag| {
+    let mut feeds_by_folder = HashMap::<Uuid, Vec<FeedNav>>::new();
+    let mut unfiled_feeds = Vec::new();
+    for feed in feed_records {
+        let organization = organizations.get(&feed.id);
+        let in_category = category_id.is_none_or(|_| {
+            organization.is_some_and(|organization| {
                 organization
-                    .is_some_and(|organization| organization.tags.iter().any(|value| value == tag))
-            });
-            if !in_category || !has_tag {
-                return None;
-            }
-            let id = feed.id;
-            Some(FeedNav {
-                id: id.to_string(),
-                initial: feed_initial(&feed.name),
-                has_icon: icon_ids.contains(&id),
-                active: Some(id) == feed_id,
-                href: articles_url(
-                    Some(id),
-                    category_id,
-                    tag.as_deref(),
-                    unread_param,
-                    sort,
-                    None,
-                ),
-                name: feed.name,
+                    .category_id
+                    .is_some_and(|category_id| category_scope.contains(&category_id))
             })
-        })
-        .collect();
-    let categories = category_nav(
+        });
+        let has_tag = tag.as_ref().is_none_or(|tag| {
+            organization
+                .is_some_and(|organization| organization.tags.iter().any(|value| value == tag))
+        });
+        if !in_category || !has_tag {
+            continue;
+        }
+        let id = feed.id;
+        let nav = FeedNav {
+            id: id.to_string(),
+            initial: feed_initial(&feed.name),
+            has_icon: icon_ids.contains(&id),
+            active: Some(id) == feed_id,
+            href: articles_url(
+                Some(id),
+                category_id,
+                tag.as_deref(),
+                unread_param,
+                sort,
+                None,
+            ),
+            name: feed.name,
+        };
+        if let Some(folder_id) = organization.and_then(|organization| organization.category_id) {
+            feeds_by_folder.entry(folder_id).or_default().push(nav);
+        } else {
+            unfiled_feeds.push(nav);
+        }
+    }
+    let folders = folder_nav(
         category_records,
         category_id,
         tag.as_deref(),
         unread_param,
         sort,
+        &mut feeds_by_folder,
     );
     let tags = tag_records
         .into_iter()
@@ -544,8 +574,8 @@ pub async fn list(
         ui: prefs.clone(),
         is_admin,
         articles: article_views,
-        feeds,
-        categories,
+        folders,
+        unfiled_feeds,
         tags,
         recent_url: articles_url(None, category_id, tag.as_deref(), false, "recent", None),
         unread_url: articles_url(None, category_id, tag.as_deref(), true, "recent", None),
@@ -611,7 +641,7 @@ async fn recency_page(
             id: a.id.to_string(),
             title: a.title,
             excerpt: a.excerpt,
-            image_url: safe_media_url(a.image_url.as_deref()),
+            image_url: safe_external_url(a.image_url.as_deref()),
             feed_name: a.feed_name,
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
@@ -692,7 +722,7 @@ async fn relevance_page(
             id: a.id.to_string(),
             title: a.title,
             excerpt: a.excerpt,
-            image_url: safe_media_url(a.image_url.as_deref()),
+            image_url: safe_external_url(a.image_url.as_deref()),
             feed_name: a.feed_name,
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
@@ -847,8 +877,10 @@ async fn reader_view(
         id: id.to_string(),
         title: article.title,
         feed_name,
-        image_url: safe_media_url(article.image_url.as_deref()),
+        image_url: safe_external_url(article.image_url.as_deref()),
         url: article.url.clone(),
+        comments_url: safe_external_url(article.comments_url.as_deref())
+            .filter(|comments_url| comments_url != &article.url),
         published: article.published_at.map(|d| d.date().to_string()),
         content: sanitize_article_html(&article.content, &article.url),
         content_notice,
@@ -884,6 +916,7 @@ pub async fn read(
         title: article.title,
         feed_name: article.feed_name,
         url: article.url,
+        comments_url: article.comments_url,
         published: article.published,
         image_url: article.image_url,
         content: article.content,
@@ -918,6 +951,7 @@ pub async fn side_panel(
         title: article.title,
         feed_name: article.feed_name,
         url: article.url,
+        comments_url: article.comments_url,
         published: article.published,
         image_url: article.image_url,
         content: article.content,

@@ -11,6 +11,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use rustss_core::feed_content::{FeedContentMode, FeedContentSettings};
@@ -31,10 +32,12 @@ struct FeedRow {
     health: String,
     content_mode: String,
     content_mode_label: String,
-    fetch_interval_minutes: i32,
+    refresh_cadence: String,
     tags: Vec<String>,
     tags_input: String,
-    category_names: String,
+    tag_choices: Vec<TagChoice>,
+    folder_name: String,
+    folder_id: String,
     category_choices: Vec<CategoryChoice>,
     can_configure: bool,
 }
@@ -44,11 +47,24 @@ struct CategoryOption {
     id: String,
     raw_id: Uuid,
     name: String,
+    tree_name: String,
+    depth: usize,
 }
 
 #[derive(Clone)]
 struct CategoryChoice {
     id: String,
+    name: String,
+    selected: bool,
+}
+
+#[derive(Clone)]
+struct TagOption {
+    name: String,
+}
+
+#[derive(Clone)]
+struct TagChoice {
     name: String,
     selected: bool,
 }
@@ -74,6 +90,7 @@ struct FeedsTemplate {
     is_admin: bool,
     feeds: Vec<FeedRow>,
     categories: Vec<CategoryOption>,
+    tag_options: Vec<TagOption>,
     message: Option<String>,
     error: Option<String>,
 }
@@ -134,12 +151,26 @@ fn feed_initial(name: &str) -> String {
         .unwrap_or_else(|| "•".to_string())
 }
 
+fn refresh_cadence(feed: &Feed) -> String {
+    if feed.consecutive_failures < 3 {
+        return format!("Refresh every {} minutes", feed.fetch_interval_minutes);
+    }
+    if feed
+        .failure_started_at
+        .is_some_and(|started_at| started_at <= OffsetDateTime::now_utc() - Duration::days(14))
+    {
+        "Retry weekly while the feed is failing".to_string()
+    } else {
+        "Retry daily while the feed is failing".to_string()
+    }
+}
+
 fn category_options(categories: &[categories::UserCategory]) -> Vec<CategoryOption> {
     let by_id: HashMap<Uuid, &categories::UserCategory> = categories
         .iter()
         .map(|category| (category.id, category))
         .collect();
-    categories
+    let mut options: Vec<_> = categories
         .iter()
         .map(|category| {
             let mut names = Vec::new();
@@ -160,9 +191,13 @@ fn category_options(categories: &[categories::UserCategory]) -> Vec<CategoryOpti
                 id: category.id.to_string(),
                 raw_id: category.id,
                 name: names.join(" / "),
+                tree_name: category.name.clone(),
+                depth: names.len().saturating_sub(1),
             }
         })
-        .collect()
+        .collect();
+    options.sort_by(|left, right| left.name.cmp(&right.name));
+    options
 }
 
 fn normalize_tags(value: &str) -> Result<Vec<String>, String> {
@@ -188,31 +223,35 @@ fn normalize_tags(value: &str) -> Result<Vec<String>, String> {
 
 fn parse_organization_form(
     values: Vec<(String, String)>,
-) -> Result<(String, Vec<String>, Vec<Uuid>), String> {
+) -> Result<(String, Vec<String>, Option<Uuid>), String> {
     let mut csrf_token = None;
     let mut tags = None;
-    let mut category_ids = Vec::new();
+    let mut tag_options = Vec::new();
+    let mut folder_id = None;
     for (name, value) in values {
         match name.as_str() {
             "csrf_token" if csrf_token.is_none() => csrf_token = Some(value),
             "tags" if tags.is_none() => tags = Some(value),
-            "category_id" => category_ids.push(
-                Uuid::parse_str(&value)
-                    .map_err(|_| "A selected folder was invalid.".to_string())?,
-            ),
+            "tag_option" => tag_options.push(value),
+            "folder_id" if folder_id.is_none() => {
+                folder_id = Some(match value.trim() {
+                    "" => None,
+                    value => Some(
+                        Uuid::parse_str(value)
+                            .map_err(|_| "The selected folder was invalid.".to_string())?,
+                    ),
+                });
+            }
             _ => return Err("The feed organization could not be processed.".to_string()),
         }
     }
-    if category_ids.len() > 50 {
-        return Err("Use at most 50 folders per feed.".to_string());
-    }
     let csrf_token =
         csrf_token.ok_or_else(|| "The feed organization could not be processed.".to_string())?;
-    Ok((
-        csrf_token,
-        normalize_tags(tags.as_deref().unwrap_or_default())?,
-        category_ids,
-    ))
+    let tags = std::iter::once(tags.unwrap_or_default())
+        .chain(tag_options)
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok((csrf_token, normalize_tags(&tags)?, folder_id.flatten()))
 }
 
 fn feed_row(
@@ -220,31 +259,47 @@ fn feed_row(
     can_configure: bool,
     organization: Option<&subscriptions::FeedOrganization>,
     categories: &[CategoryOption],
+    tag_options: &[TagOption],
     has_icon: bool,
 ) -> FeedRow {
     let settings = content_settings(&feed);
-    let category_ids = organization
-        .map(|organization| organization.category_ids.as_slice())
-        .unwrap_or_default();
+    let category_id = organization.and_then(|organization| organization.category_id);
     let category_choices: Vec<_> = categories
         .iter()
         .map(|category| CategoryChoice {
             id: category.id.clone(),
             name: category.name.clone(),
-            selected: category_ids.contains(&category.raw_id),
+            selected: Some(category.raw_id) == category_id,
         })
         .collect();
-    let mut category_names: Vec<_> = category_choices
-        .iter()
-        .filter(|category| category.selected)
-        .map(|category| category.name.as_str())
-        .collect();
-    category_names.sort();
-    let category_names = category_names.join(", ");
+    let folder = category_choices.iter().find(|category| category.selected);
+    let folder_name = folder
+        .map(|category| category.name.clone())
+        .unwrap_or_else(|| "Unfiled".to_string());
+    let folder_id = folder
+        .map(|category| category.id.clone())
+        .unwrap_or_default();
     let tags = organization
         .map(|organization| organization.tags.clone())
         .unwrap_or_default();
-    let tags_input = tags.join(", ");
+    let tags_input = tags
+        .iter()
+        .filter(|tag| {
+            !tag_options
+                .iter()
+                .any(|option| option.name.as_str() == tag.as_str())
+        })
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tag_choices = tag_options
+        .iter()
+        .map(|option| TagChoice {
+            name: option.name.clone(),
+            selected: tags.iter().any(|tag| tag == &option.name),
+        })
+        .collect();
+    let refresh_cadence = refresh_cadence(&feed);
     FeedRow {
         id: feed.id.to_string(),
         initial: feed_initial(&feed.name),
@@ -253,10 +308,12 @@ fn feed_row(
         health: feed.health_status,
         content_mode: settings.mode.as_str().to_string(),
         content_mode_label: settings.mode.label().to_string(),
-        fetch_interval_minutes: feed.fetch_interval_minutes,
+        refresh_cadence,
         tags,
         tags_input,
-        category_names,
+        tag_choices,
+        folder_name,
+        folder_id,
         category_choices,
         has_icon,
         can_configure,
@@ -287,12 +344,17 @@ async fn render_page(
     error: Option<String>,
 ) -> Result<Response, AppError> {
     let ui = crate::prefs::load(&state.db, user_id).await;
-    let (feed_records, category_records, organizations) = tokio::try_join!(
+    let (feed_records, category_records, tag_records, organizations) = tokio::try_join!(
         feeds::list_for_user(state.db.pool(), user_id),
         categories::list_for_user(state.db.pool(), user_id),
+        categories::list_tags(state.db.pool(), user_id),
         subscriptions::list_organization(state.db.pool(), user_id),
     )?;
     let categories = category_options(&category_records);
+    let tag_options: Vec<_> = tag_records
+        .into_iter()
+        .map(|tag| TagOption { name: tag.name })
+        .collect();
     let organizations: HashMap<Uuid, subscriptions::FeedOrganization> = organizations
         .into_iter()
         .map(|organization| (organization.feed_id, organization))
@@ -309,6 +371,7 @@ async fn render_page(
                 is_admin,
                 organizations.get(&feed_id),
                 &categories,
+                &tag_options,
                 has_icon,
             )
         })
@@ -322,6 +385,7 @@ async fn render_page(
         is_admin,
         feeds,
         categories,
+        tag_options,
         message,
         error,
     }
@@ -542,7 +606,7 @@ pub async fn update_organization(
     Form(values): Form<Vec<(String, String)>>,
 ) -> Result<Response, AppError> {
     let is_admin = user.role == "admin";
-    let (csrf_token, tags, category_ids) = match parse_organization_form(values) {
+    let (csrf_token, tags, folder_id) = match parse_organization_form(values) {
         Ok(form) => form,
         Err(error) => {
             return render_page(
@@ -560,9 +624,7 @@ pub async fn update_organization(
     if !csrf::verify(&jar, &csrf_token) {
         return Err(AppError::Forbidden);
     }
-    match subscriptions::update_organization(state.db.pool(), user.id, id, &tags, &category_ids)
-        .await
-    {
+    match subscriptions::update_organization(state.db.pool(), user.id, id, &tags, folder_id).await {
         Ok(()) => {
             render_page(
                 &state,

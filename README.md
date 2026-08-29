@@ -50,14 +50,14 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 - Per-user personalization (TF keyword patterns, sigmoid relevance scoring, time-decay)
 - Saved searches with a boolean+semantic DSL (`AND`/`OR`/`NOT`/phrases/groups) and match notifications
 - LLM summaries (summary + key points + topics) with a provider cascade and cost tracking
-- Feed magazine: 41 verified starter sources across news, technology, research, science, security, and public-interest; country/category/language filters, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
-- Personal feed organization: nested folders, multi-folder assignment, tags, category/tag-scoped reading, downloaded source icons, and a reduced sidebar mode
-- Feed health tracking (healthy/warning/error/disabled, auto-disable)
-- Three reading modes (side panel / inline / standalone), themes, deep typography/display preferences, and configurable keyboard shortcuts
-- Admin dashboard: instance stats, users/roles, shared feed inventory, feed magazine editing, and AI costs
+- Feed magazine: 70 verified starter sources across news, technology, research, science, security, public-interest, and culture; automatic country/category/language filtering, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
+- Personal feed organization: nested folder tree, one folder per feed, multi-valued tags, category/tag-scoped reading, downloaded source icons, and a reduced sidebar mode
+- Feed health tracking (healthy/warning/error/manual-disabled): normal cadence for 1–2 failures, daily after 3, weekly after 14 failing days, plus resolved structured error history
+- Three reading modes (side panel / inline / standalone), original and RSS-comment links, themes, deep typography/display preferences, and arrow-key-first shortcuts
+- Admin dashboard: instance stats, users/roles, shared feed inventory/cadence, feed magazine editing, safe operations logs, and AI costs
 - OAuth (Google/GitHub/Generic) **and** local accounts (Argon2id)
 
-**Planned (v1.1+ / v2):** smarter retention, OPML import/export, news **clustering + LLM digests**, i18n, ADHD-friendly reading formatting, media/YouTube embeds, richer feed health/history, storage/log admin tooling, and a GReader-compatible API. Full list in **[docs/PRD.md §8](docs/PRD.md)**.
+**Planned (v1.1+ / v2):** smarter retention, OPML import/export, feed bulk operations and health notifications/manual controls, news **clustering + LLM digests**, i18n, ADHD-friendly reading formatting, media/YouTube embeds, richer storage/log administration, and a GReader-compatible API. Full list in **[docs/PRD.md §8](docs/PRD.md)**.
 
 ---
 
@@ -137,7 +137,7 @@ PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
   npm run test:e2e
 ```
 
-Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises the real browser flows for catalog selection, shortcut capture/conflict handling, preference persistence, and normal-user admin denial. CI installs Chromium and runs this suite after Rust tests.
+Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises automatic catalog filtering, selection, searchable feed organization, folder/tag navigation, shortcut capture/conflict handling, sidebar persistence, and normal-user admin denial. CI installs Chromium and runs this suite after Rust tests.
 
 ### Configuration (essentials)
 

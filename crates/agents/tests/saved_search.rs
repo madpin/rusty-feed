@@ -31,6 +31,7 @@ async fn add_embedded_article(db: &Db, feed_id: Uuid, title: &str, content: &str
         &NewArticle {
             feed_id,
             url: format!("https://ex.com/{}", Uuid::now_v7()),
+            comments_url: None,
             guid: None,
             title: title.into(),
             author: None,

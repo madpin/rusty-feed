@@ -118,7 +118,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-FEED-4 (P0):** Personal categories: create/rename/delete, **hierarchy (parent/child)**, ordering, collapse state persisted, per-category settings.
 - **FR-FEED-5 (P0):** Bulk operations across selected feeds: set category, edit tags (add/remove/replace), update settings, enable/disable, delete, refresh — with **partial-failure tolerance** and per-user authorization checks.
 - **FR-FEED-6 (P0):** OPML 2.0 import (auto-create categories, dedupe feeds) and export (grouped by category).
-- **FR-FEED-7 (P0):** Feed **health tracking**: states `healthy | warning | error | disabled`, consecutive-failure counting, configurable auto-disable threshold, per-error audit log, manual enable/disable/reset, optional error notifications.
+- **FR-FEED-7 (P0):** Feed **health tracking**: states `healthy | warning | error | disabled`, consecutive-failure counting, structured per-error audit log, manual enable/disable/reset, optional error notifications, daily checks after three unresolved failures, and weekly checks after 14 failing days. `disabled` is a manual pause rather than an automatic terminal transition.
 - **FR-FEED-8 (P1):** OPML import with explicit **category selection** and correct category import (fixes a known reference bug).
 - **FR-FEED-9 (P0):** Admin-curated feed magazine: editorial title/description, country/category/language facets, featured/order/publish controls, live shared-feed stats (post count, RSS body depth, posting cadence, latest post), and idempotent multi-select subscriptions. Catalog membership never restricts custom URL subscriptions.
 

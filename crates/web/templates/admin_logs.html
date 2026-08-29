@@ -1,0 +1,47 @@
+{% extends "app_base.html" %}
+{% block title %}Logs{% endblock %}
+{% block body_class %}page-admin page-admin-logs{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Logs</h1>
+    <p class="muted">Recent shared-feed failures and background-worker activity. This view exposes safe classifications and counters, not raw request details or job payloads.</p>
+  </div>
+</div>
+<details class="panel admin-log-section" open>
+  <summary><span><strong>Feed errors</strong><span class="muted">{{ feed_errors.len() }} recent event(s)</span></span></summary>
+  {% if feed_errors.is_empty() %}
+  <p class="muted">No feed failures have been recorded.</p>
+  {% else %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Feed</th><th>Time</th><th>Class</th><th>Summary</th><th>HTTP</th><th>Health</th><th>Failures</th><th>State</th></tr></thead>
+      <tbody>
+      {% for error in feed_errors %}
+        <tr><td><a href="/feeds/{{ error.feed_id }}/settings">{{ error.feed_name }}</a></td><td>{{ error.occurred_at }}</td><td>{{ error.error_type }}</td><td>{{ error.summary }}</td><td>{{ error.http_status }}</td><td><span class="badge health-{{ error.health_status }}">{{ error.health_status }}</span></td><td>{{ error.consecutive_failures }}</td><td>{% if error.resolved %}<span class="badge health-healthy">Resolved</span>{% else %}<span class="badge health-error">Open</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</details>
+<details class="panel admin-log-section" open>
+  <summary><span><strong>Background runs</strong><span class="muted">{{ agent_runs.len() }} recent run(s)</span></span></summary>
+  {% if agent_runs.is_empty() %}
+  <p class="muted">No background runs have been recorded.</p>
+  {% else %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Agent</th><th>State</th><th>Started</th><th>Duration</th><th>Stats</th></tr></thead>
+      <tbody>
+      {% for run in agent_runs %}
+        <tr><td>{{ run.agent_name }}</td><td><span class="badge{% if run.has_error %} health-error{% endif %}">{{ run.status }}</span></td><td>{{ run.started_at }}</td><td>{{ run.duration }}</td><td><code>{{ run.stats }}</code></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</details>
+{% endblock %}

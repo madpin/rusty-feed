@@ -16,13 +16,14 @@
 {% else %}
 <div class="table-wrap">
   <table>
-    <thead><tr><th>Feed</th><th>Content</th><th>Health</th><th>Subscribers</th><th>Posts</th><th>Last post</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Feed</th><th>Content</th><th>Health</th><th>Check cadence</th><th>Subscribers</th><th>Posts</th><th>Last post</th><th>Actions</th></tr></thead>
     <tbody>
     {% for feed in feeds %}
       <tr>
         <td><strong>{{ feed.name }}</strong><br><span class="muted">{{ feed.url }}</span></td>
         <td>{{ feed.content_mode }}</td>
         <td><span class="badge health-{{ feed.health }}">{{ feed.health }}</span></td>
+        <td>{{ feed.check_cadence }}</td>
         <td>{{ feed.subscriber_count }}</td>
         <td>{{ feed.article_count }}</td>
         <td>{{ feed.last_post }}</td>

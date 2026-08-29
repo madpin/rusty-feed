@@ -69,7 +69,7 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
     let starters = catalog::list_published_for_user(pool, user.id, None, None, None)
         .await
         .unwrap();
-    assert!(starters.len() >= 41);
+    assert!(starters.len() >= 70);
     assert!(starters.iter().any(|entry| entry.title == "Go Blog"));
     assert!(starters
         .iter()
@@ -84,6 +84,7 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
             &NewArticle {
                 feed_id: feed.id,
                 url: format!("https://catalog.example/{}/{index}", Uuid::now_v7()),
+                comments_url: None,
                 guid: Some(unique("guid")),
                 title: format!("Article {index}"),
                 author: None,

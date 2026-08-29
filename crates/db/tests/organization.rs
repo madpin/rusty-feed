@@ -14,6 +14,7 @@ async fn add_article(db: &Db, feed_id: uuid::Uuid, title: &str) {
                 uuid::Uuid::now_v7(),
                 title
             ),
+            comments_url: None,
             guid: None,
             title: title.to_string(),
             author: None,
@@ -28,7 +29,7 @@ async fn add_article(db: &Db, feed_id: uuid::Uuid, title: &str) {
 }
 
 #[tokio::test]
-async fn folders_and_tags_are_personal_multi_select_library_filters() {
+async fn folders_and_tags_are_personal_single_folder_library_filters() {
     let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -107,8 +108,17 @@ async fn folders_and_tags_are_personal_multi_select_library_filters() {
         db.pool(),
         alice.id,
         rust_feed.id,
+        &["work".to_string()],
+        Some(folder.id),
+    )
+    .await
+    .unwrap();
+    subscriptions::update_organization(
+        db.pool(),
+        alice.id,
+        rust_feed.id,
         &["work".to_string(), "rust".to_string()],
-        &[folder.id, child.id],
+        Some(child.id),
     )
     .await
     .unwrap();
@@ -117,7 +127,7 @@ async fn folders_and_tags_are_personal_multi_select_library_filters() {
         alice.id,
         web_feed.id,
         &["work".to_string()],
-        &[child.id],
+        Some(child.id),
     )
     .await
     .unwrap();
@@ -126,7 +136,7 @@ async fn folders_and_tags_are_personal_multi_select_library_filters() {
         alice.id,
         personal_feed.id,
         &["personal".to_string()],
-        &[],
+        None,
     )
     .await
     .unwrap();
@@ -135,10 +145,20 @@ async fn folders_and_tags_are_personal_multi_select_library_filters() {
         alice.id,
         rust_feed.id,
         &[],
-        &[foreign.id],
+        Some(foreign.id),
     )
     .await
     .is_err());
+    assert_eq!(
+        subscriptions::list_organization(db.pool(), alice.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|organization| organization.feed_id == rust_feed.id)
+            .unwrap()
+            .category_id,
+        Some(child.id)
+    );
 
     add_article(&db, rust_feed.id, "Rust article").await;
     add_article(&db, web_feed.id, "Web article").await;

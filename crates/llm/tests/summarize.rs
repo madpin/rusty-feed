@@ -62,6 +62,7 @@ async fn seed_article(db: &Db) -> rustss_db::Article {
         &NewArticle {
             feed_id: feed.id,
             url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
             guid: None,
             title: "Title".into(),
             author: None,

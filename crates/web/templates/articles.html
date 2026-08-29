@@ -1,5 +1,5 @@
 {% extends "app_base.html" %}
-{% block title %}Articles{% endblock %}
+{% block title %}{{ scope_label }}{% endblock %}
 {% block body_class %}page-articles{% endblock %}
 {% block layout_class %}has-context-sidebar{% endblock %}
 {% block sidebar %}
@@ -77,14 +77,14 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="value" value="up" />
             <input type="hidden" name="next" value="{{ back_url }}" />
-            <button type="submit" class="feedback-button" data-feedback-button="up" aria-pressed="{% if a.is_liked %}true{% else %}false{% endif %}">More like this</button>
+            <button type="submit" class="feedback-button" data-feedback-button="up" aria-label="More like this" title="More like this" aria-pressed="{% if a.is_liked %}true{% else %}false{% endif %}">👍</button>
           </form>
           <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
                 data-target="#card-{{ a.id }}" data-feedback-value="down" data-success-message="RustSS will show you fewer articles like this.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="value" value="down" />
             <input type="hidden" name="next" value="{{ back_url }}" />
-            <button type="submit" class="feedback-button" data-feedback-button="down" aria-pressed="{% if a.is_disliked %}true{% else %}false{% endif %}">Less like this</button>
+            <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if a.is_disliked %}true{% else %}false{% endif %}">👎</button>
           </form>
         </div>
       </li>

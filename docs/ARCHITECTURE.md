@@ -244,7 +244,7 @@ Feeds (SHARED)
   feeds (id, url UNIQUE(normalized), name, site_url, description, image_url,
          etag?, last_modified?, last_fetched?, last_successful_fetch?,
          fetch_interval_default, health_status[healthy|warning|error|disabled],
-         consecutive_failures, error_count, auto_disable_threshold, notify_on_error,
+         consecutive_failures, failure_started_at?, error_count, notify_on_error,
          http_status?, redirect_url?, extraction_settings jsonb,  -- shared mode/selector policy
          respect_robots_txt, extraction_delay_ms?, created_at, updated_at)
   feed_error_log (id, feed_id→feeds CASCADE, ts, error_type, error_message, http_status?, details jsonb, resolved)
@@ -254,7 +254,7 @@ Feeds (SHARED)
   domain_extraction_state (domain UNIQUE, last_extracted_at, failure_count, rate_limit_count, crawl_delay_ms?, last_error?)
 
 Articles (SHARED)
-  articles (id, feed_id→feeds CASCADE, url UNIQUE, guid?, title, author?, content, excerpt?,
+  articles (id, feed_id→feeds CASCADE, url UNIQUE, comments_url?, guid?, title, author?, content, excerpt?,
             content_hash, image_url?, published_at?, extraction_status[NONE|SUCCESS|FAILED], extraction_error?,
             summary?, key_points jsonb?, topics text[], summarized_at?, summary_model?,
             created_at, updated_at)
@@ -268,7 +268,7 @@ Subscriptions & Organization (PER-USER)
                    collapsed, sort_order, include_in_search, is_default, is_read_only, settings jsonb,
                    UNIQUE(user_id, name))
   user_feed_categories (id, user_feed_id→user_feeds, user_category_id→user_categories,
-                        UNIQUE(user_feed_id, user_category_id))
+                        UNIQUE(user_feed_id, user_category_id)) -- application presents one current folder/feed
 
 Reading State & Learning (PER-USER)
   read_articles (id, user_id, article_id, read_at, UNIQUE(user_id, article_id))
@@ -330,7 +330,7 @@ This section operationalizes PRD §6.
 ### 7.2 Write-path dedup (idempotent upserts)
 - **Feed creation:** normalize URL → `INSERT ... ON CONFLICT (url) DO NOTHING RETURNING id` (or select existing). Subscription is a separate `user_feeds` upsert. A feed shared by N users has exactly one `feeds` row.
 - **Catalog selection:** an admin can attach one editorial catalog entry to a shared feed; users may subscribe to many published catalog feeds in one transaction. The catalog never substitutes for arbitrary user URL creation.
-- **Personal organization:** folders/tags and multi-folder feed links update only `user_categories`, `user_feeds`, and `user_feed_categories`; they never enqueue shared work or duplicate shared feeds/articles.
+- **Personal organization:** a nested personal folder and multi-valued tags update only `user_categories`, `user_feeds`, and `user_feed_categories`; one current folder is presented for each feed, and these changes never enqueue shared work or duplicate shared feeds/articles.
 - **Article ingest:** dedup order = **GUID (feed-scoped) → URL (global unique) → content_hash (feed-scoped)**. Insert via `ON CONFLICT (url) DO UPDATE` only when `should_update` (content hash/title/published changed). One row per article regardless of subscriber count.
 
 ### 7.3 Compute-path dedup (claim + idempotency, O(1) per content version)
@@ -431,7 +431,7 @@ pub trait Agent: Send + Sync + 'static {
   Scheduled maintenance agents (singleton):
     • PatternDecayAgent  (decay + prune per-user patterns)      -- was API-only/untracked in ref
     • CleanupAgent       (retention; preserves bookmarks; VACUUM ANALYZE when needed)
-    • FeedHealthSweep    (optional; disable chronically failing feeds, batch notifications)
+    • FeedHealthSweep    (optional; batch notifications and manual-pause maintenance)
     • (v2) ClusterAgent  (group related articles into events)
     • (v2) DigestAgent   (LLM digest per cluster / daily saved-search digests)
 ```
@@ -440,6 +440,8 @@ Notes:
 - **Ordering/reuse:** embedding depends on ingest; saved-search matching depends on embedding (uses cosine) + keyword. The event bus sequences these without per-user fan-out.
 - **Per-user work is intentional & cheap:** refresh notifications and saved-search matches are inherently per-user, but they operate on already-shared, already-enriched articles.
 - **Backpressure:** each agent has bounded concurrency; extraction is additionally throttled per domain (§12).
+- **Feed failures:** one queued fetch is one health attempt. One or two failures retain the configured cadence; three unresolved failures become daily checks; after 14 days since the first unresolved failure, checks become weekly. `disabled` remains a manual pause state, not an automatic terminal health transition.
+- **Operations activity:** the admin log view is a bounded, no-store projection of structured feed failures and worker-run state. It intentionally omits raw request errors, payloads, and arbitrary agent stats.
 
 ### 8.4 Adding a new agent (extensibility)
 1. Implement `Agent` in `crates/agents`, define its `Job` payload.
@@ -516,7 +518,8 @@ Defaults mirror the reference (validated during analysis); all are configurable.
 ### 11.1 Article deduplication
 - `content_hash = SHA256(trim(content))` (hex).
 - Match order: GUID(feed-scoped) → URL(global) → content_hash(feed-scoped).
-- `should_update` if content_hash changed, or title changed, or `|published_new − published_old| > 60s`.
+- `should_update` if content_hash changed, title/metadata changed, or `|published_new − published_old| > 60s`; a comments-link-only update retains extracted content, its revision, vectors, and summaries.
+- Standard RSS 2 `<comments>` metadata is retained separately from the canonical article URL, so reader views can offer both the original page and its discussion link (for example, Hacker News comments).
 
 ### 11.2 Personalization
 - **Keyword extraction:** strip HTML → lowercase → tokenize on non-word → drop tokens len ≤ 2 and ~130 stop-words → term frequency normalized by token count; heuristic weight ×1.5 if raw count ∈ [2,10], ×0.5 if > 10. (TF with heuristics; not full IDF.)

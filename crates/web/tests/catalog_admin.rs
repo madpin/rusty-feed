@@ -7,6 +7,7 @@ use tower::ServiceExt;
 use rustss_cache::Cache;
 use rustss_db::{catalog, feed_icons, feeds, subscriptions, users, Db};
 use rustss_web::{router, AppSettings, AppState};
+use serde_json::json;
 
 fn set_cookies(response: &Response<Body>) -> Vec<(String, String)> {
     response
@@ -76,6 +77,12 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         String::new,
     );
     let app = router(state.clone());
+    let response = app
+        .clone()
+        .oneshot(Request::get("/admin/logs").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     let (sid, email) = register(&app).await;
     let user = users::find_by_email(state.db.pool(), &email)
         .await
@@ -233,6 +240,17 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/admin/logs")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
     users::set_role(state.db.pool(), user.id, "admin")
         .await
@@ -249,6 +267,47 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert!(body_string(response).await.contains("Instance overview"));
+    feeds::record_fetch_failure(state.db.pool(), feed.id, feeds::FetchFailure::Network)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO feed_error_log (id, feed_id, error_type, error_message) \
+         VALUES ($1, $2, 'legacy', 'RAW_FEED_LOG_SENTINEL')",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(feed.id)
+    .execute(state.db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO agent_runs (id, agent_name, status, trigger, completed_at, duration_ms, stats, error_message) \
+         VALUES ($1, 'fetch_feed', 'failed', 'scheduler', now(), 42, $2, 'RAW_RUN_LOG_SENTINEL')",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(json!({ "created": 2, "reason": "RAW_STATS_SENTINEL" }))
+    .execute(state.db.pool())
+    .await
+    .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/admin/logs")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let logs = body_string(response).await;
+    assert!(logs.contains("Logs"));
+    assert!(logs.contains("Network request failed"));
+    assert!(logs.contains("fetch_feed"));
+    assert!(logs.contains("created: 2"));
+    assert!(!logs.contains("RAW_FEED_LOG_SENTINEL"));
+    assert!(!logs.contains("RAW_RUN_LOG_SENTINEL"));
+    assert!(!logs.contains("RAW_STATS_SENTINEL"));
 
     let response = app
         .clone()

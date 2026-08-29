@@ -1,5 +1,6 @@
 use askama::Template;
 use axum::extract::{Path, State};
+use axum::http::{header, HeaderValue};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
@@ -7,7 +8,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use rustss_core::feed_content::FeedContentSettings;
-use rustss_db::{articles, catalog, cost_ledger, feeds, jobs, users};
+use rustss_db::{agent_runs, articles, catalog, cost_ledger, feeds, jobs, users};
 use rustss_feeds::{enqueue_fetch_feed, normalize_url};
 
 use crate::auth::csrf;
@@ -27,6 +28,27 @@ struct CostRow {
     input_tokens: i64,
     output_tokens: i64,
     cost_usd: String,
+}
+
+struct FeedErrorRow {
+    feed_id: String,
+    feed_name: String,
+    occurred_at: String,
+    error_type: String,
+    summary: String,
+    http_status: String,
+    health_status: String,
+    consecutive_failures: i32,
+    resolved: bool,
+}
+
+struct AgentRunRow {
+    agent_name: String,
+    status: String,
+    started_at: String,
+    duration: String,
+    stats: String,
+    has_error: bool,
 }
 
 struct DashboardStats {
@@ -51,6 +73,7 @@ struct FeedRow {
     name: String,
     url: String,
     health: String,
+    check_cadence: String,
     content_mode: String,
     subscriber_count: i64,
     article_count: i64,
@@ -147,6 +170,18 @@ struct CostsTemplate {
     total_usd: String,
 }
 
+#[derive(Template)]
+#[template(path = "admin_logs.html")]
+struct LogsTemplate {
+    theme: String,
+    user_email: String,
+    csrf_token: String,
+    ui: prefs::Preferences,
+    is_admin: bool,
+    feed_errors: Vec<FeedErrorRow>,
+    agent_runs: Vec<AgentRunRow>,
+}
+
 #[derive(Deserialize)]
 pub struct RoleForm {
     csrf_token: String,
@@ -190,6 +225,70 @@ pub struct CatalogUpdateForm {
 
 fn micro_to_usd(micro: i64) -> String {
     format!("${:.4}", micro as f64 / 1_000_000.0)
+}
+
+fn numeric_run_stats(value: Option<serde_json::Value>) -> String {
+    const KEYS: &[&str] = &[
+        "due",
+        "enqueued",
+        "created",
+        "updated",
+        "skipped",
+        "extract_jobs",
+        "embed_jobs",
+        "summarize_jobs",
+        "decayed",
+        "pruned",
+    ];
+    let Some(serde_json::Value::Object(values)) = value else {
+        return "—".to_string();
+    };
+    let values: Vec<_> = KEYS
+        .iter()
+        .filter_map(|key| {
+            values
+                .get(*key)
+                .and_then(serde_json::Value::as_i64)
+                .map(|value| format!("{key}: {value}"))
+        })
+        .collect();
+    if values.is_empty() {
+        "—".to_string()
+    } else {
+        values.join(", ")
+    }
+}
+
+fn feed_error_summary(error_type: &str, http_status: Option<i32>) -> String {
+    match error_type {
+        "http" => http_status
+            .map(|status| format!("HTTP {status}"))
+            .unwrap_or_else(|| "HTTP request failed".to_string()),
+        "network" => "Network request failed".to_string(),
+        "invalid_url" => "Feed URL rejected".to_string(),
+        "unsupported_scheme" => "Feed URL scheme unsupported".to_string(),
+        "response_too_large" => "Response exceeded the size limit".to_string(),
+        "parse" => "Feed response could not be parsed".to_string(),
+        "database" => "Feed state update failed".to_string(),
+        _ => "Feed refresh failed".to_string(),
+    }
+}
+
+fn feed_check_cadence(
+    consecutive_failures: i32,
+    failure_started_at: Option<time::OffsetDateTime>,
+    configured_minutes: i32,
+) -> String {
+    if consecutive_failures < 3 {
+        return format!("Every {configured_minutes} min");
+    }
+    if failure_started_at.is_some_and(|started_at| {
+        started_at <= time::OffsetDateTime::now_utc() - time::Duration::days(14)
+    }) {
+        "Weekly while failing".to_string()
+    } else {
+        "Daily while failing".to_string()
+    }
 }
 
 fn catalog_row(entry: catalog::AdminCatalogEntry) -> CatalogRow {
@@ -392,6 +491,11 @@ pub async fn feeds_page(
             name: feed.name,
             url: feed.url,
             health: feed.health_status,
+            check_cadence: feed_check_cadence(
+                feed.consecutive_failures,
+                feed.failure_started_at,
+                feed.fetch_interval_minutes,
+            ),
             content_mode: FeedContentSettings::from_json(feed.extraction_settings.as_ref())
                 .mode
                 .label()
@@ -510,6 +614,65 @@ pub async fn update_catalog_entry(
         None,
     )
     .await
+}
+
+pub async fn logs(
+    State(state): State<AppState>,
+    AdminUser(user): AdminUser,
+    jar: CookieJar,
+) -> Result<Response, AppError> {
+    let (feed_errors, agent_runs) = tokio::try_join!(
+        feeds::list_recent_errors(state.db.pool(), ADMIN_LIST_LIMIT),
+        agent_runs::list_recent(state.db.pool(), ADMIN_LIST_LIMIT),
+    )?;
+    let ui = prefs::load(&state.db, user.id).await;
+    let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
+    let body = render(LogsTemplate {
+        theme: ui.theme.clone(),
+        user_email: user.email,
+        csrf_token,
+        ui,
+        is_admin: true,
+        feed_errors: feed_errors
+            .into_iter()
+            .map(|error| {
+                let summary = feed_error_summary(&error.error_type, error.http_status);
+                FeedErrorRow {
+                    feed_id: error.feed_id.to_string(),
+                    feed_name: error.feed_name,
+                    occurred_at: error.occurred_at.to_string(),
+                    error_type: error.error_type,
+                    summary,
+                    http_status: error
+                        .http_status
+                        .map(|status| status.to_string())
+                        .unwrap_or_else(|| "—".to_string()),
+                    health_status: error.health_status,
+                    consecutive_failures: error.consecutive_failures,
+                    resolved: error.resolved,
+                }
+            })
+            .collect(),
+        agent_runs: agent_runs
+            .into_iter()
+            .map(|run| AgentRunRow {
+                agent_name: run.agent_name,
+                status: run.status,
+                started_at: run.started_at.to_string(),
+                duration: run
+                    .duration_ms
+                    .map(|duration| format!("{duration} ms"))
+                    .unwrap_or_else(|| "Running".to_string()),
+                stats: numeric_run_stats(run.stats),
+                has_error: run.has_error,
+            })
+            .collect(),
+    })?;
+    let mut response = (jar, body).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 pub async fn costs(
