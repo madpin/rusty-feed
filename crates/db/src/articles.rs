@@ -454,6 +454,7 @@ pub struct ArticleListItem {
     pub feed_name: String,
     pub is_read: bool,
     pub is_bookmarked: bool,
+    pub has_summary: bool,
     pub feedback_value: Option<f64>,
 }
 
@@ -480,6 +481,7 @@ pub async fn list_for_user(
                 coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
                 (b.article_id IS NOT NULL) AS is_bookmarked, \
+                (a.summary IS NOT NULL) AS has_summary, \
                 af.feedback_value \
          FROM articles a \
          JOIN feeds f ON f.id = a.feed_id \

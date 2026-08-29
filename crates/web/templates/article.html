@@ -62,12 +62,14 @@
     {% endif %}
   </div>
   {% else if can_summarize %}
-  <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-success-message="Summary queued. Refresh this article shortly.">
+  <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-success-message="AI summary queued. Refresh this article shortly.">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <input type="hidden" name="next" value="/articles/{{ id }}" />
-    <button type="submit" class="primary">Summarize</button>
+    <button type="submit" class="primary">Generate AI summary</button>
     <span class="muted">The summary is prepared in the background.</span>
   </form>
+  {% else %}
+  <div class="summary-action"><button type="button" disabled title="An administrator must configure an LLM provider before summaries can be generated.">AI summary unavailable</button><span class="muted">Configure an LLM provider to enable article summaries.</span></div>
   {% endif %}
 
   <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}">

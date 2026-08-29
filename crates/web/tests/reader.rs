@@ -407,6 +407,7 @@ async fn reading_actions_and_detail_work() {
     assert!(body.contains("Hello World Article"));
     assert!(body.contains("Open comments"));
     assert!(body.contains("https://news.ycombinator.com/item?id=42"));
+    assert!(body.contains("AI summary unavailable"));
     assert!(body.contains("Body text"));
     assert!(body.contains("https://ex.com/cover.png"));
     assert!(
@@ -527,10 +528,11 @@ async fn summarize_enqueues_a_job() {
     use rustss_db::models::NewArticle;
     use rustss_db::{articles, feeds, jobs, subscriptions};
 
-    let Some(state) = test_state().await else {
+    let Some(mut state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    std::sync::Arc::make_mut(&mut state.settings).summarization_enabled = true;
     let app = router(state.clone());
     let (sid, email) = register(&app).await;
     let pool = state.db.pool();
@@ -565,6 +567,18 @@ async fn summarize_enqueues_a_job() {
     .await
     .unwrap();
 
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/articles")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(response).await.contains("Summarize with AI"));
+
     // Get a CSRF token from the article page.
     let resp = app
         .clone()
@@ -579,8 +593,10 @@ async fn summarize_enqueues_a_job() {
     let csrf = find(&set_cookies(&resp), "rustss_csrf")
         .unwrap()
         .to_string();
+    assert!(body_string(resp).await.contains("Generate AI summary"));
 
     let resp = app
+        .clone()
         .oneshot(
             Request::post(format!("/articles/{}/summarize", article.id))
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -593,6 +609,40 @@ async fn summarize_enqueues_a_job() {
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     let dedup = format!("summarize:{}", article.id);
     assert_eq!(jobs::count_active_by_dedup(pool, &dedup).await.unwrap(), 1);
+    assert!(articles::set_summary(
+        pool,
+        article.id,
+        article.content_revision,
+        "AI-generated article summary",
+        &["Key point".to_string()],
+        &["Topic".to_string()],
+        "test-model",
+    )
+    .await
+    .unwrap());
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/articles")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(response).await.contains("View AI summary"));
+    let response = app
+        .oneshot(
+            Request::get(format!("/articles/{}", article.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(response)
+        .await
+        .contains("AI-generated article summary"));
 }
 
 #[tokio::test]

@@ -41,6 +41,8 @@ struct ArticleView {
     published: Option<String>,
     is_read: bool,
     is_bookmarked: bool,
+    has_summary: bool,
+    can_summarize: bool,
     is_liked: bool,
     is_disliked: bool,
     score: Option<i64>,
@@ -646,6 +648,8 @@ async fn recency_page(
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
             is_bookmarked: a.is_bookmarked,
+            has_summary: a.has_summary,
+            can_summarize: state.settings.summarization_enabled && !a.has_summary,
             is_liked: a.feedback_value.is_some_and(|value| value > 0.0),
             is_disliked: a.feedback_value.is_some_and(|value| value < 0.0),
             score: None,
@@ -727,6 +731,8 @@ async fn relevance_page(
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
             is_bookmarked: a.is_bookmarked,
+            has_summary: a.has_summary,
+            can_summarize: state.settings.summarization_enabled && !a.has_summary,
             is_liked: a.feedback_value.is_some_and(|value| value > 0.0),
             is_disliked: a.feedback_value.is_some_and(|value| value < 0.0),
             score: Some((score.clamp(0.0, 1.0) * 100.0).round() as i64),
@@ -809,6 +815,11 @@ pub async fn summarize(
 ) -> Result<Response, AppError> {
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
+    }
+    if !state.settings.summarization_enabled {
+        return Err(AppError::Validation(
+            "AI summaries are not enabled for this RustSS instance.".to_string(),
+        ));
     }
     authorize_action(&state, user.id, id).await?;
     let dedup = format!("summarize:{id}");

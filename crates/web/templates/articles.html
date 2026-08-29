@@ -72,6 +72,18 @@
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit">{% if a.is_bookmarked %}Saved{% else %}Save{% endif %}</button>
           </form>
+          {% if a.has_summary %}
+          <a href="/articles/{{ a.id }}" class="btn summary-card-link">View AI summary</a>
+          {% else if a.can_summarize %}
+          <form class="js-action" method="post" action="/articles/{{ a.id }}/summarize"
+                data-action="summarize" data-success-message="AI summary queued. Open this article shortly to read it.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="next" value="{{ back_url }}" />
+            <button type="submit" class="summary-button">Summarize with AI</button>
+          </form>
+          {% else %}
+          <button type="button" class="summary-button" disabled title="An administrator must configure an LLM provider before summaries can be generated.">AI summary unavailable</button>
+          {% endif %}
           <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
                 data-target="#card-{{ a.id }}" data-feedback-value="up" data-success-message="RustSS will show you more articles like this.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />

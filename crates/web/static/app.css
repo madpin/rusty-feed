@@ -674,6 +674,9 @@ legend { margin-bottom: 0.7rem; color: var(--text-strong); font-size: 0.95rem; f
 .actions form { margin: 0; }
 .actions button { min-height: 2rem; padding: 0.28rem 0.6rem; box-shadow: none; font-size: 0.8rem; }
 .actions .feedback-button { min-width: 2.2rem; }
+.actions .summary-button,
+.actions .summary-card-link { border-color: color-mix(in srgb, var(--accent) 46%, var(--border)); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.actions .summary-card-link { display: inline-flex; align-items: center; min-height: 2rem; padding: 0.28rem 0.6rem; font-size: 0.8rem; }
 .feedback-button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-contrast); background: var(--accent); }
 
 .article-inline {
