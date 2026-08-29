@@ -50,7 +50,7 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 - Per-user personalization (TF keyword patterns, sigmoid relevance scoring, time-decay)
 - Saved searches with a boolean+semantic DSL (`AND`/`OR`/`NOT`/phrases/groups) and match notifications
 - LLM summaries (summary + key points + topics) with a provider cascade and cost tracking
-- Feed magazine: country/category/language filters, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
+- Feed magazine: 41 verified starter sources across news, technology, research, science, security, and public-interest; country/category/language filters, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
 - Feed health tracking (healthy/warning/error/disabled, auto-disable)
 - Three reading modes (side panel / inline / standalone), themes, deep typography/display preferences, and configurable keyboard shortcuts
 - Admin dashboard: instance stats, users/roles, shared feed inventory, feed magazine editing, and AI costs

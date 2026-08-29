@@ -153,6 +153,8 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     let page = body_string(response).await;
     assert!(page.contains("Discover feeds"));
     assert!(page.contains("Rust Blog"));
+    assert!(page.contains("Go Blog"));
+    assert!(page.contains("Al Jazeera English"));
     assert!(page.contains("Catalog UI source"));
 
     let response = app

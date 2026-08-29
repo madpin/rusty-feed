@@ -66,6 +66,15 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
     .await
     .unwrap();
 
+    let starters = catalog::list_published_for_user(pool, user.id, None, None, None)
+        .await
+        .unwrap();
+    assert!(starters.len() >= 41);
+    assert!(starters.iter().any(|entry| entry.title == "Go Blog"));
+    assert!(starters
+        .iter()
+        .any(|entry| entry.title == "Al Jazeera English"));
+
     let base = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
     let bodies = ["short", "medium length", "longer RSS body"];
     let mut created = Vec::new();
