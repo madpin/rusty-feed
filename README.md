@@ -111,6 +111,18 @@ open http://localhost:8080
 
 The first account you register becomes the **admin**. New users can choose from 97 curated magazine sources with country and language filters, or add their own feed URL.
 
+### Redis-free single-process mode
+
+Redis is optional. `rustss-server` embeds the background worker by default, so a
+small single-node deployment needs only PostgreSQL 17 with pgvector:
+
+```bash
+CACHE_ENABLED=false rustss-server
+```
+
+Set `DATABASE_URL`, `SESSION_SECRET`, and `ENCRYPTION_SECRET` first. SQLite is
+not yet a supported database backend.
+
 ### Develop locally
 
 ```bash
@@ -143,7 +155,9 @@ Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded 
 
 ```bash
 DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
+# Optional Redis L2 cache; omit REDIS_URL and set CACHE_ENABLED=false for L1-only.
 REDIS_URL=redis://localhost:6379
+CACHE_ENABLED=true
 SESSION_SECRET=<32+ random bytes>
 ENCRYPTION_SECRET=<32+ random bytes>         # encrypts stored API credentials
 

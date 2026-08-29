@@ -22,7 +22,7 @@ jobs:
     # actually run in CI. The tests apply migrations themselves (idempotent).
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:0.8.6-pg17
         env:
           POSTGRES_USER: rustss
           POSTGRES_PASSWORD: rustss

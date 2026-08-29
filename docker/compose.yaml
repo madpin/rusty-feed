@@ -7,7 +7,7 @@ name: rustss
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.6-pg17
     environment:
       POSTGRES_USER: rustss
       POSTGRES_PASSWORD: rustss
@@ -57,14 +57,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_started
-      chromium:
-        condition: service_started
     environment:
       BIND_ADDR: 0.0.0.0:8080
       DATABASE_URL: postgres://rustss:rustss@postgres:5432/rustss
       REDIS_URL: redis://redis:6379
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
       CHROMIUM_CDP_URL: http://chromium:9222
       MODEL_CACHE_DIR: /var/lib/rustss/models
       RUN_EMBEDDED_WORKER: ${RUN_EMBEDDED_WORKER:-true}
@@ -77,7 +74,7 @@ services:
       ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-INSECURE_dev_only_change_me_please_0123456789}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8080}:8080"
     volumes:
       - models:/var/lib/rustss/models
 

@@ -75,12 +75,12 @@ Behavioral parity with the reference is the baseline; §21 and RustSS explicitly
 
 | Concern | Choice | Alternative | Why |
 |---|---|---|---|
-| Database | **PostgreSQL 16 + pgvector** | — | System of record; vector search; the reference's data model is Postgres-native |
+| Database | **PostgreSQL 17 + pgvector** | — | System of record; vector search; the reference's data model is Postgres-native |
 | DB access | **SQLx** (async; runtime queries + `FromRow`) | SeaORM, Diesel | Raw-SQL friendliness for pgvector, no heavy ORM, low overhead. We use runtime `query`/`query_as` (not `query!`) so builds are hermetic; SQL is validated by integration tests against real Postgres (FND-107) |
-| Vector types | **`pgvector`** crate (SQLx integration) | raw text casts | Typed `Vector` binding for `vector` columns |
+| Vector types | **pgvector extension via SQL text casts** | typed vector binding | Native `vector` columns and cosine operators without another Rust adapter |
 | Migrations | **`sqlx::migrate!`** (embedded) | refinery | Versioned SQL migrations applied safely on startup |
 | L1 cache | **`moka`** (in-process, async, TTL/LRU) | — | Always-on, zero-dependency hot cache; keeps Redis load down |
-| L2 cache / coordination | **`fred`** (Redis client, pooled, pub/sub) | `redis` + `deadpool` | Shared cache + cross-instance invalidation + locks |
+| L2 cache | **optional `redis` client** (pooled) | — | Shared cache across instances; single-node deployments use L1 only |
 | IDs | **UUIDv7** (`uuid`) | ULID | Time-sortable PKs, index-friendly, globally unique |
 | Time | **`time`** | chrono | Lightweight, `timestamptz` support |
 | Hashing | **`sha2`** (content hash), `blake3` (fast digests) | — | SHA-256 parity for content hash; BLAKE3 for internal keys |
@@ -90,10 +90,10 @@ Behavioral parity with the reference is the baseline; §21 and RustSS explicitly
 | Concern | Choice | Alternative | Why |
 |---|---|---|---|
 | Job framework | **`apalis`** (workers + cron), **Postgres storage** | custom `SKIP LOCKED` queue | Durable queue, cron scheduling, retries/backoff; Postgres backend avoids extra infra and keeps jobs queryable |
-| Singleton locks | **Postgres advisory locks** + `agent_lock` lease table | Redis `SET NX PX` | Exactly-one-runner semantics across instances; DB is authoritative |
-| Event fan-out | **Redis pub/sub** (optional) + DB outbox | — | Low-latency "new articles" notification to worker(s); DB outbox for durability |
+| Singleton locks | **Postgres lease table** + transactional guards | Redis `SET NX PX` | Exactly-one-runner semantics across instances; DB is authoritative |
+| Event fan-out | **Postgres job queue** | future transactional outbox | Durable shared work without a Redis dependency |
 
-> Rationale: with "Full infra" chosen, Redis is available; however we keep the **queue in Postgres** so job state is durable, transactional with content writes (outbox pattern), and survives Redis outages. Redis is used for caching, ephemeral coordination, and low-latency event nudges.
+> Rationale: the **queue remains in Postgres** so job state is durable and transactional with content writes. Redis is an optional L2 cache; when it is absent, the in-process cache and database remain fully functional for a single node.
 
 ### 3.4 Feeds, Extraction, AI
 
@@ -161,10 +161,10 @@ Behavioral parity with the reference is the baseline; §21 and RustSS explicitly
                      │                          │                          │
                      ▼                          ▼                          ▼
              ┌───────────────┐         ┌────────────────┐        ┌──────────────────┐
-             │  Postgres 16  │         │     Redis      │        │  Object/Model     │
-             │  + pgvector   │◄──────► │ (L2 cache,     │        │  store: local     │
-             │ (system of    │  outbox │  pub/sub,      │        │  ONNX weights,    │
-             │  record +     │  events │  ephemeral)    │        │  embedded assets  │
+             │  Postgres 17  │         │     Redis      │        │  Object/Model     │
+             │  + pgvector   │◄──────► │ (optional L2   │        │  store: local     │
+             │ (system of    │  outbox │  cache)        │        │  model/assets     │
+             │  record +     │  events │                │        │  storage          │
              │  job queue)   │         └────────────────┘        └──────────────────┘
              └──────┬────────┘
                     │ SKIP LOCKED / apalis
@@ -488,9 +488,9 @@ RustSS ships a **clean native JSON API** *and* a **Google Reader API (GReader)-c
 Two-tier cache behind a single `Cache` port, with **shared vs. per-user key separation** (enables cross-user reuse — PRD §6 FR-DEDUP-6).
 
 - **L1 — `moka`** (in-process, always on): microsecond hits for hot shared data (feed metadata, embeddings, summaries, parsed query ASTs). Bounded by entry count/size; TTL per namespace.
-- **L2 — Redis (`fred`)** (shared across instances): survives single-instance restarts, enables cross-instance invalidation via pub/sub. Optional; if down, L1+DB serve.
+- **L2 — Redis** (shared across instances): extends cached values across process restarts. Optional; if absent or down, L1+DB serve.
 - **Pattern:** `cache_get_or_set(key, ttl, || fetch())` (cache-aside), storing only non-null. Write-through where cheap.
-- **Invalidation:** **tag/prefix based via `SCAN`** (never `KEYS`), plus targeted deletes. Redis pub/sub broadcasts invalidations so all instances drop L1 entries. Examples: on feedback → invalidate `score:{user}:*` and `patterns:{user}`; on article update → `*:{article_id}`; on feed refresh → `feed:{feed_id}*`.
+- **Invalidation:** tag/prefix based via `SCAN` when Redis is configured (never `KEYS`), plus targeted local deletes. Cross-instance L1 invalidation remains future work; examples: on feedback → invalidate `score:{user}:*` and `patterns:{user}`; on article update → `*:{article_id}`; on feed refresh → `feed:{feed_id}*`.
 
 **Key namespaces & default TTLs** (parity with reference, corrected):
 
@@ -625,8 +625,8 @@ Effective value = first present of **feed → category → user prefs → system
 
 ## 18. Deployment Topology
 
-- **Default (single-node, self-hosted):** one container running server **with embedded worker** (`RUN_EMBEDDED_WORKER=true`) + Postgres/pgvector + Redis + headless Chromium, via **Docker Compose**. Lowest ops overhead.
-- **Scaled:** N stateless `rustss-server` replicas (no embedded worker) behind a load balancer + M `rustss-worker` replicas; all share Postgres + Redis. Agents coordinate via advisory locks + the Postgres queue, so scheduled jobs run once and queue work is load-balanced.
+- **Default (single-node, self-hosted):** one server process **with embedded worker** (`RUN_EMBEDDED_WORKER=true`) + Postgres 17/pgvector. Redis is optional L2 caching and the current extractor does not require headless Chromium; Compose can start only the app and database for this mode.
+- **Scaled:** N stateless `rustss-server` replicas (no embedded worker) behind a load balancer + M `rustss-worker` replicas; all share Postgres, and may share Redis for L2 cache. Agents coordinate through database leases and the Postgres queue, so scheduled jobs run once and queue work is load-balanced.
 - **Images:** multi-stage build → small runtime image (distroless/Debian-slim), non-root, multi-arch (amd64/arm64). Chromium in a separate layer/service to keep the app image `< 150 MB`.
 - **Migrations:** applied by an entrypoint/CLI step (`rustss-cli migrate`) before serving; safe/idempotent; opt-in auto-run.
 - **Assets:** Tailwind compiled at build; CSS/JS embedded via `rust-embed` for a single self-contained binary.

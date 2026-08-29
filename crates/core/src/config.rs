@@ -295,6 +295,16 @@ mod tests {
     }
 
     #[test]
+    fn supports_l1_only_cache_without_redis() {
+        let cfg = AppConfig::from_figment(base().merge(Serialized::defaults(serde_json::json!({
+            "cache_enabled": false,
+        }))))
+        .expect("Redis-free configuration should load");
+        assert!(!cfg.cache_enabled);
+        assert!(cfg.redis_url.is_none());
+    }
+
+    #[test]
     fn rejects_short_secret() {
         let f = base().merge(Serialized::defaults(serde_json::json!({
             "session_secret": "too-short",

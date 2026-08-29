@@ -97,9 +97,10 @@ interpolation, and the app service also reads that file at runtime.
 > POSTGRES_PORT=55432
 > REDIS_PORT=56379
 > CHROMIUM_PORT=59222
+> APP_PORT=58080
 > ```
-> (The app itself stays on `8080`; change the left side of `"8080:8080"` in
-> `docker/compose.yaml` if you need a different app port.)
+> (Set `APP_PORT` to change the app's published port, and update `BASE_URL` to
+> match when it is externally visible.)
 
 ### 5. Check it's running
 
@@ -122,13 +123,32 @@ docker compose --env-file .env -f docker/compose.yaml down -v         # stop AND
 
 Database migrations run automatically on startup (`AUTO_MIGRATE=true`).
 
+> **PostgreSQL 16 upgrade:** PostgreSQL 17 cannot use an existing PostgreSQL 16
+> `pgdata` volume in place. Back up and restore into a new PostgreSQL 17 volume,
+> or use `pg_upgrade`, before changing an existing deployment. Do not delete the
+> old volume unless you have confirmed its backup and migration.
+
+### Redis-free, single-process mode
+
+Redis is optional. The `rustss-server` process embeds the worker by default, so
+PostgreSQL is the only required service for a small single-node deployment:
+
+```bash
+CACHE_ENABLED=false docker compose --env-file .env -f docker/compose.yaml up -d app
+```
+
+For a directly installed binary, set `DATABASE_URL`, `SESSION_SECRET`, and
+`ENCRYPTION_SECRET`, then run `CACHE_ENABLED=false rustss-server`. This uses the
+in-process cache and embedded worker; it does not require Redis or Chromium.
+SQLite is not yet a supported database backend.
+
 ---
 
 ## B. Localhost from source (for developers)
 
 Use this if you want to change the code. You'll run the app with Rust's build
-tool, but still use Docker for the database, Redis, and Chrome (much easier than
-installing them by hand).
+tool, but still use Docker for the database (much easier than installing it by
+hand). Redis is optional, and the current extractor does not require Chrome.
 
 ### 1. Install the tools
 - **Rust** (the toolchain is pinned in the repo, this installs it):
@@ -147,10 +167,14 @@ cd rustss
 cp .env.example .env       # then edit .env and set SESSION_SECRET + ENCRYPTION_SECRET
 ```
 
-### 3. Start the dependencies (database, Redis, Chrome)
+### 3. Start the dependencies
 
 ```bash
-docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
+# Minimal development stack: PostgreSQL only.
+docker compose --env-file .env -f docker/compose.yaml up -d postgres
+
+# Optional Redis L2 cache and future Chrome extraction service.
+docker compose --env-file .env -f docker/compose.yaml up -d redis chromium
 ```
 
 Make sure your `.env` `DATABASE_URL` points at this Postgres. With the default
@@ -158,6 +182,7 @@ compose port that's:
 
 ```bash
 DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
+# Omit REDIS_URL and set CACHE_ENABLED=false for L1-only operation.
 REDIS_URL=redis://localhost:6379
 ```
 
@@ -194,13 +219,14 @@ cargo run -p rustss-worker                           # run background workers (o
 ```
 
 <details>
-<summary>Running the database/Redis natively (without Docker)</summary>
+<summary>Running PostgreSQL (and optionally Redis) natively</summary>
 
-You can install PostgreSQL 16 with the **pgvector** extension and Redis directly
-on your machine instead of using Docker, then point `DATABASE_URL` /`REDIS_URL`
-at them. pgvector must be installed and the database must allow
-`CREATE EXTENSION vector` (RustSS's migration does this for you). Docker is
-recommended because it bundles the correct Postgres + pgvector version for you.
+You can install PostgreSQL 17 with the **pgvector** extension directly on your
+machine instead of using Docker, then point `DATABASE_URL` at it. Redis is
+optional: omit `REDIS_URL` and set `CACHE_ENABLED=false` for L1-only caching.
+pgvector must be installed and the database must allow `CREATE EXTENSION vector`
+(RustSS's migration does this for you). Docker is recommended because it bundles
+the tested Postgres + pgvector version for you.
 </details>
 
 ---
@@ -291,8 +317,9 @@ full list). The ones you're most likely to touch:
 |---|---|---|
 | `SESSION_SECRET` | Required instance secret (reserved for session-key rotation; current sessions are opaque DB-backed tokens) | — |
 | `ENCRYPTION_SECRET` | Required master secret for encrypted stored-secret paths | — |
-| `DATABASE_URL` | PostgreSQL connection string | set by compose |
-| `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
+| `DATABASE_URL` | PostgreSQL 17 connection string (SQLite is not supported) | set by compose |
+| `REDIS_URL` | Optional Redis L2 cache connection string | `redis://localhost:6379` |
+| `CACHE_ENABLED` | Enable Redis L2; set `false` for in-process cache only | `true` |
 | `POSTGRES_PORT` | PostgreSQL port published on the host | `5432` |
 | `REDIS_PORT` | Redis port published on the host | `6379` |
 | `CHROMIUM_PORT` | Chromium CDP port published on the host | `9222` |

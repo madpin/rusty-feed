@@ -27,7 +27,7 @@ Read these before coding (in order):
 ## 2. Tech stack (quick reference)
 
 - **Runtime:** Rust (stable) + Tokio. **Web:** Axum + tower/tower-http. **UI:** Askama templates + HTMX + Alpine.js + Tailwind (server-rendered; no SPA).
-- **DB:** PostgreSQL 16 + pgvector via **SQLx** (compile-time-checked SQL). **Cache:** moka (L1) + Redis/`fred` (L2).
+- **DB:** PostgreSQL 17 + pgvector via **SQLx** (runtime-checked SQL). **Cache:** moka (L1) + optional Redis (L2).
 - **Background work (AGENTS):** apalis over a Postgres queue; advisory-lock singletons; outbox events.
 - **Feeds/extract:** `feed-rs`, `reqwest` (rustls), `article_scraper`, `chromiumoxide`, `ammonia`.
 - **AI:** deterministic local hash embeddings (one model space per instance; fastembed ONNX is pending) + OpenAI-compatible HTTP clients.
