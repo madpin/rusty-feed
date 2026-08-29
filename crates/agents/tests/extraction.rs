@@ -384,5 +384,5 @@ async fn extraction_is_ssrf_guarded() {
             None,
         )
         .await;
-    assert!(matches!(outcome, ExtractOutcome::Failed(_)));
+    assert!(matches!(outcome, ExtractOutcome::FetchFailed(_)));
 }

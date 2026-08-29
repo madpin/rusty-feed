@@ -88,6 +88,7 @@ impl Resolve for SafeResolver {
 #[derive(Clone)]
 pub struct SafeFetchClient {
     client: reqwest::Client,
+    no_redirect_client: reqwest::Client,
     allow_private: bool,
 }
 
@@ -104,6 +105,7 @@ impl SafeFetchClient {
     }
 
     fn build(timeout: Duration, allow_private: bool) -> Result<Self, FeedError> {
+        let resolver = Arc::new(SafeResolver { allow_private });
         let client = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .timeout(timeout)
@@ -116,11 +118,21 @@ impl SafeFetchClient {
                 }
             }))
             .no_proxy()
-            .dns_resolver(Arc::new(SafeResolver { allow_private }))
+            .dns_resolver(resolver.clone())
+            .build()
+            .map_err(FeedError::Http)?;
+        let no_redirect_client = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .timeout(timeout)
+            .connect_timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .dns_resolver(resolver)
             .build()
             .map_err(FeedError::Http)?;
         Ok(Self {
             client,
+            no_redirect_client,
             allow_private,
         })
     }
@@ -128,6 +140,10 @@ impl SafeFetchClient {
     /// Access the underlying reqwest client (for extraction/other GETs).
     pub fn client(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    pub fn client_without_redirects(&self) -> &reqwest::Client {
+        &self.no_redirect_client
     }
 
     /// Validate a URL for this client (scheme + IP-literal policy).

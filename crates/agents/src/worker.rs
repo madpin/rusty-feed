@@ -15,8 +15,9 @@ use rustss_feeds::SafeFetchClient;
 use rustss_llm::LlmClient;
 
 use crate::{
-    Agent, AgentContext, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
-    PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent, SummarizeArticleAgent,
+    Agent, AgentContext, CatalogPreviewAgent, EmbedArticleAgent, ExtractContentAgent,
+    FeedRefreshAgent, FetchFeedAgent, PatternDecayAgent, SavedSearchMatchAgent,
+    SavedSearchScanAgent, SummarizeArticleAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -30,9 +31,10 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 8] = [
+        let list: [Arc<dyn Agent>; 9] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
+            Arc::new(CatalogPreviewAgent::default()),
             Arc::new(ExtractContentAgent::default()),
             Arc::new(EmbedArticleAgent::default()),
             Arc::new(PatternDecayAgent),

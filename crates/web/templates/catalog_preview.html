@@ -1,0 +1,84 @@
+{% extends "app_base.html" %}
+{% block title %}Preview {{ preview.title }}{% endblock %}
+{% block body_class %}page-catalog page-catalog-preview{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">{{ preview.category }} · {{ preview.country }} · {{ preview.language }}</p>
+    <h1>Preview {{ preview.title }}</h1>
+    {% if let Some(description) = preview.description %}<p class="muted">{{ description }}</p>{% endif %}
+  </div>
+  <a href="/catalog" class="btn">Back to Discover</a>
+</div>
+
+{% if let Some(message) = preview.analysis_message %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+
+<section class="panel preview-analysis">
+  <div class="section-heading">
+    <div>
+      <h2>Anonymous public-content check</h2>
+      <p class="muted">RustSS checks at most three current public article pages in the background. It always respects robots.txt, follows no redirects, and never uses publisher credentials. This check never changes the source’s shared content policy.</p>
+    </div>
+    {% if preview.needs_analysis %}
+    <form method="post" action="/catalog/{{ preview.feed_id }}/preview/analyze?view={% if preview.show_processed %}processed{% else %}rss{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="primary">Analyze up to 3 articles</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if let Some(stats) = preview.stats %}
+  <p class="preview-availability"><strong>{{ stats.availability }}</strong> <span class="muted" title="{{ stats.checked_at }}">Last checked {{ stats.checked_at }}</span></p>
+  <dl class="preview-stats">
+    <div><dt>Current RSS selection average</dt><dd>{{ stats.average_rss_content }}</dd></div>
+    <div><dt>Readable public-body average</dt><dd>{{ stats.average_processed_content }}</dd></div>
+    <div><dt>Sampled</dt><dd>{{ stats.sampled_article_count }}</dd></div>
+    <div><dt>Verified public bodies</dt><dd>{{ stats.full_content_count }}</dd></div>
+    <div><dt>Partial/unverified</dt><dd>{{ stats.partial_content_count }}</dd></div>
+    <div><dt>Sign-in required (401)</dt><dd>{{ stats.http_401_count }}</dd></div>
+    <div><dt>Payment required (402)</dt><dd>{{ stats.http_402_count }}</dd></div>
+    <div><dt>Access denied (403)</dt><dd>{{ stats.http_403_count }}</dd></div>
+    <div><dt>Unavailable for legal reasons (451)</dt><dd>{{ stats.http_451_count }}</dd></div>
+    <div><dt>Robots blocked</dt><dd>{{ stats.robots_disallowed_count }}</dd></div>
+    <div><dt>Rate limited</dt><dd>{{ stats.rate_limited_count }}</dd></div>
+    <div><dt>Reader failed</dt><dd>{{ stats.reader_failed_count }}</dd></div>
+    <div><dt>Fetch failed</dt><dd>{{ stats.fetch_failed_count }}</dd></div>
+  </dl>
+  <p class="muted">HTTP 401/402/403 are anonymous access observations. They can indicate sign-in, payment, bot protection, geographic restrictions, or publisher policy; RustSS does not bypass them.</p>
+  {% else %}
+  <p class="muted">No public-content analysis has run for this source yet. The RSS preview below is available immediately.</p>
+  {% endif %}
+</section>
+
+<nav class="preview-tabs" aria-label="Preview format">
+  <a href="{{ preview.rss_url }}"{% if !preview.show_processed %} class="active" aria-current="page"{% endif %}>RSS preview</a>
+  <a href="{{ preview.processed_url }}"{% if preview.show_processed %} class="active" aria-current="page"{% endif %}>Processed availability</a>
+</nav>
+
+{% if preview.show_processed %}
+<section class="empty-state">
+  <p><strong>Processed preview is an availability report.</strong></p>
+  <p>To preserve source-policy and browser privacy boundaries, Discover does not render a second copy of publisher page content. Subscribe to this source to read its shared processed articles in your Library.</p>
+</section>
+{% else if preview.articles.is_empty() %}
+<div class="empty-state">
+  <p><strong>No recent feed items are available yet.</strong></p>
+  <p>Return after this source has been refreshed, then run the public-content analysis.</p>
+</div>
+{% else %}
+<div class="preview-articles">
+  {% for article in preview.articles %}
+  <details class="preview-article" open>
+    <summary><span>{{ article.title }}</span>{% if let Some(published) = article.published %}<span class="muted">{{ published }}</span>{% endif %}</summary>
+    <div class="preview-article-content">
+      {% if let Some(url) = article.url %}<p class="reader-meta"><a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original article</a></p>{% endif %}
+      {% if let Some(content) = article.rss_content %}
+      <div class="preview-body">{{ content }}</div>
+      {% else %}
+      <p class="muted">This item has no stored RSS body to preview.</p>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

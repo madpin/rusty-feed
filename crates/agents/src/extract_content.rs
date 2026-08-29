@@ -37,6 +37,23 @@ impl Default for ExtractContentAgent {
     }
 }
 
+async fn store_failure(
+    ctx: &AgentContext,
+    article_id: Uuid,
+    content_revision: i64,
+    failure_class: &str,
+) -> anyhow::Result<Value> {
+    let revision =
+        articles::set_extraction_failed(ctx.db.pool(), article_id, content_revision, failure_class)
+            .await?;
+    if ctx.embed_on_ingest {
+        if let Some(revision) = revision {
+            crate::worker::enqueue_embed(&ctx.db, article_id, revision).await?;
+        }
+    }
+    Ok(json!({ "status": "failed", "failure_class": failure_class }))
+}
+
 #[async_trait]
 impl Agent for ExtractContentAgent {
     fn name(&self) -> &'static str {
@@ -100,32 +117,24 @@ impl Agent for ExtractContentAgent {
                 }
                 Ok(json!({ "status": "success", "extractor": e.extractor }))
             }
+            // Soft failure: keep the RSS content, don't retry the job.
             ExtractOutcome::Disallowed => {
-                let revision = articles::set_extraction_failed(
-                    pool,
-                    article_id,
-                    content_revision,
-                    "robots disallow",
-                )
-                .await?;
-                if ctx.embed_on_ingest {
-                    if let Some(revision) = revision {
-                        crate::worker::enqueue_embed(&ctx.db, article_id, revision).await?;
-                    }
-                }
+                let _ =
+                    store_failure(ctx, article_id, content_revision, "robots_disallowed").await?;
                 Ok(json!({ "status": "disallowed" }))
             }
-            ExtractOutcome::Failed(msg) => {
-                // Soft failure: keep the RSS content, don't retry the job.
-                let revision =
-                    articles::set_extraction_failed(pool, article_id, content_revision, &msg)
-                        .await?;
-                if ctx.embed_on_ingest {
-                    if let Some(revision) = revision {
-                        crate::worker::enqueue_embed(&ctx.db, article_id, revision).await?;
-                    }
-                }
-                Ok(json!({ "status": "failed", "reason": msg }))
+            ExtractOutcome::RobotsUnavailable => {
+                store_failure(ctx, article_id, content_revision, "robots_unavailable").await
+            }
+            ExtractOutcome::HttpStatus(status) => {
+                let failure_class = format!("http_{status}");
+                store_failure(ctx, article_id, content_revision, &failure_class).await
+            }
+            ExtractOutcome::ReaderFailed => {
+                store_failure(ctx, article_id, content_revision, "reader_failed").await
+            }
+            ExtractOutcome::FetchFailed(failure) => {
+                store_failure(ctx, article_id, content_revision, failure.as_str()).await
             }
             ExtractOutcome::RateLimited { retry_after } => {
                 // Hard signal: fail the job so it backs off and retries later.

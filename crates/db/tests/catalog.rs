@@ -174,3 +174,134 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn content_probe_uses_only_current_three_rss_bodies() {
+    let Some(db) = test_db().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let pool = db.pool();
+    let category = unique("Probe category");
+    let country = unique("Probe country");
+    let language = unique("probe-lang");
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://catalog.example/{}/probe.xml", Uuid::now_v7()),
+        "Probe feed",
+        None,
+    )
+    .await
+    .unwrap();
+    catalog::upsert(pool, feed.id, draft(&category, &country, &language, true))
+        .await
+        .unwrap();
+
+    let base = OffsetDateTime::from_unix_timestamp(1_710_000_000).unwrap();
+    let bodies = ["old", "second", "third-body", "newest-body"];
+    let mut created = Vec::new();
+    for (index, body) in bodies.iter().enumerate() {
+        let (article, _) = articles::upsert(
+            pool,
+            &NewArticle {
+                feed_id: feed.id,
+                url: format!("https://catalog.example/{}/probe/{index}", Uuid::now_v7()),
+                comments_url: None,
+                guid: Some(unique("probe-guid")),
+                title: format!("Probe article {index}"),
+                author: None,
+                content: (*body).to_string(),
+                excerpt: None,
+                image_url: None,
+                published_at: Some(base + Duration::hours(index as i64)),
+            },
+        )
+        .await
+        .unwrap();
+        created.push(article);
+    }
+    articles::set_extracted_content(
+        pool,
+        created[3].id,
+        created[3].content_revision,
+        "A long stored public-page body must not become an RSS probe measurement.",
+        None,
+    )
+    .await
+    .unwrap();
+
+    let candidates = catalog::content_probe_candidates(pool, feed.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|candidate| candidate.id)
+            .collect::<Vec<_>>(),
+        vec![created[3].id, created[2].id, created[1].id]
+    );
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|candidate| candidate.rss_body_chars)
+            .collect::<Vec<_>>(),
+        vec![
+            Some(bodies[3].len() as i32),
+            Some(bodies[2].len() as i32),
+            Some(bodies[1].len() as i32),
+        ]
+    );
+
+    let samples = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| catalog::ContentProbeWrite {
+            article_id: candidate.id,
+            rss_body_chars: candidate.rss_body_chars,
+            processed_body_chars: [Some(600), Some(300), None][index],
+            status: [
+                catalog::ContentProbeStatus::Full,
+                catalog::ContentProbeStatus::Partial,
+                catalog::ContentProbeStatus::Http451,
+            ][index],
+        })
+        .collect::<Vec<_>>();
+    catalog::replace_content_probe(pool, feed.id, &candidates, &samples)
+        .await
+        .unwrap();
+
+    let stats = catalog::content_probe_stats(pool, feed.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stats.sampled_article_count, 3);
+    assert_eq!(stats.full_content_count, 1);
+    assert_eq!(stats.partial_content_count, 1);
+    assert_eq!(stats.http_451_count, 1);
+    assert_eq!(stats.average_processed_body_chars, Some(450));
+    assert_eq!(
+        stats.average_rss_body_chars,
+        Some(((bodies[3].len() + bodies[2].len() + bodies[1].len()) / 3) as i32)
+    );
+    assert!(!catalog::probe_needs_refresh(pool, feed.id).await.unwrap());
+
+    let (newest, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://catalog.example/{}/newest", Uuid::now_v7()),
+            comments_url: None,
+            guid: Some(unique("probe-newest-guid")),
+            title: "Newer probe article".to_string(),
+            author: None,
+            content: "brand-new RSS body".to_string(),
+            excerpt: None,
+            image_url: None,
+            published_at: Some(base + Duration::hours(10)),
+        },
+    )
+    .await
+    .unwrap();
+    assert_ne!(newest.id, created[3].id);
+    assert!(catalog::probe_needs_refresh(pool, feed.id).await.unwrap());
+}

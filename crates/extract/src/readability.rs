@@ -17,6 +17,7 @@ pub struct Extracted {
     pub excerpt: Option<String>,
     pub title: Option<String>,
     pub extractor: &'static str,
+    pub verified_html: bool,
 }
 
 /// A content extractor over already-fetched HTML (fetching is centralized in the
@@ -71,6 +72,7 @@ impl Extractor for ReadabilityExtractor {
             excerpt,
             title,
             extractor: "readability",
+            verified_html: false,
         })
     }
 }
@@ -96,6 +98,7 @@ impl Extractor for RawExtractor {
             title: document_title(&doc),
             content,
             extractor: "raw",
+            verified_html: false,
         })
     }
 }

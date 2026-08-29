@@ -45,6 +45,23 @@ impl Default for ExtractConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtractFailure {
+    InvalidUrl,
+    Network,
+    ResponseTooLarge,
+}
+
+impl ExtractFailure {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidUrl => "invalid_url",
+            Self::Network => "network",
+            Self::ResponseTooLarge => "response_too_large",
+        }
+    }
+}
+
 /// Result of an extraction attempt.
 #[derive(Debug)]
 pub enum ExtractOutcome {
@@ -55,8 +72,10 @@ pub enum ExtractOutcome {
     },
     /// robots.txt disallows this path.
     Disallowed,
-    /// A non-retryable/soft failure (keep the RSS content).
-    Failed(String),
+    RobotsUnavailable,
+    HttpStatus(u16),
+    ReaderFailed,
+    FetchFailed(ExtractFailure),
 }
 
 /// Extraction orchestrator: holds the extractor chain and an in-memory robots
@@ -92,10 +111,10 @@ impl ExtractionService {
     ) -> ExtractOutcome {
         let parsed = match url::Url::parse(url) {
             Ok(u) => u,
-            Err(_) => return ExtractOutcome::Failed(format!("invalid URL: {url}")),
+            Err(_) => return ExtractOutcome::FetchFailed(ExtractFailure::InvalidUrl),
         };
         let Some(domain) = parsed.host_str().map(str::to_string) else {
-            return ExtractOutcome::Failed("URL has no host".into());
+            return ExtractOutcome::FetchFailed(ExtractFailure::InvalidUrl);
         };
 
         // robots.txt (cached): crawl-delay + Disallow.
@@ -113,35 +132,118 @@ impl ExtractionService {
         self.apply_politeness(db, &domain, robots_delay_ms, delay_override_ms)
             .await;
 
-        match self.fetch_html(fetch, url).await {
-            Ok(FetchResult::Html { body, final_url }) => {
-                match self.run_extractors(&body, selector, &final_url) {
-                    Some(extracted) => {
-                        let cd = robots_delay_ms.map(|ms| ms as i32);
-                        let _ = domain_state::record_success(db.pool(), &domain, cd).await;
-                        ExtractOutcome::Extracted(extracted)
-                    }
-                    None => {
-                        let _ = domain_state::record_failure(db.pool(), &domain, "no main content")
-                            .await;
-                        ExtractOutcome::Failed("no main content found".into())
-                    }
+        match self.fetch_html(fetch.client(), fetch, url).await {
+            Ok(FetchResult::Html {
+                body,
+                final_url,
+                verified_html,
+            }) => match self.run_extractors(&body, selector, &final_url) {
+                Some(mut extracted) => {
+                    extracted.verified_html = verified_html;
+                    let cd = robots_delay_ms.map(|ms| ms as i32);
+                    let _ = domain_state::record_success(db.pool(), &domain, cd).await;
+                    ExtractOutcome::Extracted(extracted)
                 }
-            }
+                None => {
+                    let _ = domain_state::record_failure(db.pool(), &domain, "reader_failed").await;
+                    ExtractOutcome::ReaderFailed
+                }
+            },
             Ok(FetchResult::RateLimited(retry_after)) => {
                 let _ = domain_state::record_rate_limit(db.pool(), &domain).await;
                 ExtractOutcome::RateLimited { retry_after }
             }
             Ok(FetchResult::Status(code)) => {
-                let _ =
-                    domain_state::record_failure(db.pool(), &domain, &format!("HTTP {code}")).await;
-                ExtractOutcome::Failed(format!("HTTP {code}"))
+                let _ = domain_state::record_failure(db.pool(), &domain, "http_status").await;
+                ExtractOutcome::HttpStatus(code)
             }
-            Err(e) => {
-                let _ = domain_state::record_failure(db.pool(), &domain, &e.to_string()).await;
-                ExtractOutcome::Failed(e.to_string())
+            Err(error) => {
+                let failure = match error {
+                    ExtractError::Url(_) => ExtractFailure::InvalidUrl,
+                    ExtractError::Http(_) => ExtractFailure::Network,
+                    ExtractError::TooLarge => ExtractFailure::ResponseTooLarge,
+                    ExtractError::Status(_) => ExtractFailure::Network,
+                };
+                let _ = domain_state::record_failure(db.pool(), &domain, failure.as_str()).await;
+                ExtractOutcome::FetchFailed(failure)
             }
         }
+    }
+
+    pub async fn probe_public_strict(
+        &self,
+        db: &Db,
+        fetch: &SafeFetchClient,
+        url: &str,
+    ) -> ExtractOutcome {
+        let parsed = match url::Url::parse(url) {
+            Ok(url) => url,
+            Err(_) => return ExtractOutcome::FetchFailed(ExtractFailure::InvalidUrl),
+        };
+        let Some(domain) = parsed.host_str().map(str::to_string) else {
+            return ExtractOutcome::FetchFailed(ExtractFailure::InvalidUrl);
+        };
+        let Some(robots) = self.strict_robots_for(fetch, &parsed).await else {
+            return ExtractOutcome::RobotsUnavailable;
+        };
+        if !robots.is_allowed(parsed.path()) {
+            return ExtractOutcome::Disallowed;
+        }
+        self.apply_politeness(db, &domain, robots.crawl_delay_ms, None)
+            .await;
+        let outcome = match self
+            .fetch_html(fetch.client_without_redirects(), fetch, url)
+            .await
+        {
+            Ok(FetchResult::Html {
+                body,
+                final_url,
+                verified_html,
+            }) => match self.run_extractors(&body, None, &final_url) {
+                Some(mut extracted) => {
+                    extracted.verified_html = verified_html;
+                    ExtractOutcome::Extracted(extracted)
+                }
+                None => ExtractOutcome::ReaderFailed,
+            },
+            Ok(FetchResult::RateLimited(retry_after)) => {
+                ExtractOutcome::RateLimited { retry_after }
+            }
+            Ok(FetchResult::Status(code)) => ExtractOutcome::HttpStatus(code),
+            Err(error) => match error {
+                ExtractError::Url(_) => ExtractOutcome::FetchFailed(ExtractFailure::InvalidUrl),
+                ExtractError::Http(_) | ExtractError::Status(_) => {
+                    ExtractOutcome::FetchFailed(ExtractFailure::Network)
+                }
+                ExtractError::TooLarge => {
+                    ExtractOutcome::FetchFailed(ExtractFailure::ResponseTooLarge)
+                }
+            },
+        };
+        match &outcome {
+            ExtractOutcome::Extracted(_) => {
+                let _ = domain_state::record_success(
+                    db.pool(),
+                    &domain,
+                    robots.crawl_delay_ms.map(|delay| delay as i32),
+                )
+                .await;
+            }
+            ExtractOutcome::RateLimited { .. } => {
+                let _ = domain_state::record_rate_limit(db.pool(), &domain).await;
+            }
+            ExtractOutcome::HttpStatus(_) => {
+                let _ = domain_state::record_failure(db.pool(), &domain, "http_status").await;
+            }
+            ExtractOutcome::ReaderFailed => {
+                let _ = domain_state::record_failure(db.pool(), &domain, "reader_failed").await;
+            }
+            ExtractOutcome::FetchFailed(failure) => {
+                let _ = domain_state::record_failure(db.pool(), &domain, failure.as_str()).await;
+            }
+            ExtractOutcome::Disallowed | ExtractOutcome::RobotsUnavailable => {}
+        }
+        outcome
     }
 
     fn run_extractors(
@@ -175,6 +277,45 @@ impl ExtractionService {
         info
     }
 
+    async fn strict_robots_for(
+        &self,
+        fetch: &SafeFetchClient,
+        url: &url::Url,
+    ) -> Option<Arc<RobotsInfo>> {
+        let host = url.host_str()?;
+        let port = url.port_or_known_default()?;
+        let cache_key = format!("strict:{}://{host}:{port}", url.scheme());
+        if let Some(info) = self.robots_cache.get(&cache_key).await {
+            return Some(info);
+        }
+        let host_for_url = if host.contains(':') {
+            format!("[{host}]")
+        } else {
+            host.to_string()
+        };
+        let robots_url = format!("{}://{host_for_url}:{port}/robots.txt", url.scheme());
+        if fetch.validate_url(&robots_url).is_err() {
+            return None;
+        }
+        let response = fetch
+            .client_without_redirects()
+            .get(robots_url)
+            .send()
+            .await
+            .ok()?;
+        let info = if response.status() == reqwest::StatusCode::NOT_FOUND {
+            RobotsInfo::allow_all()
+        } else if response.status().is_success() {
+            let body = read_capped(response, 512 * 1024).await.ok()?;
+            RobotsInfo::parse(&String::from_utf8_lossy(&body), &self.config.user_agent)
+        } else {
+            return None;
+        };
+        let info = Arc::new(info);
+        self.robots_cache.insert(cache_key, info.clone()).await;
+        Some(info)
+    }
+
     async fn apply_politeness(
         &self,
         db: &Db,
@@ -203,12 +344,16 @@ impl ExtractionService {
         }
     }
 
-    async fn fetch_html(&self, fetch: &SafeFetchClient, url: &str) -> Result<FetchResult> {
+    async fn fetch_html(
+        &self,
+        client: &reqwest::Client,
+        fetch: &SafeFetchClient,
+        url: &str,
+    ) -> Result<FetchResult> {
         fetch
             .validate_url(url)
             .map_err(|e| ExtractError::Url(e.to_string()))?;
-        let resp = fetch
-            .client()
+        let resp = client
             .get(url)
             .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
             .send()
@@ -225,10 +370,19 @@ impl ExtractionService {
             return Ok(FetchResult::Status(status.as_u16()));
         }
         let final_url = resp.url().to_string();
+        let verified_html = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| {
+                let value = value.to_ascii_lowercase();
+                value.starts_with("text/html") || value.starts_with("application/xhtml+xml")
+            });
         let bytes = read_capped(resp, self.config.max_bytes).await?;
         Ok(FetchResult::Html {
             body: String::from_utf8_lossy(&bytes).into_owned(),
             final_url,
+            verified_html,
         })
     }
 
@@ -257,7 +411,11 @@ impl Default for ExtractionService {
 }
 
 enum FetchResult {
-    Html { body: String, final_url: String },
+    Html {
+        body: String,
+        final_url: String,
+        verified_html: bool,
+    },
     RateLimited(StdDuration),
     Status(u16),
 }

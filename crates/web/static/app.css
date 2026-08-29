@@ -616,10 +616,25 @@ legend { margin-bottom: 0.7rem; color: var(--text-strong); font-size: 0.95rem; f
 .catalog-stats dt { color: var(--muted); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .catalog-stats dd { margin: 0.18rem 0 0; overflow-wrap: anywhere; color: var(--text-strong); font-size: 0.82rem; font-weight: 650; }
 .catalog-card-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.8rem; }
-.catalog-card-footer a { margin-left: auto; }
+.catalog-card-footer a:last-child { margin-left: auto; }
+.catalog-preview-link { margin-left: 0.1rem; }
 .catalog-language { text-transform: uppercase; }
 .catalog-choice { display: flex; align-items: center; gap: 0.55rem; padding-top: 0.8rem; border-top: 1px solid var(--border); color: var(--text-strong); font-size: 0.88rem; font-weight: 700; }
 .catalog-choice input { width: 1rem; height: 1rem; accent-color: var(--accent); }
+.preview-availability { margin: 0.9rem 0; }
+.preview-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.55rem; margin: 0; }
+.preview-stats div { min-width: 0; padding: 0.65rem; border-radius: 0.55rem; background: var(--surface-subtle); }
+.preview-stats dt { color: var(--muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+.preview-stats dd { margin: 0.2rem 0 0; color: var(--text-strong); font-size: 0.88rem; font-weight: 700; }
+.preview-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 1.25rem 0 0.8rem; border-bottom: 1px solid var(--border); }
+.preview-tabs a { padding: 0.55rem 0.75rem; border-radius: 0.5rem 0.5rem 0 0; color: var(--muted); font-weight: 700; }
+.preview-tabs a:hover,
+.preview-tabs a.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); text-decoration: none; }
+.preview-articles { display: grid; gap: 0.75rem; }
+.preview-article { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.preview-article > summary { display: flex; justify-content: space-between; gap: 1rem; padding: 0.9rem 1rem; cursor: pointer; color: var(--text-strong); font-weight: 750; }
+.preview-article-content { padding: 0 1rem 1rem; }
+.preview-body { max-height: 28rem; overflow: auto; padding-right: 0.5rem; }
 .article-list { display: grid; gap: 0.7rem; }
 .article-card {
   position: relative;

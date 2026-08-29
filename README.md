@@ -137,7 +137,7 @@ PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
   npm run test:e2e
 ```
 
-Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises automatic catalog filtering, selection, searchable feed organization, folder/tag navigation, shortcut capture/conflict handling, sidebar persistence, and normal-user admin denial. CI installs Chromium and runs this suite after Rust tests.
+Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises automatic catalog filtering, selection, RSS/processed-availability preview navigation (including a no-JavaScript flow), searchable feed organization, folder/tag navigation, shortcut capture/conflict handling, sidebar persistence, and normal-user admin denial. CI installs Chromium and runs this suite after Rust tests.
 
 ### Configuration (essentials)
 

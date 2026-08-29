@@ -78,6 +78,11 @@ pub fn router(state: AppState) -> Router {
         .route("/feeds/{id}/refresh", post(feeds::refresh))
         .route("/feeds/{id}/unsubscribe", post(feeds::unsubscribe))
         .route("/catalog", get(catalog::page))
+        .route("/catalog/{feed_id}/preview", get(catalog::preview))
+        .route(
+            "/catalog/{feed_id}/preview/analyze",
+            post(catalog::analyze_preview),
+        )
         .route("/catalog/subscribe", post(catalog::subscribe))
         .route("/search", get(search::page))
         .route("/searches", get(saved::page).post(saved::create))

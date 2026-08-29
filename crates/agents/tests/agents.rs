@@ -114,6 +114,7 @@ async fn fetch_feed_job_ingests_and_records_a_run() {
     // jobs (the queue is shared across parallel tests).
     let kind = format!("fetch_feed_test_{run}");
     let mut registry = Registry::with_defaults();
+    assert!(registry.get("catalog_content_probe").is_some());
     registry.register(kind.clone(), Arc::new(FetchFeedAgent));
 
     let id = jobs::enqueue(

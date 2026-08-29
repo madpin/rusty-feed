@@ -8,6 +8,7 @@
 //! Concrete agents so far: [`FeedRefreshAgent`] (enqueue due feeds, deduped) and
 //! [`FetchFeedAgent`] (fetch + ingest one feed, via `rustss-feeds`).
 
+mod catalog_preview;
 mod embed_article;
 mod extract_content;
 mod feed_refresh;
@@ -17,6 +18,7 @@ mod saved_search;
 mod summarize;
 mod worker;
 
+pub use catalog_preview::CatalogPreviewAgent;
 pub use embed_article::EmbedArticleAgent;
 pub use extract_content::ExtractContentAgent;
 pub use feed_refresh::FeedRefreshAgent;

@@ -5,7 +5,7 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rustss_cache::Cache;
-use rustss_db::{catalog, feed_icons, feeds, subscriptions, users, Db};
+use rustss_db::{articles, catalog, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle};
 use rustss_web::{router, AppSettings, AppState};
 use serde_json::json;
 
@@ -455,4 +455,261 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .await
         .unwrap());
     }
+}
+
+#[tokio::test]
+async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
+    let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&database_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    );
+    let app = router(state.clone());
+    let (feed, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!(
+            "https://catalog-preview.example/{}/feed.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Catalog preview source",
+        None,
+    )
+    .await
+    .unwrap();
+    catalog::upsert(
+        state.db.pool(),
+        feed.id,
+        catalog::CatalogDraft {
+            title: "Catalog preview source",
+            description: Some("Preview description"),
+            category: "Testing",
+            country: "Global",
+            language: "en",
+            featured: false,
+            sort_order: 0,
+            published: true,
+        },
+    )
+    .await
+    .unwrap();
+    let mut articles_created = Vec::new();
+    let article_run = uuid::Uuid::now_v7();
+    for (index, content) in [
+        "<p>RSS preview body one</p><script>CATALOG_SCRIPT_SENTINEL</script>",
+        "<p>RSS preview body two</p>",
+        "<p>RSS preview body three</p>",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let (article, _) = articles::upsert(
+            state.db.pool(),
+            &NewArticle {
+                feed_id: feed.id,
+                url: format!("https://catalog-preview.example/{article_run}/{index}"),
+                comments_url: None,
+                guid: Some(uuid::Uuid::now_v7().to_string()),
+                title: format!("Preview article {index}"),
+                author: None,
+                content: (*content).to_string(),
+                excerpt: None,
+                image_url: None,
+                published_at: None,
+            },
+        )
+        .await
+        .unwrap();
+        articles_created.push(article);
+    }
+    articles::set_extracted_content(
+        state.db.pool(),
+        articles_created[2].id,
+        articles_created[2].content_revision,
+        "CATALOG_PRIVATE_PAGE_SENTINEL",
+        None,
+    )
+    .await
+    .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/catalog/{}/preview", uuid::Uuid::now_v7()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let (sid, email) = register(&app).await;
+    let (unpublished_feed, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!(
+            "https://catalog-preview.example/{}/unpublished.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Unpublished catalog preview source",
+        None,
+    )
+    .await
+    .unwrap();
+    catalog::upsert(
+        state.db.pool(),
+        unpublished_feed.id,
+        catalog::CatalogDraft {
+            title: "Unpublished catalog preview source",
+            description: None,
+            category: "Testing",
+            country: "Global",
+            language: "en",
+            featured: false,
+            sort_order: 0,
+            published: false,
+        },
+    )
+    .await
+    .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/catalog/{}/preview", unpublished_feed.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let user = users::find_by_email(state.db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap()
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/catalog/{}/preview", feed.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    let csrf = cookie(&set_cookies(&response), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let page = body_string(response).await;
+    assert!(page.contains("RSS preview body one"));
+    assert!(page.contains("RSS preview"));
+    assert!(page.contains("/preview?view=processed"));
+    assert!(page.contains("aria-current=\"page\""));
+    assert!(page.contains("Analyze up to 3 articles"));
+    assert!(!page.contains("CATALOG_SCRIPT_SENTINEL"));
+    assert!(!page.contains("CATALOG_PRIVATE_PAGE_SENTINEL"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/catalog/{}/preview/analyze", feed.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from("csrf_token=wrong"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!(
+                    "/catalog/{}/preview/analyze?view=processed",
+                    feed.id
+                ))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()["location"],
+            format!(
+                "/catalog/{}/preview?view=processed&analysis=queued",
+                feed.id
+            )
+        );
+    }
+    assert_eq!(
+        jobs::count_active_by_dedup(
+            state.db.pool(),
+            &format!("catalog_content_probe:{}", feed.id),
+        )
+        .await
+        .unwrap(),
+        1
+    );
+
+    let candidates = catalog::content_probe_candidates(state.db.pool(), feed.id)
+        .await
+        .unwrap();
+    let samples = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| catalog::ContentProbeWrite {
+            article_id: candidate.id,
+            rss_body_chars: candidate.rss_body_chars,
+            processed_body_chars: [Some(600), None, None][index],
+            status: [
+                catalog::ContentProbeStatus::Full,
+                catalog::ContentProbeStatus::Http402,
+                catalog::ContentProbeStatus::Http451,
+            ][index],
+        })
+        .collect::<Vec<_>>();
+    catalog::replace_content_probe(state.db.pool(), feed.id, &candidates, &samples)
+        .await
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/catalog/{}/preview?view=processed", feed.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let processed = body_string(response).await;
+    assert!(processed.contains("Processed availability"));
+    assert!(processed.contains("Readable public-body average"));
+    assert!(processed.contains("Payment required (402)"));
+    assert!(processed.contains("Unavailable for legal reasons (451)"));
+    assert!(processed.contains("Processed preview is an availability report"));
+    assert!(!processed.contains("RSS preview body one"));
+    assert!(!processed.contains("CATALOG_PRIVATE_PAGE_SENTINEL"));
+    assert!(!processed.contains("Analyze up to 3 articles"));
+    assert!(
+        !subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap()
+    );
 }

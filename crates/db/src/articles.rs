@@ -425,7 +425,7 @@ async fn update(pool: &PgPool, existing: &Article, new: &NewArticle) -> Result<A
 pub async fn list_for_feed(pool: &PgPool, feed_id: Uuid, limit: i64) -> Result<Vec<Article>> {
     let sql = format!(
         "SELECT {ARTICLE_COLUMNS} FROM articles WHERE feed_id = $1 \
-         ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT $2"
+         ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT $2"
     );
     Ok(sqlx::query_as::<_, Article>(&sql)
         .bind(feed_id)

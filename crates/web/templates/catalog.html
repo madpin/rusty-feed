@@ -69,6 +69,7 @@
       <div class="catalog-card-footer">
         <span class="badge health-{{ entry.health }}">{{ entry.health }}</span>
         <span class="catalog-language">{{ entry.language }}</span>
+        <a href="/catalog/{{ entry.feed_id }}/preview" class="btn catalog-preview-link">Preview</a>
         <a href="{{ entry.url }}" target="_blank" rel="noopener noreferrer">View RSS</a>
       </div>
       <label class="catalog-choice">

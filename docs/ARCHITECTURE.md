@@ -251,6 +251,8 @@ Feeds (SHARED)
   feed_icons (feed_id→feeds CASCADE PK, source_url, canonical raster MIME + bounded BYTEA, attempt/fetch/error timestamps)
   feed_catalog_entries (id, feed_id→feeds UNIQUE, title, description?, category, country, language,
                         featured, sort_order, published, created_at, updated_at)
+  catalog_content_probes (feed_id→feed_catalog_entries PK, candidate_article_ids[0..3], sampled_article_count,
+                          aggregate anonymous-public-page outcomes, RSS/public-body character averages, checked_at)
   domain_extraction_state (domain UNIQUE, last_extracted_at, failure_count, rate_limit_count, crawl_delay_ms?, last_error?)
 
 Articles (SHARED)
@@ -323,7 +325,7 @@ For keyword search and the keyword component of saved searches, add a Postgres *
 This section operationalizes PRD §6.
 
 ### 7.1 Storage: shared vs. personal (enforced by schema)
-- **Shared, one row:** `feeds`, derived `feed_icons`, editorial `feed_catalog_entries`, `articles`, `article_embeddings`, article `summary/key_points/topics`, `feed_error_log`, `domain_extraction_state`.
+- **Shared, one row:** `feeds`, derived `feed_icons`, editorial `feed_catalog_entries`, `catalog_content_probes`, `articles`, `article_embeddings`, article `summary/key_points/topics`, `feed_error_log`, `domain_extraction_state`.
 - **Personal:** `user_feeds`, `user_categories`, `read_articles`, `seen_articles`, `bookmarks`, `article_feedback`, `user_patterns`, `saved_searches(+matches)`, `user_preferences`, `user_notifications`.
 - **Derived/personal cache (not persisted authoritatively):** per-user relevance scores.
 
@@ -341,6 +343,7 @@ The heavy operations — **fetch, extract, embed, summarize** — are keyed by t
   - *Extraction:* only for newly-ingested articles (dedup happens first); `extraction_status` gates re-runs.
   - *Embedding:* skip if a row already exists in `article_embeddings`; use `INSERT ... ON CONFLICT (article_id) DO NOTHING` so concurrent workers don't double-compute.
   - *Summary:* first-writer-wins; skip if `summary/key_points/topics` already set. A short-lived Redis/advisory lock (`work:{op}:{article_id}`) prevents two workers computing the same summary simultaneously; the DB `ON CONFLICT` is the durable guard.
+- **Catalog public-content probe:** a published catalog feed may receive one globally deduplicated, background diagnostic keyed by `feed_id`. It tests at most three current shared article URLs and replaces one scalar shared snapshot; it never writes article content or feed policy. The current candidate IDs and a freshness window prevent visitor-driven repeated work.
 - **Result:** for a feed/article shared by N users, network + CPU + LLM work per refresh cycle is **O(1)**, not O(N). Only cheap per-user rows (notifications, saved-search matches, read state) scale with N.
 
 ### 7.4 Read-path efficiency
@@ -556,9 +559,10 @@ Effective value = first present of **feed → category → user prefs → system
 - **Strategies** via an `Extractor` trait + registry with priority + fallback:
   1. **Readability** (`article_scraper`): fetch HTML → parse → extract main content, images, metadata. Default.
   2. **Chromium** (`chromiumoxide`, pooled): future option for public JS-rendered pages; `networkidle` and optional wait-selector, then Readability on rendered DOM. No cookie injection or authenticated/paywall extraction; falls back to Readability if unavailable.
-- **Per-domain rate limiting:** shared `domain_extraction_state`; base delay default **3000 ms**, overridable per feed; honor robots.txt `Crawl-delay` (cached 24h/1h-on-error); adaptive `429` backoff **10s→30s→60s→120s** honoring `Retry-After`. Extraction runs **only for new articles** and **once per shared article** (§7.3).
+- **Per-domain rate limiting:** shared `domain_extraction_state`; base delay default **3000 ms**, overridable per feed; honor robots.txt `Crawl-delay` (cached 24h/1h-on-error); adaptive `429` backoff **10s→30s→60s→120s** honoring `Retry-After`. Article extraction runs **only for new articles** and **once per shared article** (§7.3).
+- **Catalog availability diagnostic:** the shared catalog snapshot checks at most three current article URLs. It is independent of the feed's source policy, uses no selector or per-feed delay override, always requires a readable robots.txt policy (404 permits), and disables redirects. Robots errors, redirects, rate limits, access statuses, and reader failures are reported as scalar outcomes only; no page HTML or excerpts are stored or rendered by Discover.
 - **Sanitization:** all extracted/stored HTML is cleaned with **`ammonia`** (allow-list of tags/attrs, safe links, no scripts) before persistence and again defensively at render.
-- **Publisher access:** public anonymous page requests only. Publisher access restrictions fall back to RSS content; RustSS does not store feed cookies or bypass publisher controls. Each shared feed can explicitly respect or ignore robots.txt for public-page extraction.
+- **Publisher access:** public anonymous page requests only. Publisher access restrictions fall back to RSS content; RustSS does not store feed cookies or bypass publisher controls. Each shared feed can explicitly respect or ignore robots.txt for normal public-page extraction; the catalog diagnostic always respects it.
 
 ---
 

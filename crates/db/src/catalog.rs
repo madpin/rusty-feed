@@ -75,6 +75,71 @@ pub struct AdminCatalogEntry {
     pub average_interval_hours: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentProbeStatus {
+    Full,
+    Partial,
+    Http401,
+    Http402,
+    Http403,
+    Http451,
+    RobotsDisallowed,
+    RateLimited,
+    ReaderFailed,
+    FetchFailed,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContentProbeWrite {
+    pub article_id: Uuid,
+    pub rss_body_chars: Option<i32>,
+    pub processed_body_chars: Option<i32>,
+    pub status: ContentProbeStatus,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ContentProbeStats {
+    pub sampled_article_count: i16,
+    pub average_rss_body_chars: Option<i32>,
+    pub average_processed_body_chars: Option<i32>,
+    pub full_content_count: i16,
+    pub partial_content_count: i16,
+    pub http_401_count: i16,
+    pub http_402_count: i16,
+    pub http_403_count: i16,
+    pub http_451_count: i16,
+    pub robots_disallowed_count: i16,
+    pub rate_limited_count: i16,
+    pub reader_failed_count: i16,
+    pub fetch_failed_count: i16,
+    pub checked_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ContentProbeCandidate {
+    pub id: Uuid,
+    pub url: String,
+    pub rss_body_chars: Option<i32>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CatalogPreviewArticle {
+    pub id: Uuid,
+    pub title: String,
+    pub url: String,
+    pub feed_content: Option<String>,
+    pub published_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CatalogPreviewFeed {
+    pub title: String,
+    pub description: Option<String>,
+    pub category: String,
+    pub country: String,
+    pub language: String,
+}
+
 const CATALOG_COLUMNS: &str =
     "id, feed_id, title, description, category, country, language, featured, sort_order, published";
 const STATS: &str = "WITH catalog_feed_ids AS ( \
@@ -110,6 +175,151 @@ pub async fn is_published_feed(pool: &PgPool, feed_id: Uuid) -> Result<bool> {
     .fetch_optional(pool)
     .await?
     .is_some())
+}
+
+pub async fn preview_feed(pool: &PgPool, feed_id: Uuid) -> Result<Option<CatalogPreviewFeed>> {
+    Ok(sqlx::query_as(
+        "SELECT title, description, category, country, language \
+         FROM feed_catalog_entries WHERE feed_id = $1 AND published",
+    )
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await?)
+}
+
+pub async fn probe_needs_refresh(pool: &PgPool, feed_id: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "WITH current_sample AS ( \
+           SELECT coalesce(array_agg(id ORDER BY published_at DESC NULLS LAST, created_at DESC, id), \
+             ARRAY[]::uuid[]) AS article_ids \
+           FROM (SELECT id, published_at, created_at FROM articles WHERE feed_id = $1 \
+                 ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 3) candidates \
+         ) \
+         SELECT NOT EXISTS (SELECT 1 FROM catalog_content_probes probe CROSS JOIN current_sample \
+           WHERE probe.feed_id = $1 AND probe.candidate_article_ids = current_sample.article_ids \
+           AND probe.checked_at > now() - CASE WHEN probe.rate_limited_count > 0 \
+             THEN interval '1 day' ELSE interval '7 days' END)",
+    )
+    .bind(feed_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub async fn content_probe_stats(
+    pool: &PgPool,
+    feed_id: Uuid,
+) -> Result<Option<ContentProbeStats>> {
+    Ok(sqlx::query_as(
+        "SELECT sampled_article_count, average_rss_body_chars, average_processed_body_chars, \
+         full_content_count, partial_content_count, http_401_count, http_402_count, http_403_count, http_451_count, robots_disallowed_count, \
+         rate_limited_count, reader_failed_count, fetch_failed_count, checked_at \
+         FROM catalog_content_probes WHERE feed_id = $1",
+    )
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await?)
+}
+
+pub async fn preview_articles(pool: &PgPool, feed_id: Uuid) -> Result<Vec<CatalogPreviewArticle>> {
+    Ok(sqlx::query_as(
+        "SELECT id, title, url, left(feed_content, 16000) AS feed_content, published_at \
+         FROM articles WHERE feed_id = $1 \
+         ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 3",
+    )
+    .bind(feed_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn content_probe_candidates(
+    pool: &PgPool,
+    feed_id: Uuid,
+) -> Result<Vec<ContentProbeCandidate>> {
+    Ok(sqlx::query_as(
+        "SELECT id, url, char_length(feed_content)::int AS rss_body_chars FROM articles \
+         WHERE feed_id = $1 ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 3",
+    )
+    .bind(feed_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn replace_content_probe(
+    pool: &PgPool,
+    feed_id: Uuid,
+    candidates: &[ContentProbeCandidate],
+    samples: &[ContentProbeWrite],
+) -> Result<()> {
+    let candidates = &candidates[..candidates.len().min(3)];
+    let candidate_article_ids = candidates
+        .iter()
+        .map(|candidate| candidate.id)
+        .collect::<Vec<_>>();
+    let samples = samples
+        .iter()
+        .filter(|sample| candidate_article_ids.contains(&sample.article_id))
+        .take(3)
+        .collect::<Vec<_>>();
+    let sample_count = samples.len() as i16;
+    let count = |status| {
+        samples
+            .iter()
+            .filter(|sample| sample.status == status)
+            .count() as i16
+    };
+    let lengths: Vec<i32> = candidates
+        .iter()
+        .filter_map(|candidate| candidate.rss_body_chars)
+        .collect();
+    let average_rss_body_chars = (!lengths.is_empty()).then(|| {
+        (lengths.iter().map(|length| i64::from(*length)).sum::<i64>() / lengths.len() as i64) as i32
+    });
+    let processed_lengths: Vec<i32> = samples
+        .iter()
+        .filter_map(|sample| sample.processed_body_chars)
+        .collect();
+    let average_processed_body_chars = (!processed_lengths.is_empty()).then(|| {
+        (processed_lengths
+            .iter()
+            .map(|length| i64::from(*length))
+            .sum::<i64>()
+            / processed_lengths.len() as i64) as i32
+    });
+    sqlx::query(
+        "INSERT INTO catalog_content_probes (feed_id, candidate_article_ids, sampled_article_count, \
+         average_rss_body_chars, average_processed_body_chars, full_content_count, partial_content_count, \
+         http_401_count, http_402_count, http_403_count, http_451_count, robots_disallowed_count, rate_limited_count, \
+         reader_failed_count, fetch_failed_count, checked_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now()) \
+         ON CONFLICT (feed_id) DO UPDATE SET candidate_article_ids = EXCLUDED.candidate_article_ids, \
+         sampled_article_count = EXCLUDED.sampled_article_count, \
+         average_rss_body_chars = EXCLUDED.average_rss_body_chars, \
+         average_processed_body_chars = EXCLUDED.average_processed_body_chars, \
+         full_content_count = EXCLUDED.full_content_count, partial_content_count = EXCLUDED.partial_content_count, \
+         http_401_count = EXCLUDED.http_401_count, http_402_count = EXCLUDED.http_402_count, \
+         http_403_count = EXCLUDED.http_403_count, http_451_count = EXCLUDED.http_451_count, \
+         robots_disallowed_count = EXCLUDED.robots_disallowed_count, \
+         rate_limited_count = EXCLUDED.rate_limited_count, reader_failed_count = EXCLUDED.reader_failed_count, \
+         fetch_failed_count = EXCLUDED.fetch_failed_count, checked_at = now()",
+    )
+    .bind(feed_id)
+    .bind(candidate_article_ids)
+    .bind(sample_count)
+    .bind(average_rss_body_chars)
+    .bind(average_processed_body_chars)
+    .bind(count(ContentProbeStatus::Full))
+    .bind(count(ContentProbeStatus::Partial))
+    .bind(count(ContentProbeStatus::Http401))
+    .bind(count(ContentProbeStatus::Http402))
+    .bind(count(ContentProbeStatus::Http403))
+    .bind(count(ContentProbeStatus::Http451))
+    .bind(count(ContentProbeStatus::RobotsDisallowed))
+    .bind(count(ContentProbeStatus::RateLimited))
+    .bind(count(ContentProbeStatus::ReaderFailed))
+    .bind(count(ContentProbeStatus::FetchFailed))
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 pub async fn categories(pool: &PgPool) -> Result<Vec<String>> {

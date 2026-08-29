@@ -21,6 +21,18 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await expect(page).toHaveURL(/category=Culture/);
   await expect(page.getByRole("heading", { name: "Smithsonian Arts and Culture" })).toBeVisible();
   await page.goto("/catalog");
+  const goBlogCard = page.locator(".catalog-card").filter({
+    has: page.getByRole("heading", { name: "Go Blog" }),
+  });
+  await goBlogCard.getByRole("link", { name: "Preview", exact: true }).click();
+  await expect(page).toHaveURL(/\/catalog\/[^/]+\/preview/);
+  await expect(page.getByRole("heading", { name: "Preview Go Blog" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "RSS preview" })).toHaveAttribute("aria-current", "page");
+  await page.getByRole("link", { name: "Processed availability" }).click();
+  await expect(page).toHaveURL(/view=processed/);
+  await expect(page.getByText("Processed preview is an availability report")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Processed availability" })).toHaveAttribute("aria-current", "page");
+  await page.goto("/catalog");
 
   const choices = page.locator("input[name='feed_id']:not(:disabled)");
   await choices.nth(0).check();
@@ -108,4 +120,21 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await expect(page.locator("html")).toHaveAttribute("data-sidebar-collapsed", "true");
   await page.locator("[data-sidebar-toggle]").first().click();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar-collapsed", "false");
+});
+
+test.describe("catalog preview without JavaScript", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("uses normal links and forms", async ({ page }, testInfo) => {
+    await register(page, `no-js-${Date.now()}-${testInfo.parallelIndex}`);
+    await page.goto("/catalog");
+    const goBlogCard = page.locator(".catalog-card").filter({
+      has: page.getByRole("heading", { name: "Go Blog" }),
+    });
+    await goBlogCard.getByRole("link", { name: "Preview", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Preview Go Blog" })).toBeVisible();
+    await page.getByRole("link", { name: "Processed availability" }).click();
+    await expect(page).toHaveURL(/view=processed/);
+    await expect(page.getByText("Processed preview is an availability report")).toBeVisible();
+  });
 });
