@@ -128,7 +128,9 @@ not yet a supported database backend.
 ```bash
 # Prereqs: Rust (stable) and Docker. Node 20 is needed only for browser E2E tests.
 cp .env.example .env
-docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
+docker compose --env-file .env -f docker/compose.yaml up -d postgres
+# Optional Redis L2 cache and future Chrome extraction service:
+# docker compose --env-file .env -f docker/compose.yaml up -d redis chromium
 
 cargo run -p rustss-cli -- migrate            # apply DB migrations
 cargo run -p rustss-server                    # start the server (embedded worker by default)
@@ -155,7 +157,7 @@ Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded 
 
 ```bash
 DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
-# Optional Redis L2 cache; omit REDIS_URL and set CACHE_ENABLED=false for L1-only.
+# Optional Redis L2 cache. For L1-only, omit REDIS_URL and use CACHE_ENABLED=false.
 REDIS_URL=redis://localhost:6379
 CACHE_ENABLED=true
 SESSION_SECRET=<32+ random bytes>

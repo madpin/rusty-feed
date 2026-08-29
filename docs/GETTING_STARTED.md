@@ -182,7 +182,7 @@ compose port that's:
 
 ```bash
 DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
-# Omit REDIS_URL and set CACHE_ENABLED=false for L1-only operation.
+# Redis L2 is optional. For L1-only operation, omit REDIS_URL and set CACHE_ENABLED=false.
 REDIS_URL=redis://localhost:6379
 ```
 
