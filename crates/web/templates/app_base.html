@@ -1,62 +1,42 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ theme }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" style="--sidebar-width: {{ ui.sidebar_width }}rem; --reader-panel-width: {{ ui.reader_panel_width }}%;">
+<html lang="en" data-theme="{{ theme }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" style="--sidebar-width: {{ ui.sidebar_width }}rem; --reader-panel-width: {{ ui.reader_panel_width }}%;">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
     <title>{% block title %}RustSS{% endblock %} · RustSS</title>
     <link rel="stylesheet" href="/static/app.css" />
+    <script>document.documentElement.classList.add("js");</script>
     <script src="/static/app.js" defer></script>
   </head>
   <body class="{% block body_class %}{% endblock %}">
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <header class="topbar">
       <a href="/articles" class="brand" aria-label="RustSS home"><span class="brand-mark">R</span><span>RustSS</span></a>
-      <nav class="topbar-nav" aria-label="Mobile navigation">
-        <a href="/articles">Library</a>
-        <a href="/search">Search</a>
-        <a href="/searches">Saved</a>
-        <a href="/notifications">Alerts</a>
-        <a href="/feeds">Feeds</a>
-        <a href="/settings/preferences">Settings</a>
+      <nav class="topbar-nav" aria-label="Primary navigation">
+        <a href="/articles" class="topbar-link nav-articles">Library</a>
+        <a href="/search" class="topbar-link nav-search">Search</a>
+        <a href="/searches" class="topbar-link nav-saved">Saved</a>
+        <a href="/notifications" class="topbar-link nav-alerts">Alerts</a>
+        <a href="/feeds" class="topbar-link nav-feeds">Feeds</a>
       </nav>
       <span class="spacer"></span>
-      <span class="topbar-user">{{ user_email }}</span>
-      <form method="post" action="/logout" class="topbar-logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <button type="submit" class="button-quiet">Log out</button>
-      </form>
-    </header>
-    <div class="layout">
-      <aside class="sidebar">
-        <nav class="sidebar-nav" aria-label="Main navigation">
-          <div class="sidebar-group">
-            <p class="sidebar-label">Library</p>
-            <a href="/articles" class="nav-link nav-articles">All articles</a>
-            <a href="/articles?unread=1" class="nav-link nav-unread">Unread</a>
-            <a href="/articles?sort=relevance" class="nav-link nav-for-you">For you</a>
-            <a href="/searches" class="nav-link nav-saved">Saved searches</a>
-            <a href="/notifications" class="nav-link nav-alerts">Notifications</a>
-          </div>
-          <div class="sidebar-group">
-            <p class="sidebar-label">Discover</p>
-            <a href="/search" class="nav-link nav-search">Semantic search</a>
-            <a href="/feeds" class="nav-link nav-feeds">Manage feeds</a>
-          </div>
-          <div class="sidebar-group">
-            <p class="sidebar-label">Account</p>
-            <a href="/settings/preferences" class="nav-link nav-settings">Preferences</a>
-            <a href="/settings/tokens" class="nav-link nav-tokens">API tokens</a>
-          </div>
-        </nav>
-        {% block sidebar %}{% endblock %}
-        <div class="sidebar-footer">
-          <span class="sidebar-user">{{ user_email }}</span>
+      <details class="account-menu">
+        <summary>Account</summary>
+        <div class="account-menu-panel">
+          <span class="account-email">{{ user_email }}</span>
+          <a href="/settings/preferences" class="account-link nav-settings">Preferences</a>
+          <a href="/settings/tokens" class="account-link nav-tokens">API tokens</a>
           <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <button type="submit" class="button-quiet">Log out</button>
           </form>
         </div>
-      </aside>
-      <main class="content">{% block content %}{% endblock %}</main>
+      </details>
+    </header>
+    <div class="layout {% block layout_class %}no-context-sidebar{% endblock %}">
+      <aside class="sidebar">{% block sidebar %}{% endblock %}</aside>
+      <main class="content" id="main-content">{% block content %}{% endblock %}</main>
     </div>
     <div id="action-status" class="action-status" role="status" aria-live="polite"></div>
   </body>

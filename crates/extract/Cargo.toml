@@ -14,7 +14,6 @@ rustss-db = { workspace = true }
 rustss-feeds = { workspace = true }
 reqwest = { workspace = true }
 scraper = { workspace = true }
-ammonia = { workspace = true }
 url = { workspace = true }
 moka = { workspace = true }
 time = { workspace = true }

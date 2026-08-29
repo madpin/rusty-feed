@@ -119,9 +119,15 @@ async fn search_returns_matching_article() {
         .embed_one("a deep dive into async await and concurrency in the rust language")
         .await
         .unwrap();
-    embeddings::upsert(db.pool(), article.id, &v, embedder.model())
-        .await
-        .unwrap();
+    embeddings::upsert(
+        db.pool(),
+        article.id,
+        &v,
+        embedder.model(),
+        article.content_revision,
+    )
+    .await
+    .unwrap();
 
     // Search finds it (the default AppState embedder is the same HashEmbedder).
     let resp = app

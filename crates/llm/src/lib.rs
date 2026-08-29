@@ -230,6 +230,7 @@ pub async fn summarize_article(
     let written = articles::set_summary(
         db.pool(),
         article.id,
+        article.content_revision,
         &summary.summary,
         &summary.key_points,
         &summary.topics,

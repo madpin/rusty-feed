@@ -18,10 +18,26 @@ pub use safe_fetch::{ensure_http_scheme, is_global_ip, SafeFetchClient};
 use futures_util::StreamExt;
 use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 
-use rustss_db::{Db, Feed};
+use rustss_db::{jobs, Db, Feed};
+use uuid::Uuid;
 
 /// Max feed body we will buffer (protects against huge/hostile responses).
 const MAX_FEED_BYTES: usize = 10 * 1024 * 1024;
+
+pub const FETCH_FEED_MAX_ATTEMPTS: i32 = 5;
+
+pub async fn enqueue_fetch_feed(db: &Db, feed_id: Uuid) -> rustss_db::Result<Option<Uuid>> {
+    let dedup = format!("fetch_feed:{feed_id}");
+    jobs::enqueue(
+        db.pool(),
+        "fetch_feed",
+        serde_json::json!({ "feed_id": feed_id }),
+        Some(&dedup),
+        None,
+        FETCH_FEED_MAX_ATTEMPTS,
+    )
+    .await
+}
 
 /// The result of a conditional fetch.
 pub struct FetchOutcome {

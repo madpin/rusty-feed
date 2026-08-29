@@ -1,0 +1,17 @@
+<div class="sidebar-group">
+  <p class="sidebar-label">View</p>
+  <a href="/articles"{% if !unread_only && sort == "recent" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Most recent</a>
+  <a href="/articles?unread=1"{% if unread_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Unread only</a>
+  <a href="/articles?sort=relevance"{% if sort == "relevance" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Personalized</a>
+</div>
+<div class="sidebar-group">
+  <p class="sidebar-label">Feeds</p>
+  <div class="feed-nav-list">
+    {% for f in feeds %}
+    <a href="/articles?feed={{ f.id }}"{% if f.active %} class="nav-link active"{% else %} class="nav-link"{% endif %}>{{ f.name }}</a>
+    {% else %}
+    <p class="sidebar-empty">No feeds yet.</p>
+    {% endfor %}
+  </div>
+  <a href="/feeds" class="sidebar-link">Manage feeds</a>
+</div>

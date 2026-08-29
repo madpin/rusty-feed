@@ -72,6 +72,11 @@ pub struct Article {
     pub content: String,
     pub excerpt: Option<String>,
     pub content_hash: Option<String>,
+    pub feed_content: Option<String>,
+    pub feed_excerpt: Option<String>,
+    pub feed_content_hash: Option<String>,
+    pub content_source: String,
+    pub content_revision: i64,
     pub image_url: Option<String>,
     pub published_at: Option<OffsetDateTime>,
     /// One of `none` | `success` | `failed`.
@@ -87,9 +92,11 @@ pub struct Article {
 }
 
 /// Columns for `articles` (deliberately excludes the generated `search_vector`).
-pub(crate) const ARTICLE_COLUMNS: &str = "id, feed_id, url, guid, title, author, content, excerpt, \
-    content_hash, image_url, published_at, extraction_status, extraction_error, summary, key_points, \
-    topics, summarized_at, summary_model, created_at, updated_at";
+pub(crate) const ARTICLE_COLUMNS: &str =
+    "id, feed_id, url, guid, title, author, content, excerpt, \
+    content_hash, feed_content, feed_excerpt, feed_content_hash, content_source, content_revision, \
+    image_url, published_at, extraction_status, extraction_error, summary, key_points, topics, \
+    summarized_at, summary_model, created_at, updated_at";
 
 /// A per-user subscription to a shared feed.
 #[derive(Debug, Clone, FromRow)]

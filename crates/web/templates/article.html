@@ -1,23 +1,17 @@
 {% extends "app_base.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block body_class %}page-article{% endblock %}
-{% block sidebar %}
-<div class="sidebar-context">
-  <div class="sidebar-group">
-    <p class="sidebar-label">Current article</p>
-    <a href="/articles" class="nav-link">Back to library</a>
-    <a href="/articles?unread=1" class="nav-link">Unread only</a>
-  </div>
-</div>
-{% endblock %}
 {% block content %}
 <article class="reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" id="article-{{ id }}">
+  <a href="/articles" class="back-link">Back to library</a>
   <p class="eyebrow">{{ feed_name }}</p>
   <h1>{{ title }}</h1>
   <div class="reader-meta">
     {% if let Some(when) = published %}{{ when }} · {% endif %}
     <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
   </div>
+  {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
+  {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
   <div class="actions" aria-label="Article actions">
     <form method="post" class="js-action" data-action="bookmark-toggle"
           action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"

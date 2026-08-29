@@ -97,8 +97,8 @@ async fn articles_shows_empty_state() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains("No articles yet"));
-    assert!(body.contains("reading-pane"));
-    assert!(body.contains("reading-workspace"));
+    assert!(!body.contains("reading-pane"));
+    assert!(!body.contains("reading-workspace"));
 }
 
 #[tokio::test]
@@ -142,6 +142,7 @@ async fn preferences_save_roundtrip() {
 
     // Save a visual configuration, 30/page, and hide read (checkbox omitted).
     let resp = app
+        .clone()
         .oneshot(
             Request::post("/settings/preferences")
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -179,6 +180,27 @@ async fn preferences_save_roundtrip() {
     assert_eq!(stored["reader_panel_width"], 61);
     assert_eq!(stored["show_read_articles"], false);
     assert_eq!(stored["auto_mark_read"], false);
+
+    let response = app
+        .oneshot(
+            Request::post("/settings/layout")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&reader_panel_width=45"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let stored = user_preferences::get(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored["theme"], "ocean");
+    assert_eq!(stored["reader_panel_width"], 45);
 }
 
 #[tokio::test]
@@ -212,7 +234,7 @@ async fn reading_actions_and_detail_work() {
             guid: Some(uuid::Uuid::now_v7().to_string()),
             title: "Hello World Article".into(),
             author: None,
-            content: "<p>Body text</p><script>alert(1)</script>".into(),
+            content: "<p>Body text</p><figure><img src=\"/cover.png\" alt=\"Cover\"></figure><script>alert(1)</script>".into(),
             excerpt: Some("An excerpt".into()),
             image_url: None,
             published_at: None,
@@ -330,6 +352,7 @@ async fn reading_actions_and_detail_work() {
     let body = body_string(resp).await;
     assert!(body.contains("Hello World Article"));
     assert!(body.contains("Body text"));
+    assert!(body.contains("https://ex.com/cover.png"));
     assert!(
         !body.contains("<script>alert(1)"),
         "content must be sanitized"

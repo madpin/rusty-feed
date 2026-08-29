@@ -88,6 +88,7 @@ impl ExtractionService {
         url: &str,
         selector: Option<&str>,
         respect_robots: bool,
+        delay_override_ms: Option<u64>,
     ) -> ExtractOutcome {
         let parsed = match url::Url::parse(url) {
             Ok(u) => u,
@@ -109,21 +110,24 @@ impl ExtractionService {
         }
 
         // Per-domain spacing with adaptive backoff.
-        self.apply_politeness(db, &domain, robots_delay_ms).await;
+        self.apply_politeness(db, &domain, robots_delay_ms, delay_override_ms)
+            .await;
 
         match self.fetch_html(fetch, url).await {
-            Ok(FetchResult::Html(html)) => match self.run_extractors(&html, selector) {
-                Some(extracted) => {
-                    let cd = robots_delay_ms.map(|ms| ms as i32);
-                    let _ = domain_state::record_success(db.pool(), &domain, cd).await;
-                    ExtractOutcome::Extracted(extracted)
+            Ok(FetchResult::Html { body, final_url }) => {
+                match self.run_extractors(&body, selector, &final_url) {
+                    Some(extracted) => {
+                        let cd = robots_delay_ms.map(|ms| ms as i32);
+                        let _ = domain_state::record_success(db.pool(), &domain, cd).await;
+                        ExtractOutcome::Extracted(extracted)
+                    }
+                    None => {
+                        let _ = domain_state::record_failure(db.pool(), &domain, "no main content")
+                            .await;
+                        ExtractOutcome::Failed("no main content found".into())
+                    }
                 }
-                None => {
-                    let _ =
-                        domain_state::record_failure(db.pool(), &domain, "no main content").await;
-                    ExtractOutcome::Failed("no main content found".into())
-                }
-            },
+            }
             Ok(FetchResult::RateLimited(retry_after)) => {
                 let _ = domain_state::record_rate_limit(db.pool(), &domain).await;
                 ExtractOutcome::RateLimited { retry_after }
@@ -140,10 +144,15 @@ impl ExtractionService {
         }
     }
 
-    fn run_extractors(&self, html: &str, selector: Option<&str>) -> Option<Extracted> {
+    fn run_extractors(
+        &self,
+        html: &str,
+        selector: Option<&str>,
+        base_url: &str,
+    ) -> Option<Extracted> {
         self.extractors
             .iter()
-            .find_map(|ex| ex.extract(html, selector))
+            .find_map(|ex| ex.extract(html, selector, base_url))
     }
 
     async fn robots_for(&self, fetch: &SafeFetchClient, url: &url::Url) -> Arc<RobotsInfo> {
@@ -166,8 +175,14 @@ impl ExtractionService {
         info
     }
 
-    async fn apply_politeness(&self, db: &Db, domain: &str, robots_delay_ms: Option<u64>) {
-        let base = self.config.base_delay.as_millis() as u64;
+    async fn apply_politeness(
+        &self,
+        db: &Db,
+        domain: &str,
+        robots_delay_ms: Option<u64>,
+        delay_override_ms: Option<u64>,
+    ) {
+        let base = delay_override_ms.unwrap_or(self.config.base_delay.as_millis() as u64);
         let mut delay = robots_delay_ms.unwrap_or(base).max(base);
 
         if let Ok(Some(state)) = domain_state::get(db.pool(), domain).await {
@@ -209,10 +224,12 @@ impl ExtractionService {
         if !status.is_success() {
             return Ok(FetchResult::Status(status.as_u16()));
         }
+        let final_url = resp.url().to_string();
         let bytes = read_capped(resp, self.config.max_bytes).await?;
-        Ok(FetchResult::Html(
-            String::from_utf8_lossy(&bytes).into_owned(),
-        ))
+        Ok(FetchResult::Html {
+            body: String::from_utf8_lossy(&bytes).into_owned(),
+            final_url,
+        })
     }
 
     async fn fetch_text(&self, fetch: &SafeFetchClient, url: &str) -> Result<Option<String>> {
@@ -240,7 +257,7 @@ impl Default for ExtractionService {
 }
 
 enum FetchResult {
-    Html(String),
+    Html { body: String, final_url: String },
     RateLimited(StdDuration),
     Status(u16),
 }

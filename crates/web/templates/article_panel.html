@@ -7,6 +7,8 @@
       <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
     </p>
   </header>
+  {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
+  {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
   <div class="reader-actions" aria-label="Article actions">
     <form method="post" class="js-action" data-action="bookmark-toggle" data-target="#card-{{ id }}" data-toggle-class="bookmarked" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel"
           action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"

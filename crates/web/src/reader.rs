@@ -9,6 +9,8 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use rustss_core::feed_content::{FeedContentMode, FeedContentSettings};
+use rustss_core::html::sanitize_article_html;
 use rustss_db::{articles, bookmarks, feedback, feeds, jobs, patterns, read_articles};
 use rustss_search::personalize;
 use rustss_search::{extract_keywords, relevance_score, ExplicitFeedback};
@@ -29,6 +31,7 @@ struct ArticleView {
     id: String,
     title: String,
     excerpt: Option<String>,
+    image_url: Option<String>,
     feed_name: String,
     published: Option<String>,
     is_read: bool,
@@ -55,6 +58,7 @@ struct ArticlesTemplate {
     feeds: Vec<FeedNav>,
     unread_only: bool,
     reading_mode: String,
+    side_panel: bool,
     sort: String,
     back_url: String,
     has_prev: bool,
@@ -75,7 +79,9 @@ struct ArticleTemplate {
     feed_name: String,
     url: String,
     published: Option<String>,
+    image_url: Option<String>,
     content: String, // sanitized HTML
+    content_notice: Option<String>,
     is_read: bool,
     is_bookmarked: bool,
     is_liked: bool,
@@ -95,7 +101,9 @@ struct ArticlePanelTemplate {
     feed_name: String,
     url: String,
     published: Option<String>,
+    image_url: Option<String>,
     content: String,
+    content_notice: Option<String>,
     is_read: bool,
     is_bookmarked: bool,
     is_liked: bool,
@@ -112,7 +120,9 @@ struct ReaderView {
     feed_name: String,
     url: String,
     published: Option<String>,
+    image_url: Option<String>,
     content: String,
+    content_notice: Option<String>,
     is_read: bool,
     is_bookmarked: bool,
     is_liked: bool,
@@ -162,6 +172,12 @@ fn safe_next(next: Option<String>) -> String {
     }
 }
 
+fn safe_media_url(value: Option<&str>) -> Option<String> {
+    let value = value?;
+    let url = url::Url::parse(value).ok()?;
+    matches!(url.scheme(), "http" | "https").then(|| url.to_string())
+}
+
 /// `GET /articles` — the user's reading list.
 pub async fn list(
     State(state): State<AppState>,
@@ -187,6 +203,7 @@ pub async fn list(
         recency_page(&state, user.id, feed_id, unread_only, per_page, offset).await?
     };
 
+    let side_panel = prefs.reading_mode == "side-panel" && !article_views.is_empty();
     let feeds = feeds::list_for_user(state.db.pool(), user.id)
         .await?
         .into_iter()
@@ -220,6 +237,7 @@ pub async fn list(
         feeds,
         unread_only,
         reading_mode: prefs.reading_mode,
+        side_panel,
         sort: sort.to_string(),
         back_url,
         has_prev: offset > 0,
@@ -260,6 +278,7 @@ async fn recency_page(
             id: a.id.to_string(),
             title: a.title,
             excerpt: a.excerpt,
+            image_url: safe_media_url(a.image_url.as_deref()),
             feed_name: a.feed_name,
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
@@ -340,6 +359,7 @@ async fn relevance_page(
             id: a.id.to_string(),
             title: a.title,
             excerpt: a.excerpt,
+            image_url: safe_media_url(a.image_url.as_deref()),
             feed_name: a.feed_name,
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
@@ -457,10 +477,28 @@ async fn reader_view(
         read_articles::mark_read(state.db.pool(), user_id, id).await?;
     }
 
-    let feed_name = feeds::find_by_id(state.db.pool(), article.feed_id)
-        .await?
-        .map(|f| f.name)
+    let feed = feeds::find_by_id(state.db.pool(), article.feed_id).await?;
+    let feed_name = feed
+        .as_ref()
+        .map(|feed| feed.name.clone())
         .unwrap_or_default();
+    let content_mode = FeedContentSettings::from_json(
+        feed.as_ref()
+            .and_then(|feed| feed.extraction_settings.as_ref()),
+    )
+    .mode;
+    let content_notice = match (content_mode, article.content_source.as_str(), article.extraction_status.as_str()) {
+        (FeedContentMode::Paywalled, _, _) => Some(
+            "This feed is configured for paywalled/RSS fallback. RustSS shows the feed-provided content and does not attempt to bypass publisher access controls.".to_string(),
+        ),
+        (FeedContentMode::ArticlePage, "feed", "none") => Some(
+            "Full article content is queued for this source. Showing feed-provided content until extraction finishes.".to_string(),
+        ),
+        (FeedContentMode::ArticlePage, "feed", "failed") => Some(
+            "Full article content could not be downloaded. Showing the feed-provided fallback.".to_string(),
+        ),
+        _ => None,
+    };
     let stored_summary = articles::get_summary(state.db.pool(), id).await?;
     let can_summarize = state.settings.summarization_enabled && stored_summary.is_none();
     let (summary, key_points, topics) = match stored_summary {
@@ -475,9 +513,11 @@ async fn reader_view(
         id: id.to_string(),
         title: article.title,
         feed_name,
-        url: article.url,
+        image_url: safe_media_url(article.image_url.as_deref()),
+        url: article.url.clone(),
         published: article.published_at.map(|d| d.date().to_string()),
-        content: ammonia::clean(&article.content),
+        content: sanitize_article_html(&article.content, &article.url),
+        content_notice,
         is_read: read_articles::is_read(state.db.pool(), user_id, id).await?,
         is_bookmarked: bookmarks::is_bookmarked(state.db.pool(), user_id, id).await?,
         is_liked: feedback_value.is_some_and(|value| value > 0.0),
@@ -509,7 +549,9 @@ pub async fn read(
         feed_name: article.feed_name,
         url: article.url,
         published: article.published,
+        image_url: article.image_url,
         content: article.content,
+        content_notice: article.content_notice,
         is_read: article.is_read,
         is_bookmarked: article.is_bookmarked,
         is_liked: article.is_liked,
@@ -541,7 +583,9 @@ pub async fn side_panel(
         feed_name: article.feed_name,
         url: article.url,
         published: article.published,
+        image_url: article.image_url,
         content: article.content,
+        content_notice: article.content_notice,
         is_read: article.is_read,
         is_bookmarked: article.is_bookmarked,
         is_liked: article.is_liked,
@@ -573,7 +617,7 @@ pub async fn content_fragment(
     if prefs.auto_mark_read {
         read_articles::mark_read(state.db.pool(), user.id, id).await?;
     }
-    Ok(Html(ammonia::clean(&article.content)).into_response())
+    Ok(Html(sanitize_article_html(&article.content, &article.url)).into_response())
 }
 
 async fn authorize_action(state: &AppState, user_id: Uuid, id: Uuid) -> Result<(), AppError> {

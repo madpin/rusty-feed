@@ -28,10 +28,12 @@ openssl rand -base64 48   # use this for SESSION_SECRET
 openssl rand -base64 48   # use this for ENCRYPTION_SECRET
 ```
 
-- **SESSION_SECRET** — signs login sessions.
-- **ENCRYPTION_SECRET** — encrypts stored API keys and feed cookies. **If you
-  lose it, those stored secrets can't be decrypted**, so keep it safe and back it
-  up. Don't change it after first run unless you know what you're doing.
+- **SESSION_SECRET** — required instance secret; current sessions are opaque,
+  database-backed tokens and the value is reserved for session-key rotation.
+- **ENCRYPTION_SECRET** — required master secret for encrypted stored-secret
+  paths. Public article-page extraction is anonymous and never uses feed or user
+  cookies. Keep it safe and do not change it after first run unless you have a
+  rotation plan.
 
 No `openssl`? Any 32+ character random string works (e.g. from a password
 manager).

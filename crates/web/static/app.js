@@ -138,21 +138,74 @@
     });
   }
 
+  function sidePanelAvailable(workspace) {
+    var pane = workspace ? workspace.querySelector(".reading-pane") : null;
+    return Boolean(pane && window.getComputedStyle(pane).display !== "none");
+  }
+
+  function persistPanelWidth(width) {
+    var root = document.documentElement;
+    var url = root.getAttribute("data-layout-url");
+    var csrf = root.getAttribute("data-csrf-token");
+    if (!url || !csrf) return;
+    var body = new URLSearchParams();
+    body.set("csrf_token", csrf);
+    body.set("reader_panel_width", String(width));
+    fetch(url, {
+      method: "POST",
+      body: body,
+      headers: { "X-Requested-With": "fetch" },
+      credentials: "same-origin",
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error("layout save failed");
+        announce("Reading panel width saved.", false);
+      })
+      .catch(function () {
+        announce("Could not save the reading panel width.", true);
+      });
+  }
+
   function initializePanelResize() {
     var workspace = document.querySelector(".reading-workspace");
     var handle = workspace ? workspace.querySelector(".panel-resizer") : null;
     if (!workspace || !handle) return;
+    var saveTimer;
+    var startWidth = Number(handle.getAttribute("aria-valuenow")) || 56;
+    function bounds() {
+      var width = workspace.clientWidth;
+      var min = Math.max(38, Math.ceil((20 * 16 * 100) / width));
+      var max = Math.min(68, Math.floor(((width - 16 * 16 - 24) * 100) / width));
+      return { min: min, max: Math.max(min, max) };
+    }
     function setWidth(value) {
-      var width = Math.round(Math.max(38, Math.min(68, value)));
+      var range = bounds();
+      var width = Math.round(Math.max(range.min, Math.min(range.max, value)));
       workspace.style.setProperty("--reader-panel-width", width + "%");
+      handle.setAttribute("aria-valuemin", String(range.min));
+      handle.setAttribute("aria-valuemax", String(range.max));
       handle.setAttribute("aria-valuenow", String(width));
+      handle.setAttribute("aria-valuetext", "Reading panel " + width + " percent wide");
+      return width;
+    }
+    function scheduleSave(width) {
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(function () { persistPanelWidth(width); }, 300);
+    }
+    function stopResizing(event, save) {
+      if (handle.dataset.resizing !== "true") return;
+      handle.dataset.resizing = "false";
+      if (event && handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      if (save) scheduleSave(Number(handle.getAttribute("aria-valuenow")) || 56);
     }
     function widthFromPointer(clientX) {
       var rect = workspace.getBoundingClientRect();
       return ((rect.right - clientX) / rect.width) * 100;
     }
+    setWidth(startWidth);
     handle.addEventListener("pointerdown", function (event) {
-      if (!window.matchMedia("(min-width: 54.0625rem)").matches) return;
+      if (!sidePanelAvailable(workspace) || event.button !== 0) return;
+      startWidth = Number(handle.getAttribute("aria-valuenow")) || startWidth;
       handle.dataset.resizing = "true";
       handle.setPointerCapture(event.pointerId);
       setWidth(widthFromPointer(event.clientX));
@@ -161,17 +214,23 @@
     handle.addEventListener("pointermove", function (event) {
       if (handle.dataset.resizing === "true") setWidth(widthFromPointer(event.clientX));
     });
-    handle.addEventListener("pointerup", function (event) {
-      handle.dataset.resizing = "false";
-      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-    });
+    handle.addEventListener("pointerup", function (event) { stopResizing(event, true); });
+    handle.addEventListener("pointercancel", function (event) { stopResizing(event, false); });
+    handle.addEventListener("lostpointercapture", function () { handle.dataset.resizing = "false"; });
     handle.addEventListener("keydown", function (event) {
       var current = Number(handle.getAttribute("aria-valuenow")) || 56;
-      if (event.key === "ArrowLeft") setWidth(current + 2);
-      else if (event.key === "ArrowRight") setWidth(current - 2);
-      else if (event.key === "Home") setWidth(38);
-      else if (event.key === "End") setWidth(68);
-      else return;
+      var next;
+      if (event.key === "ArrowLeft") next = current + 2;
+      else if (event.key === "ArrowRight") next = current - 2;
+      else if (event.key === "Home") next = bounds().min;
+      else if (event.key === "End") next = bounds().max;
+      else if (event.key === "Escape" && handle.dataset.resizing === "true") {
+        setWidth(startWidth);
+        stopResizing(null, false);
+        event.preventDefault();
+        return;
+      } else return;
+      scheduleSave(setWidth(next));
       event.preventDefault();
     });
   }
@@ -294,7 +353,8 @@
     if (!list) return;
     var mode = list.getAttribute("data-reading-mode");
     if (mode !== "inline" && mode !== "side-panel") return;
-    if (mode === "side-panel" && !window.matchMedia("(min-width: 54.0625rem)").matches) return;
+    var workspace = list.closest(".reading-workspace");
+    if (mode === "side-panel" && !sidePanelAvailable(workspace)) return;
 
     event.preventDefault();
     var panel;

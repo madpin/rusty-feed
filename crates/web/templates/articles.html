@@ -1,29 +1,12 @@
 {% extends "app_base.html" %}
 {% block title %}Articles{% endblock %}
 {% block body_class %}page-articles{% endblock %}
+{% block layout_class %}has-context-sidebar{% endblock %}
 {% block sidebar %}
-<div class="sidebar-context">
-  <div class="sidebar-group">
-    <p class="sidebar-label">View</p>
-    <a href="/articles"{% if !unread_only && sort == "recent" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Most recent</a>
-    <a href="/articles?unread=1"{% if unread_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Unread only</a>
-    <a href="/articles?sort=relevance"{% if sort == "relevance" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Personalized</a>
-  </div>
-  <div class="sidebar-group">
-    <p class="sidebar-label">Feeds</p>
-    <div class="feed-nav-list">
-      {% for f in feeds %}
-      <a href="/articles?feed={{ f.id }}"{% if f.active %} class="nav-link active"{% else %} class="nav-link"{% endif %}>{{ f.name }}</a>
-      {% else %}
-      <p class="sidebar-empty">No feeds yet.</p>
-      {% endfor %}
-    </div>
-    <a href="/feeds" class="sidebar-link">Manage feeds</a>
-  </div>
-</div>
+<div class="sidebar-context">{% include "library_context.html" %}</div>
 {% endblock %}
 {% block content %}
-<div{% if reading_mode == "side-panel" %} class="reading-workspace"{% endif %}>
+<div{% if side_panel %} class="reading-workspace"{% endif %}>
   <section class="article-column">
     <div class="content-header">
       <div>
@@ -39,6 +22,11 @@
       {% endif %}
     </div>
 
+    <details class="mobile-library-context">
+      <summary>Filter and browse feeds</summary>
+      <div class="mobile-library-context-content">{% include "library_context.html" %}</div>
+    </details>
+
     {% if articles.is_empty() %}
     <div class="empty-state">
       <p><strong>No articles yet.</strong></p>
@@ -46,10 +34,11 @@
       <p><a class="btn primary" href="/feeds">Manage feeds</a></p>
     </div>
     {% else %}
-    <ul class="article-list" data-reading-mode="{{ reading_mode }}"{% if reading_mode == "side-panel" %} data-reading-panel="#reading-pane"{% endif %}>
+    <ul class="article-list" data-reading-mode="{% if side_panel %}side-panel{% else %}{{ reading_mode }}{% endif %}"{% if side_panel %} data-reading-panel="#reading-pane"{% endif %}>
       {% for a in articles %}
       <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}">
-        <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if reading_mode == "side-panel" %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
+        {% if let Some(image_url) = a.image_url %}<img class="article-thumbnail" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
+        <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if side_panel %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
         <div class="meta">
           {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
           {% if let Some(pct) = a.score %} · <span class="badge">{{ pct }}% for you</span>{% endif %}
@@ -103,8 +92,8 @@
     {% endif %}
   </section>
 
-  {% if reading_mode == "side-panel" %}
-  <div class="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize reading panel" aria-valuemin="38" aria-valuemax="68" aria-valuenow="{{ ui.reader_panel_width }}" tabindex="0"></div>
+  {% if side_panel %}
+  <div class="panel-resizer" role="separator" aria-orientation="vertical" aria-controls="reading-pane" aria-label="Resize reading panel" aria-valuemin="38" aria-valuemax="68" aria-valuenow="{{ ui.reader_panel_width }}" tabindex="0"></div>
   <aside class="reading-pane" id="reading-pane" aria-label="Selected article" tabindex="-1">
     <div class="reading-pane-empty">
       <div>

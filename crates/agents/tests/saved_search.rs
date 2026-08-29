@@ -44,7 +44,7 @@ async fn add_embedded_article(db: &Db, feed_id: Uuid, title: &str, content: &str
     .unwrap();
     let e = HashEmbedder::default();
     let v = e.embed_one(&format!("{title} {content}")).await.unwrap();
-    embeddings::upsert(db.pool(), a.id, &v, e.model())
+    embeddings::upsert(db.pool(), a.id, &v, e.model(), a.content_revision)
         .await
         .unwrap();
     a.id

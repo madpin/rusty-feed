@@ -1,5 +1,5 @@
-//! M6 integration test: add a feed through the UI, ingest its articles, and see
-//! them in the reader; then unsubscribe. Requires `TEST_DATABASE_URL`.
+//! Feed UI integration: add a feed, queue shared ingestion, process it, see
+//! articles in the reader, then unsubscribe. Requires `TEST_DATABASE_URL`.
 
 use std::time::Duration;
 
@@ -11,10 +11,12 @@ use tower::ServiceExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use rustss_agents::{Agent, AgentContext, FetchFeedAgent};
 use rustss_cache::Cache;
-use rustss_db::{feeds, subscriptions, users, Db};
+use rustss_db::{feeds, jobs, subscriptions, users, Db};
 use rustss_feeds::SafeFetchClient;
 use rustss_web::{router, AppSettings, AppState};
+use serde_json::json;
 
 /// RSS with unique item URLs per `run` (article URLs are globally unique, so a
 /// stable URL would be skipped as a duplicate on reruns / across tests).
@@ -144,9 +146,9 @@ async fn add_feed_ingests_and_shows_articles() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert!(body_string(resp).await.contains("new article"));
+    assert!(body_string(resp).await.contains("Refresh queued"));
 
-    // The user is subscribed and articles are ingested.
+    // The user is subscribed and one shared fetch job is queued.
     let user = users::find_by_email(state.db.pool(), &email)
         .await
         .unwrap()
@@ -161,6 +163,19 @@ async fn add_feed_ingests_and_shows_articles() {
             .await
             .unwrap()
     );
+    assert_eq!(
+        jobs::count_active_by_dedup(state.db.pool(), &format!("fetch_feed:{}", feed.id))
+            .await
+            .unwrap(),
+        1
+    );
+    FetchFeedAgent
+        .run(
+            &AgentContext::new(state.db.clone(), state.fetch.clone()),
+            json!({ "feed_id": feed.id }),
+        )
+        .await
+        .unwrap();
 
     // They show up in the reader.
     let resp = app
@@ -193,6 +208,94 @@ async fn add_feed_ingests_and_shows_articles() {
         !subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
             .await
             .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn admin_can_set_shared_article_page_policy() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    );
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let user = users::find_by_email(state.db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE users SET role = 'admin' WHERE id = $1")
+        .bind(user.id)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!("https://example.com/{}.xml", uuid::Uuid::now_v7()),
+        "Example",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(state.db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/feeds/{}/settings", feed.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let csrf = find(&set_cookies(&response), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    assert!(body_string(response).await.contains("Content source"));
+
+    let response = app
+        .oneshot(
+            Request::post(format!("/feeds/{}/settings", feed.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&content_mode=article_page&selector=article&respect_robots_txt=true&extraction_delay_ms=500&fetch_interval_minutes=30"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_string(response)
+        .await
+        .contains("Shared source policy saved"));
+
+    let saved = feeds::find_by_id(state.db.pool(), feed.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let settings = saved.extraction_settings.unwrap();
+    assert_eq!(settings["mode"], "article_page");
+    assert_eq!(settings["selector"], "article");
+    assert!(saved.respect_robots_txt);
+    assert_eq!(saved.extraction_delay_ms, Some(500));
+    assert_eq!(saved.fetch_interval_minutes, 30);
+    assert_eq!(
+        jobs::count_active_by_dedup(state.db.pool(), &format!("fetch_feed:{}", feed.id))
+            .await
+            .unwrap(),
+        1
     );
 }
 

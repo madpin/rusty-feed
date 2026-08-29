@@ -2774,6 +2774,7 @@ dependencies = [
 name = "rustss-core"
 version = "0.1.0"
 dependencies = [
+ "ammonia",
  "base64",
  "chacha20poly1305",
  "dotenvy",
@@ -2824,7 +2825,6 @@ dependencies = [
 name = "rustss-extract"
 version = "0.1.0"
 dependencies = [
- "ammonia",
  "futures-util",
  "moka",
  "reqwest",
@@ -2849,6 +2849,7 @@ dependencies = [
  "reqwest",
  "rustss-core",
  "rustss-db",
+ "serde_json",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -2913,7 +2914,6 @@ dependencies = [
 name = "rustss-web"
 version = "0.1.0"
 dependencies = [
- "ammonia",
  "anyhow",
  "argon2",
  "askama",
@@ -2925,6 +2925,7 @@ dependencies = [
  "rand 0.8.8",
  "reqwest",
  "rust-embed",
+ "rustss-agents",
  "rustss-cache",
  "rustss-core",
  "rustss-db",
@@ -2933,6 +2934,7 @@ dependencies = [
  "rustss-search",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror 2.0.20",
  "time",
  "tokio",

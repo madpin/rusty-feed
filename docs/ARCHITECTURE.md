@@ -245,7 +245,7 @@ Feeds (SHARED)
          etag?, last_modified?, last_fetched?, last_successful_fetch?,
          fetch_interval_default, health_status[healthy|warning|error|disabled],
          consecutive_failures, error_count, auto_disable_threshold, notify_on_error,
-         http_status?, redirect_url?, extraction_settings jsonb,  -- method/headers/cookies(enc)/selector/timeout/merge
+         http_status?, redirect_url?, extraction_settings jsonb,  -- shared mode/selector policy
          respect_robots_txt, extraction_delay_ms?, created_at, updated_at)
   feed_error_log (id, feed_id→feeds CASCADE, ts, error_type, error_message, http_status?, details jsonb, resolved)
   domain_extraction_state (domain UNIQUE, last_extracted_at, failure_count, rate_limit_count, crawl_delay_ms?, last_error?)
@@ -546,10 +546,10 @@ Effective value = first present of **feed → category → user prefs → system
 - **`SafeFetchClient`** wraps `reqwest` and is the **only** way any code makes outbound HTTP (feeds, article pages, robots.txt, media proxy). It enforces: scheme allow-list (http/https), DNS resolution + **private/link-local/loopback IP blocking** (IPv4 & IPv6, incl. mapped), redirect re-validation (guards DNS-rebinding/redirect-to-internal), size caps, and timeouts. This closes the reference's SSRF gaps (PRD §9.6).
 - **Strategies** via an `Extractor` trait + registry with priority + fallback:
   1. **Readability** (`article_scraper`): fetch HTML → parse → extract main content, images, metadata. Default.
-  2. **Chromium** (`chromiumoxide`, pooled): for JS-rendered pages; `networkidle`, optional wait-selector, cookie injection; then Readability on rendered DOM. Enabled by config; falls back to Readability if unavailable.
+  2. **Chromium** (`chromiumoxide`, pooled): future option for public JS-rendered pages; `networkidle` and optional wait-selector, then Readability on rendered DOM. No cookie injection or authenticated/paywall extraction; falls back to Readability if unavailable.
 - **Per-domain rate limiting:** shared `domain_extraction_state`; base delay default **3000 ms**, overridable per feed; honor robots.txt `Crawl-delay` (cached 24h/1h-on-error); adaptive `429` backoff **10s→30s→60s→120s** honoring `Retry-After`. Extraction runs **only for new articles** and **once per shared article** (§7.3).
 - **Sanitization:** all extracted/stored HTML is cleaned with **`ammonia`** (allow-list of tags/attrs, safe links, no scripts) before persistence and again defensively at render.
-- **Cookies/secrets:** per-feed cookies encrypted at rest (§14).
+- **Publisher access:** public anonymous page requests only. Known paywalled feeds remain on RSS fallback; RustSS does not store feed cookies or bypass publisher controls.
 
 ---
 
@@ -579,7 +579,7 @@ Effective value = first present of **feed → category → user prefs → system
 - **Provider cascade** (per operation: summary/embedding/digest): **user config → admin/system config → environment**. Providers: OpenAI-compatible (incl. Azure, Ollama `/v1`) and Ollama native.
 - **Summarization** (`SummarizeArticleAgent` / on-demand): prompt returns JSON `{summary, key_points[], topics[], sentiment?}`; robust JSON extraction with text fallback; content truncated to a safe max; results stored **once** on the shared article (first-writer-wins).
 - **Durable cost tracking (fix):** every billable call appends to **`cost_ledger`** (user, provider, model, kind, tokens, `cost_usd`, timestamp). Admin/user views aggregate by day/month/provider. Replaces the reference's in-process counters (PRD §9.3). Pricing table includes `gpt-4o-mini` (the common default) to avoid the reference's mis-pricing bug.
-- **Secrets (unified AEAD — fix):** LLM API keys and feed cookies are encrypted with **XChaCha20-Poly1305**; the 32-byte key is derived from `ENCRYPTION_SECRET` via **HKDF-SHA256** (domain-separated per secret type). One format: `base64(nonce ‖ ciphertext ‖ tag)` with associated data = secret type. Secrets are never logged; masking helper for display. (Replaces the reference's two incompatible schemes; §21 covers migration.)
+- **Secrets (unified AEAD — fix):** stored LLM/API credentials use **XChaCha20-Poly1305**; the 32-byte key is derived from `ENCRYPTION_SECRET` via **HKDF-SHA256** (domain-separated per secret type). One format: `base64(nonce ‖ ciphertext ‖ tag)` with associated data = secret type. Secrets are never logged; masking helper for display. Feed-cookie extraction is intentionally unsupported. (Replaces the reference's two incompatible schemes; §21 covers migration.)
 
 ---
 

@@ -4,50 +4,56 @@
 //! -> content hash (feed-scoped). [`upsert`] creates, updates, or skips, keeping
 //! exactly one row per article regardless of how many users/feeds reference it.
 
-use rustss_core::hash::content_hash;
+use rustss_core::{hash::content_hash, html::sanitize_article_html};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::{DbError, Result};
 use crate::models::{Article, NewArticle, UpsertAction, ARTICLE_COLUMNS};
 
-/// Store extracted full content on a shared article (first-writer enrichment):
-/// updates `content`, its hash, optionally the excerpt, and the extraction
-/// status. Content should already be sanitized by the caller.
+/// A content revision queued for extraction or embedding.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ArticleRevision {
+    pub id: Uuid,
+    pub content_revision: i64,
+}
+
+/// Store extracted full content for the expected shared content revision.
 pub async fn set_extracted_content(
     pool: &PgPool,
     id: Uuid,
+    expected_revision: i64,
     content: &str,
     excerpt: Option<&str>,
-    status: &str,
-    error: Option<&str>,
-) -> Result<()> {
+) -> Result<Option<i64>> {
     let content_hash = rustss_core::hash::content_hash(content);
-    sqlx::query(
-        "UPDATE articles SET content = $2, content_hash = $3, \
-         excerpt = COALESCE($4, excerpt), extraction_status = $5, extraction_error = $6, \
-         updated_at = now() WHERE id = $1",
+    Ok(sqlx::query_scalar(
+        "UPDATE articles SET content = $3, content_hash = $4, \
+         excerpt = COALESCE($5, excerpt), content_source = 'article_page', \
+         content_revision = content_revision + 1, extraction_status = 'success', \
+         extraction_error = NULL, summary = NULL, key_points = NULL, topics = '{}', \
+         summarized_at = NULL, summary_model = NULL, updated_at = now() \
+         WHERE id = $1 AND content_revision = $2 AND extraction_status = 'none' \
+         RETURNING content_revision",
     )
     .bind(id)
+    .bind(expected_revision)
     .bind(content)
     .bind(content_hash)
     .bind(excerpt)
-    .bind(status)
-    .bind(error)
-    .execute(pool)
-    .await?;
-    Ok(())
+    .fetch_optional(pool)
+    .await?)
 }
 
-/// Article ids in a feed that have not been extraction-processed yet
-/// (`extraction_status = 'none'`), newest first.
+/// Article revisions in a feed that have not been extraction-processed yet.
 pub async fn list_needing_extraction(
     pool: &PgPool,
     feed_id: Uuid,
     limit: i64,
-) -> Result<Vec<Uuid>> {
-    Ok(sqlx::query_scalar(
-        "SELECT id FROM articles WHERE feed_id = $1 AND extraction_status = 'none' \
+) -> Result<Vec<ArticleRevision>> {
+    Ok(sqlx::query_as(
+        "SELECT id, content_revision FROM articles \
+         WHERE feed_id = $1 AND extraction_status = 'none' \
          ORDER BY created_at DESC LIMIT $2",
     )
     .bind(feed_id)
@@ -56,11 +62,16 @@ pub async fn list_needing_extraction(
     .await?)
 }
 
-/// Article ids in a feed that have no embedding yet, newest first.
-pub async fn list_needing_embedding(pool: &PgPool, feed_id: Uuid, limit: i64) -> Result<Vec<Uuid>> {
-    Ok(sqlx::query_scalar(
-        "SELECT a.id FROM articles a \
+/// Article revisions in a feed that have no current embedding yet.
+pub async fn list_needing_embedding(
+    pool: &PgPool,
+    feed_id: Uuid,
+    limit: i64,
+) -> Result<Vec<ArticleRevision>> {
+    Ok(sqlx::query_as(
+        "SELECT a.id, a.content_revision FROM articles a \
          LEFT JOIN article_embeddings e ON e.article_id = a.id \
+           AND e.content_revision = a.content_revision \
          WHERE a.feed_id = $1 AND e.article_id IS NULL \
          ORDER BY a.created_at DESC LIMIT $2",
     )
@@ -70,17 +81,70 @@ pub async fn list_needing_embedding(pool: &PgPool, feed_id: Uuid, limit: i64) ->
     .await?)
 }
 
-/// Mark extraction failed without changing content.
-pub async fn set_extraction_failed(pool: &PgPool, id: Uuid, error: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE articles SET extraction_status = 'failed', extraction_error = $2, updated_at = now() \
-         WHERE id = $1",
+/// Article revisions ready for embedding after page extraction completed or fell
+/// back to RSS content.
+pub async fn list_ready_for_embedding(
+    pool: &PgPool,
+    feed_id: Uuid,
+    limit: i64,
+) -> Result<Vec<ArticleRevision>> {
+    Ok(sqlx::query_as(
+        "SELECT a.id, a.content_revision FROM articles a \
+         LEFT JOIN article_embeddings e ON e.article_id = a.id \
+           AND e.content_revision = a.content_revision \
+         WHERE a.feed_id = $1 AND a.extraction_status <> 'none' AND e.article_id IS NULL \
+         ORDER BY a.created_at DESC LIMIT $2",
+    )
+    .bind(feed_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Mark extraction failed for the expected revision and keep the feed fallback.
+pub async fn set_extraction_failed(
+    pool: &PgPool,
+    id: Uuid,
+    expected_revision: i64,
+    error: &str,
+) -> Result<Option<i64>> {
+    Ok(sqlx::query_scalar(
+        "UPDATE articles SET extraction_status = 'failed', extraction_error = $3, updated_at = now() \
+         WHERE id = $1 AND content_revision = $2 AND extraction_status = 'none' \
+         RETURNING content_revision",
     )
     .bind(id)
+    .bind(expected_revision)
     .bind(error)
+    .fetch_optional(pool)
+    .await?)
+}
+
+pub async fn reset_extraction_for_feed(pool: &PgPool, feed_id: Uuid) -> Result<u64> {
+    let result = sqlx::query(
+        "UPDATE articles SET extraction_status = 'none', extraction_error = NULL, updated_at = now() \
+         WHERE feed_id = $1 AND content_source = 'feed' AND extraction_status = 'failed'",
+    )
+    .bind(feed_id)
     .execute(pool)
     .await?;
-    Ok(())
+    Ok(result.rows_affected())
+}
+
+pub async fn restore_feed_content(pool: &PgPool, feed_id: Uuid) -> Result<u64> {
+    let result = sqlx::query(
+        "UPDATE articles SET content = feed_content, excerpt = feed_excerpt, \
+         content_hash = feed_content_hash, content_source = 'feed', \
+         content_revision = content_revision + 1, extraction_status = 'none', \
+         extraction_error = NULL, summary = NULL, key_points = NULL, topics = '{}', \
+         summarized_at = NULL, summary_model = NULL, updated_at = now() \
+         WHERE feed_id = $1 AND content_source = 'article_page' \
+           AND feed_content IS NOT NULL AND feed_content_hash IS NOT NULL",
+    )
+    .bind(feed_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 /// A stored article summary for display.
@@ -124,16 +188,19 @@ pub async fn is_summarized(pool: &PgPool, id: Uuid) -> Result<bool> {
 pub async fn set_summary(
     pool: &PgPool,
     id: Uuid,
+    content_revision: i64,
     summary: &str,
     key_points: &[String],
     topics: &[String],
     model: &str,
 ) -> Result<bool> {
     let written: Option<Uuid> = sqlx::query_scalar(
-        "UPDATE articles SET summary = $2, key_points = $3, topics = $4, summary_model = $5, \
-         summarized_at = now() WHERE id = $1 AND summarized_at IS NULL RETURNING id",
+        "UPDATE articles SET summary = $3, key_points = $4, topics = $5, summary_model = $6, \
+         summarized_at = now() WHERE id = $1 AND content_revision = $2 \
+         AND summarized_at IS NULL RETURNING id",
     )
     .bind(id)
+    .bind(content_revision)
     .bind(summary)
     .bind(serde_json::json!(key_points))
     .bind(topics)
@@ -194,13 +261,29 @@ async fn find_by_feed_and_hash(
     feed_id: Uuid,
     hash: &str,
 ) -> Result<Option<Article>> {
-    let sql =
-        format!("SELECT {ARTICLE_COLUMNS} FROM articles WHERE feed_id = $1 AND content_hash = $2");
+    let sql = format!(
+        "SELECT {ARTICLE_COLUMNS} FROM articles WHERE feed_id = $1 AND feed_content_hash = $2"
+    );
     Ok(sqlx::query_as::<_, Article>(&sql)
         .bind(feed_id)
         .bind(hash)
         .fetch_optional(pool)
         .await?)
+}
+
+fn feed_content(new: &NewArticle) -> String {
+    sanitize_article_html(&new.content, &new.url)
+}
+
+fn feed_content_hash(new: &NewArticle) -> String {
+    content_hash(&feed_content(new))
+}
+
+fn feed_content_changed(existing: &Article, feed_hash: &str) -> bool {
+    existing
+        .feed_content_hash
+        .as_deref()
+        .is_some_and(|existing_hash| existing_hash != feed_hash)
 }
 
 /// Find an existing article that `new` duplicates, using the GUID -> URL -> hash
@@ -216,7 +299,7 @@ pub async fn find_duplicate(pool: &PgPool, new: &NewArticle) -> Result<Option<Ar
         return Ok(Some(a));
     }
     if new.guid.is_none() {
-        let hash = content_hash(&new.content);
+        let hash = feed_content_hash(new);
         if let Some(a) = find_by_feed_and_hash(pool, new.feed_id, &hash).await? {
             return Ok(Some(a));
         }
@@ -224,16 +307,18 @@ pub async fn find_duplicate(pool: &PgPool, new: &NewArticle) -> Result<Option<Ar
     Ok(None)
 }
 
-/// Whether an existing article should be updated from `new`: the content hash
-/// changed, the title changed, or the publish time moved by more than 60s.
+/// Whether an existing article should be updated from `new`: source content or
+/// metadata changed, or the feed-source baseline is not known yet.
 pub fn should_update(existing: &Article, new: &NewArticle) -> bool {
-    let new_hash = content_hash(&new.content);
-    if let Some(existing_hash) = existing.content_hash.as_deref() {
-        if existing_hash != new_hash {
-            return true;
-        }
+    let feed_hash = feed_content_hash(new);
+    if existing.feed_content_hash.is_none() || feed_content_changed(existing, &feed_hash) {
+        return true;
     }
-    if existing.title != new.title {
+    if existing.title != new.title
+        || existing.author != new.author
+        || existing.feed_excerpt != new.excerpt
+        || existing.image_url != new.image_url
+    {
         return true;
     }
     if let (Some(np), Some(ep)) = (new.published_at, existing.published_at) {
@@ -248,7 +333,7 @@ pub fn should_update(existing: &Article, new: &NewArticle) -> bool {
 pub async fn upsert(pool: &PgPool, new: &NewArticle) -> Result<(Article, UpsertAction)> {
     if let Some(existing) = find_duplicate(pool, new).await? {
         if should_update(&existing, new) {
-            let updated = update(pool, existing.id, new).await?;
+            let updated = update(pool, &existing, new).await?;
             return Ok((updated, UpsertAction::Updated));
         }
         return Ok((existing, UpsertAction::Skipped));
@@ -268,11 +353,15 @@ pub async fn upsert(pool: &PgPool, new: &NewArticle) -> Result<(Article, UpsertA
 }
 
 async fn create(pool: &PgPool, new: &NewArticle) -> Result<Article> {
-    let hash = content_hash(&new.content);
+    let feed_content = feed_content(new);
+    let feed_hash = content_hash(&feed_content);
     let sql = format!(
         "INSERT INTO articles \
-         (id, feed_id, url, guid, title, author, content, excerpt, content_hash, image_url, published_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING {ARTICLE_COLUMNS}"
+         (id, feed_id, url, guid, title, author, content, excerpt, content_hash, \
+          feed_content, feed_excerpt, feed_content_hash, content_source, content_revision, \
+          image_url, published_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $7, $8, $9, 'feed', 1, $10, $11) \
+         RETURNING {ARTICLE_COLUMNS}"
     );
     Ok(sqlx::query_as::<_, Article>(&sql)
         .bind(Uuid::now_v7())
@@ -281,31 +370,50 @@ async fn create(pool: &PgPool, new: &NewArticle) -> Result<Article> {
         .bind(&new.guid)
         .bind(&new.title)
         .bind(&new.author)
-        .bind(&new.content)
+        .bind(&feed_content)
         .bind(&new.excerpt)
-        .bind(&hash)
+        .bind(&feed_hash)
         .bind(&new.image_url)
         .bind(new.published_at)
         .fetch_one(pool)
         .await?)
 }
 
-async fn update(pool: &PgPool, id: Uuid, new: &NewArticle) -> Result<Article> {
-    let hash = content_hash(&new.content);
+async fn update(pool: &PgPool, existing: &Article, new: &NewArticle) -> Result<Article> {
+    let feed_content = feed_content(new);
+    let feed_hash = content_hash(&feed_content);
+    let source_changed = feed_content_changed(existing, &feed_hash);
+    let fallback_changed = source_changed
+        || (existing.content_source == "feed" && existing.feed_excerpt != new.excerpt);
+    let effective_changed = fallback_changed || existing.title != new.title;
     let sql = format!(
-        "UPDATE articles SET title = $2, author = $3, content = $4, excerpt = $5, \
-         content_hash = $6, image_url = $7, published_at = $8, updated_at = now() \
+        "UPDATE articles SET title = $2, author = $3, feed_content = $4, feed_excerpt = $5, \
+         feed_content_hash = $6, image_url = $7, published_at = $8, \
+         content = CASE WHEN $9 THEN $4 ELSE content END, \
+         excerpt = CASE WHEN $9 THEN $5 ELSE excerpt END, \
+         content_hash = CASE WHEN $9 THEN $6 ELSE content_hash END, \
+         content_source = CASE WHEN $9 THEN 'feed' ELSE content_source END, \
+         extraction_status = CASE WHEN $9 THEN 'none' ELSE extraction_status END, \
+         extraction_error = CASE WHEN $9 THEN NULL ELSE extraction_error END, \
+         content_revision = CASE WHEN $10 THEN content_revision + 1 ELSE content_revision END, \
+         summary = CASE WHEN $10 THEN NULL ELSE summary END, \
+         key_points = CASE WHEN $10 THEN NULL ELSE key_points END, \
+         topics = CASE WHEN $10 THEN '{{}}' ELSE topics END, \
+         summarized_at = CASE WHEN $10 THEN NULL ELSE summarized_at END, \
+         summary_model = CASE WHEN $10 THEN NULL ELSE summary_model END, updated_at = now() \
          WHERE id = $1 RETURNING {ARTICLE_COLUMNS}"
     );
     Ok(sqlx::query_as::<_, Article>(&sql)
-        .bind(id)
+        .bind(existing.id)
         .bind(&new.title)
         .bind(&new.author)
-        .bind(&new.content)
+        .bind(&feed_content)
         .bind(&new.excerpt)
-        .bind(&hash)
+        .bind(&feed_hash)
         .bind(&new.image_url)
         .bind(new.published_at)
+        .bind(fallback_changed)
+        .bind(effective_changed)
         .fetch_one(pool)
         .await?)
 }

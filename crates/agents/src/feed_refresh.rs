@@ -6,14 +6,13 @@ use serde_json::json;
 use time::Duration;
 use uuid::Uuid;
 
-use rustss_db::{agent_locks, feeds, jobs};
+use rustss_db::{agent_locks, feeds};
+use rustss_feeds::enqueue_fetch_feed;
 
 use crate::{Agent, AgentContext};
 
 /// How many due feeds to enqueue per run.
 const DUE_LIMIT: i64 = 1000;
-/// Retries for an individual fetch job.
-const FETCH_MAX_ATTEMPTS: i32 = 5;
 
 pub struct FeedRefreshAgent;
 
@@ -39,17 +38,7 @@ impl Agent for FeedRefreshAgent {
         let due = feeds::list_due(pool, DUE_LIMIT).await?;
         let mut enqueued = 0u64;
         for feed in &due {
-            let dedup = format!("fetch_feed:{}", feed.id);
-            let queued = jobs::enqueue(
-                pool,
-                "fetch_feed",
-                json!({ "feed_id": feed.id }),
-                Some(&dedup),
-                None,
-                FETCH_MAX_ATTEMPTS,
-            )
-            .await?;
-            if queued.is_some() {
+            if enqueue_fetch_feed(&ctx.db, feed.id).await?.is_some() {
                 enqueued += 1;
             }
         }

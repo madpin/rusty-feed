@@ -14,7 +14,9 @@
 pub mod config;
 pub mod crypto;
 pub mod error;
+pub mod feed_content;
 pub mod hash;
+pub mod html;
 pub mod secret;
 
 #[cfg(feature = "telemetry")]

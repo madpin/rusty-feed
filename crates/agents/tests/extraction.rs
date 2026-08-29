@@ -70,6 +70,11 @@ async fn extract_content_agent_enriches_article() {
     let (feed, _) = feeds::upsert_by_url(db.pool(), &feed_url, "F", None)
         .await
         .unwrap();
+    sqlx::query("UPDATE feeds SET extraction_settings = '{\"mode\": \"article_page\"}'::jsonb WHERE id = $1")
+        .bind(feed.id)
+        .execute(db.pool())
+        .await
+        .unwrap();
     let art_url = format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7());
     let (article, _) = articles::upsert(
         db.pool(),
@@ -125,6 +130,11 @@ async fn rate_limited_extraction_records_and_signals_retry() {
 
     let feed_url = format!("{}/feed.xml?{}", server.uri(), uuid::Uuid::now_v7());
     let (feed, _) = feeds::upsert_by_url(db.pool(), &feed_url, "F", None)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE feeds SET extraction_settings = '{\"mode\": \"article_page\"}'::jsonb WHERE id = $1")
+        .bind(feed.id)
+        .execute(db.pool())
         .await
         .unwrap();
     let art_url = format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7());
@@ -216,13 +226,62 @@ async fn fetch_feed_enqueues_extraction_when_enabled() {
     let art = &articles::list_for_feed(db.pool(), feed.id, 5)
         .await
         .unwrap()[0];
-    let dedup = format!("extract:{}", art.id);
+    let dedup = format!("extract:{}:{}", art.id, art.content_revision);
     assert_eq!(
         jobs::count_active_by_dedup(db.pool(), &dedup)
             .await
             .unwrap(),
         1
     );
+}
+
+#[tokio::test]
+async fn rss_and_paywalled_modes_do_not_fetch_article_pages() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let server = MockServer::start().await;
+    for mode in ["rss", "paywalled"] {
+        let (feed, _) = feeds::upsert_by_url(
+            db.pool(),
+            &format!("{}/feed-{mode}.xml", server.uri()),
+            "F",
+            None,
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE feeds SET extraction_settings = jsonb_build_object('mode', $2) WHERE id = $1",
+        )
+        .bind(feed.id)
+        .bind(mode)
+        .execute(db.pool())
+        .await
+        .unwrap();
+        let (article, _) = articles::upsert(
+            db.pool(),
+            &rustss_db::models::NewArticle {
+                feed_id: feed.id,
+                url: format!("{}/article-{mode}", server.uri()),
+                guid: None,
+                title: "Item".into(),
+                author: None,
+                content: "RSS fallback".into(),
+                excerpt: None,
+                image_url: None,
+                published_at: None,
+            },
+        )
+        .await
+        .unwrap();
+        let out = fast_extract_agent()
+            .run(&ctx(db.clone()), json!({ "article_id": article.id }))
+            .await
+            .unwrap();
+        assert_eq!(out["skipped"], "feed uses RSS content");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -238,7 +297,14 @@ async fn extraction_is_ssrf_guarded() {
         ..ExtractConfig::default()
     });
     let outcome = service
-        .extract(&db, &strict, "http://127.0.0.1:9/article", None, false)
+        .extract(
+            &db,
+            &strict,
+            "http://127.0.0.1:9/article",
+            None,
+            false,
+            None,
+        )
         .await;
     assert!(matches!(outcome, ExtractOutcome::Failed(_)));
 }

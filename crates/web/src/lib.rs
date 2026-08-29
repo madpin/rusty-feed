@@ -66,6 +66,10 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/summarize", post(reader::summarize))
         .route("/feeds", get(feeds::page).post(feeds::add))
         .route("/feeds/refresh-all", post(feeds::refresh_all))
+        .route(
+            "/feeds/{id}/settings",
+            get(feeds::settings_page).post(feeds::update_settings),
+        )
         .route("/feeds/{id}/refresh", post(feeds::refresh))
         .route("/feeds/{id}/unsubscribe", post(feeds::unsubscribe))
         .route("/search", get(search::page))
@@ -77,6 +81,7 @@ pub fn router(state: AppState) -> Router {
         .route("/notifications/read", post(saved::mark_read))
         .route("/admin/costs", get(admin::costs))
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
+        .route("/settings/layout", post(prefs::save_layout))
         .route("/settings/reset-learning", post(prefs::reset_learning))
         .route("/settings/tokens", get(tokens::list).post(tokens::create))
         .route("/settings/tokens/{id}/revoke", post(tokens::revoke))

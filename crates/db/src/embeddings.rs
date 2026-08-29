@@ -36,27 +36,47 @@ fn to_pg_vector(v: &[f32]) -> String {
     s
 }
 
-/// Store an article's embedding (once per article; ignores duplicates).
-pub async fn upsert(pool: &PgPool, article_id: Uuid, embedding: &[f32], model: &str) -> Result<()> {
+/// Store an article's embedding for an effective content revision.
+pub async fn upsert(
+    pool: &PgPool,
+    article_id: Uuid,
+    embedding: &[f32],
+    model: &str,
+    content_revision: i64,
+) -> Result<()> {
     sqlx::query(
-        "INSERT INTO article_embeddings (article_id, embedding, model) \
-         VALUES ($1, $2::vector, $3) ON CONFLICT (article_id) DO NOTHING",
+        "INSERT INTO article_embeddings (article_id, embedding, model, content_revision) \
+         VALUES ($1, $2::vector, $3, $4) \
+         ON CONFLICT (article_id) DO UPDATE SET \
+           embedding = EXCLUDED.embedding, model = EXCLUDED.model, \
+           content_revision = EXCLUDED.content_revision \
+         WHERE article_embeddings.content_revision <= EXCLUDED.content_revision",
     )
     .bind(article_id)
     .bind(to_pg_vector(embedding))
     .bind(model)
+    .bind(content_revision)
     .execute(pool)
     .await?;
     Ok(())
 }
 
-/// Whether an article already has an embedding.
-pub async fn exists(pool: &PgPool, article_id: Uuid) -> Result<bool> {
-    let found: Option<i32> =
-        sqlx::query_scalar("SELECT 1 FROM article_embeddings WHERE article_id = $1")
-            .bind(article_id)
-            .fetch_optional(pool)
-            .await?;
+/// Whether an article already has an embedding for the requested model/revision.
+pub async fn exists(
+    pool: &PgPool,
+    article_id: Uuid,
+    model: &str,
+    content_revision: i64,
+) -> Result<bool> {
+    let found: Option<i32> = sqlx::query_scalar(
+        "SELECT 1 FROM article_embeddings \
+         WHERE article_id = $1 AND model = $2 AND content_revision = $3",
+    )
+    .bind(article_id)
+    .bind(model)
+    .bind(content_revision)
+    .fetch_optional(pool)
+    .await?;
     Ok(found.is_some())
 }
 
@@ -76,7 +96,7 @@ pub async fn search_for_user(
                JOIN articles a ON a.id = e.article_id \
                JOIN feeds f ON f.id = a.feed_id \
                JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
-               WHERE e.model = $3 \
+               WHERE e.model = $3 AND e.content_revision = a.content_revision \
                ORDER BY e.embedding <=> $2::vector \
                LIMIT $4";
     Ok(sqlx::query_as::<_, SearchResult>(sql)
@@ -111,7 +131,8 @@ pub async fn candidates_for_query(
                FROM article_embeddings e \
                JOIN articles a ON a.id = e.article_id \
                JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
-               WHERE e.model = $3 AND a.created_at > now() - make_interval(days => $4::int) \
+               WHERE e.model = $3 AND e.content_revision = a.content_revision \
+                 AND a.created_at > now() - make_interval(days => $4::int) \
                ORDER BY e.embedding <=> $2::vector \
                LIMIT $5";
     Ok(sqlx::query_as::<_, Candidate>(sql)
@@ -140,8 +161,11 @@ pub async fn related_for_user(
                JOIN articles a ON a.id = e.article_id \
                JOIN feeds f ON f.id = a.feed_id \
                JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
-               CROSS JOIN (SELECT embedding FROM article_embeddings WHERE article_id = $2) q \
-               WHERE e.model = $3 AND e.article_id <> $2 \
+               CROSS JOIN (SELECT e0.embedding FROM article_embeddings e0 \
+                           JOIN articles a0 ON a0.id = e0.article_id \
+                           WHERE e0.article_id = $2 AND e0.model = $3 \
+                             AND e0.content_revision = a0.content_revision) q \
+               WHERE e.model = $3 AND e.content_revision = a.content_revision AND e.article_id <> $2 \
                ORDER BY e.embedding <=> q.embedding \
                LIMIT $4";
     Ok(sqlx::query_as::<_, SearchResult>(sql)

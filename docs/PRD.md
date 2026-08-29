@@ -134,7 +134,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-EXTRACT-1 (P0):** Full-text extraction via a **Readability** strategy; **headless-Chromium** strategy for JS-rendered pages (full infra), selected per-feed with a fallback chain.
 - **FR-EXTRACT-2 (P0):** Extraction happens **only for new (deduped) articles** and **once per shared article** (never per user).
 - **FR-EXTRACT-3 (P0):** Per-**domain** rate limiting with configurable base delay (default 3s), robots.txt `Crawl-delay` support, and adaptive `429` backoff (10s→30s→60s→120s honoring `Retry-After`).
-- **FR-EXTRACT-4 (P0):** Per-feed extraction settings: method, custom headers, **encrypted cookies** (for paywalled/authenticated feeds), custom wait selector, timeout, content-merge strategy (`replace|prepend|append`).
+- **FR-EXTRACT-4 (P0):** Shared per-feed content source policy: RSS-only, anonymous public article-page extraction (optional CSS selector, robots/delay/refresh controls), or explicit paywalled/RSS fallback. RustSS does not store publisher credentials, send custom authentication headers, or bypass access controls.
 - **FR-EXTRACT-5 (P0):** **SSRF protection on all extraction and robots.txt fetches** (fixes a known reference gap — see §9). HTML output is sanitized before storage/render.
 - **FR-EXTRACT-6 (P2):** Rewrite bare-text URLs into links; embed YouTube; media enrichment (backlog).
 
@@ -263,7 +263,7 @@ Targets assume a modest host (≈2 vCPU / 2 GB RAM) with Postgres+Redis local, u
 
 ### 7.4 Security & privacy
 - SSRF protection on **every** outbound fetch (feeds, extraction, robots.txt, media proxy), including private-range and link-local blocking; scheme allow-list.
-- Secrets (LLM API keys, feed cookies) encrypted at rest with a single authenticated-encryption scheme; secret material never logged.
+- Stored LLM/API credentials encrypted at rest with a single authenticated-encryption scheme; secret material never logged. Public article-page extraction never uses publisher cookies or credentials.
 - Output sanitization of all stored/rendered feed HTML (XSS-safe).
 - Standard web hardening: CSRF protection for cookie-authenticated mutations, secure cookies, security headers, per-IP/user rate limiting on auth and expensive endpoints.
 - Least-privilege: non-root container, read-only FS where possible.

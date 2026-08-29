@@ -8,6 +8,8 @@
 
 use scraper::{Html, Selector};
 
+use rustss_core::html::sanitize_article_html;
+
 /// Extracted article content (sanitized HTML).
 #[derive(Debug, Clone)]
 pub struct Extracted {
@@ -22,7 +24,7 @@ pub struct Extracted {
 pub trait Extractor: Send + Sync {
     fn name(&self) -> &'static str;
     /// Return content if this extractor found something usable.
-    fn extract(&self, html: &str, selector: Option<&str>) -> Option<Extracted>;
+    fn extract(&self, html: &str, selector: Option<&str>, base_url: &str) -> Option<Extracted>;
 }
 
 const MIN_CONTENT_CHARS: usize = 200;
@@ -47,7 +49,7 @@ impl Extractor for ReadabilityExtractor {
         "readability"
     }
 
-    fn extract(&self, html: &str, selector: Option<&str>) -> Option<Extracted> {
+    fn extract(&self, html: &str, selector: Option<&str>, base_url: &str) -> Option<Extracted> {
         let doc = Html::parse_document(html);
         let title = document_title(&doc);
 
@@ -59,7 +61,7 @@ impl Extractor for ReadabilityExtractor {
             pick_main_content(&doc)
         }?;
 
-        let content = sanitize(&raw);
+        let content = sanitize_article_html(&raw, base_url);
         if text_len(&content) < MIN_CONTENT_CHARS {
             return None;
         }
@@ -81,11 +83,11 @@ impl Extractor for RawExtractor {
         "raw"
     }
 
-    fn extract(&self, html: &str, _selector: Option<&str>) -> Option<Extracted> {
+    fn extract(&self, html: &str, _selector: Option<&str>, base_url: &str) -> Option<Extracted> {
         let doc = Html::parse_document(html);
         let body_sel = Selector::parse("body").ok()?;
         let body = doc.select(&body_sel).next()?.inner_html();
-        let content = sanitize(&body);
+        let content = sanitize_article_html(&body, base_url);
         if text_len(&content) < 400 {
             return None;
         }
@@ -139,7 +141,7 @@ fn pick_main_content(doc: &Html) -> Option<String> {
 
 /// Sanitize untrusted HTML (strips scripts/styles/handlers; keeps article tags).
 pub fn sanitize(html: &str) -> String {
-    ammonia::clean(html)
+    sanitize_article_html(html, "https://rustss.invalid/")
 }
 
 fn text_len(html: &str) -> usize {
@@ -203,7 +205,9 @@ mod tests {
 
     #[test]
     fn readability_extracts_article_and_sanitizes() {
-        let out = ReadabilityExtractor.extract(PAGE, None).unwrap();
+        let out = ReadabilityExtractor
+            .extract(PAGE, None, "https://example.com/article")
+            .unwrap();
         assert_eq!(out.title.as_deref(), Some("My Article"));
         assert!(out.content.contains("first substantial paragraph"));
         assert!(out.content.contains("a link"));
@@ -214,6 +218,17 @@ mod tests {
     }
 
     #[test]
+    fn rendered_content_rewrites_relative_media_urls_and_keeps_safe_media() {
+        let html = r#"<figure><img src="/cover.png" alt="Cover"><video controls poster="poster.jpg"><source src="movie.mp4" type="video/mp4"></video></figure><script>bad()</script>"#;
+        let content = sanitize_article_html(html, "https://example.com/articles/one");
+        assert!(content.contains("https://example.com/cover.png"));
+        assert!(content.contains("https://example.com/articles/poster.jpg"));
+        assert!(content.contains("https://example.com/articles/movie.mp4"));
+        assert!(content.contains("<video controls"));
+        assert!(!content.contains("bad()"));
+    }
+
+    #[test]
     fn selector_override_is_respected() {
         let html = r#"<body><div class="x"><p>Short.</p></div>
             <div id="target"><p>The targeted content is definitely long enough to be selected as
@@ -221,13 +236,17 @@ mod tests {
             a good deal of additional explanatory prose here to push it comfortably past the
             minimum content length that the heuristic requires before accepting a container.</p>
             </div></body>"#;
-        let out = ReadabilityExtractor.extract(html, Some("#target")).unwrap();
+        let out = ReadabilityExtractor
+            .extract(html, Some("#target"), "https://example.com/article")
+            .unwrap();
         assert!(out.content.contains("targeted content"));
     }
 
     #[test]
     fn returns_none_when_too_short() {
         let html = "<body><p>tiny</p></body>";
-        assert!(ReadabilityExtractor.extract(html, None).is_none());
+        assert!(ReadabilityExtractor
+            .extract(html, None, "https://example.com/article")
+            .is_none());
     }
 }

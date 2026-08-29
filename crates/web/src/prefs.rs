@@ -4,6 +4,7 @@
 
 use askama::Template;
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
@@ -15,6 +16,7 @@ use rustss_db::{user_preferences, Db};
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
 use crate::error::AppError;
+use crate::extract::Ajax;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -159,6 +161,15 @@ pub struct PrefsForm {
     reader_panel_width: Option<u8>,
 }
 
+#[derive(Deserialize)]
+pub struct LayoutForm {
+    csrf_token: String,
+    #[serde(default)]
+    sidebar_width: Option<u8>,
+    #[serde(default)]
+    reader_panel_width: Option<u8>,
+}
+
 fn render(tpl: &PreferencesTemplate) -> Result<Html<String>, AppError> {
     tpl.render()
         .map(Html)
@@ -245,4 +256,35 @@ pub async fn save(
         saved: true,
     })?;
     Ok((jar, body).into_response())
+}
+
+/// `POST /settings/layout`.
+pub async fn save_layout(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Ajax(is_ajax): Ajax,
+    jar: CookieJar,
+    Form(form): Form<LayoutForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let mut prefs = load(&state.db, user.id).await;
+    if let Some(width) = form.sidebar_width {
+        prefs.sidebar_width = width;
+    }
+    if let Some(width) = form.reader_panel_width {
+        prefs.reader_panel_width = width;
+    }
+    let prefs = prefs.sanitized();
+    let patch = serde_json::json!({
+        "sidebar_width": prefs.sidebar_width,
+        "reader_panel_width": prefs.reader_panel_width,
+    });
+    user_preferences::upsert(state.db.pool(), user.id, &patch).await?;
+    if is_ajax {
+        Ok(StatusCode::NO_CONTENT.into_response())
+    } else {
+        Ok((jar, Redirect::to("/settings/preferences")).into_response())
+    }
 }

@@ -131,6 +131,88 @@ async fn article_ingest_is_idempotent_and_updates_on_change() {
 }
 
 #[tokio::test]
+async fn extracted_content_survives_unchanged_refresh_and_stale_write_is_rejected() {
+    let Some(db) = test_db().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let pool = db.pool();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://example.com/{}.xml", unique("feed")),
+        "Example",
+        None,
+    )
+    .await
+    .unwrap();
+    let mut incoming = NewArticle {
+        feed_id: feed.id,
+        url: format!("https://example.com/{}", unique("article")),
+        guid: Some(unique("guid")),
+        title: "Source title".to_string(),
+        author: None,
+        content: "RSS fallback v1".to_string(),
+        excerpt: Some("RSS excerpt v1".to_string()),
+        image_url: None,
+        published_at: None,
+    };
+    let (created, _) = articles::upsert(pool, &incoming).await.unwrap();
+    let extracted_revision = articles::set_extracted_content(
+        pool,
+        created.id,
+        created.content_revision,
+        "Full public page body",
+        Some("Full excerpt"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert!(articles::set_summary(
+        pool,
+        created.id,
+        extracted_revision,
+        "Old summary",
+        &[],
+        &[],
+        "test-model",
+    )
+    .await
+    .unwrap());
+
+    let (unchanged, action) = articles::upsert(pool, &incoming).await.unwrap();
+    assert_eq!(action, UpsertAction::Skipped);
+    assert_eq!(unchanged.content, "Full public page body");
+    assert_eq!(unchanged.content_source, "article_page");
+    assert_eq!(unchanged.feed_content.as_deref(), Some("RSS fallback v1"));
+    assert_eq!(
+        articles::set_extracted_content(
+            pool,
+            created.id,
+            created.content_revision,
+            "Stale page body",
+            None,
+        )
+        .await
+        .unwrap(),
+        None
+    );
+
+    incoming.content = "RSS fallback v2".to_string();
+    let (changed, action) = articles::upsert(pool, &incoming).await.unwrap();
+    assert_eq!(action, UpsertAction::Updated);
+    assert_eq!(changed.content, "RSS fallback v2");
+    assert_eq!(changed.content_source, "feed");
+    assert_eq!(changed.extraction_status, "none");
+    assert_eq!(changed.feed_content.as_deref(), Some("RSS fallback v2"));
+    assert!(changed.content_revision > extracted_revision);
+    assert!(articles::get_summary(pool, changed.id)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
 async fn unsubscribe_removes_only_personal_state() {
     let Some(db) = test_db().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");

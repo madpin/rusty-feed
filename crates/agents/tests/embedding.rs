@@ -79,7 +79,15 @@ async fn embed_article_agent_stores_vector_once() {
         .await
         .unwrap();
     assert_eq!(out["status"], "embedded");
-    assert!(embeddings::exists(db.pool(), id).await.unwrap());
+    let article = articles::find_by_id(db.pool(), id).await.unwrap().unwrap();
+    assert!(embeddings::exists(
+        db.pool(),
+        id,
+        HashEmbedder::default().model(),
+        article.content_revision,
+    )
+    .await
+    .unwrap());
 
     // Idempotent.
     let out2 = EmbedArticleAgent::default()
@@ -131,7 +139,9 @@ async fn semantic_search_orders_by_similarity_and_guards_model() {
     for id in [rust, pg, pasta] {
         let art = articles::find_by_id(db.pool(), id).await.unwrap().unwrap();
         let v = embedder.embed_one(&art.content).await.unwrap();
-        embeddings::upsert(db.pool(), id, &v, &model).await.unwrap();
+        embeddings::upsert(db.pool(), id, &v, &model, art.content_revision)
+            .await
+            .unwrap();
     }
 
     // A query about async rust should rank the Rust article first.
@@ -185,7 +195,7 @@ async fn fetch_feed_enqueues_embed_when_enabled() {
     let art = &articles::list_for_feed(db.pool(), feed.id, 5)
         .await
         .unwrap()[0];
-    let dedup = format!("embed:{}", art.id);
+    let dedup = format!("embed:{}:{}", art.id, art.content_revision);
     assert_eq!(
         jobs::count_active_by_dedup(db.pool(), &dedup)
             .await

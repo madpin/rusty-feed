@@ -3,6 +3,7 @@
 //! [`upsert_by_url`] is the write path that guarantees a feed URL maps to
 //! exactly one row no matter how many users subscribe (FR-DEDUP-1).
 
+use serde_json::Value as Json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -111,6 +112,29 @@ pub async fn update_metadata(
         .bind(site_url)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+pub async fn update_content_settings(
+    pool: &PgPool,
+    feed_id: Uuid,
+    settings: &Json,
+    respect_robots_txt: bool,
+    extraction_delay_ms: Option<i32>,
+    fetch_interval_minutes: i32,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE feeds SET extraction_settings = $2, respect_robots_txt = $3, \
+         extraction_delay_ms = $4, fetch_interval_minutes = $5, updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(feed_id)
+    .bind(settings)
+    .bind(respect_robots_txt)
+    .bind(extraction_delay_ms)
+    .bind(fetch_interval_minutes)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

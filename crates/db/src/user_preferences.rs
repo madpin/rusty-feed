@@ -20,11 +20,12 @@ pub async fn get(pool: &PgPool, user_id: Uuid) -> Result<Option<Json>> {
     )
 }
 
-/// Insert or replace a user's preferences document.
+/// Insert or merge a user's preferences document.
 pub async fn upsert(pool: &PgPool, user_id: Uuid, preferences: &Json) -> Result<()> {
     sqlx::query(
         "INSERT INTO user_preferences (user_id, preferences) VALUES ($1, $2) \
-         ON CONFLICT (user_id) DO UPDATE SET preferences = EXCLUDED.preferences, updated_at = now()",
+         ON CONFLICT (user_id) DO UPDATE SET \
+         preferences = user_preferences.preferences || EXCLUDED.preferences, updated_at = now()",
     )
     .bind(user_id)
     .bind(preferences)

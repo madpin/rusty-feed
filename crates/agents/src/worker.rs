@@ -215,18 +215,22 @@ impl Worker {
 }
 
 /// Enqueue a single (deduped) `embed_article` job.
-pub(crate) async fn enqueue_embed(db: &Db, article_id: uuid::Uuid) -> anyhow::Result<()> {
-    let dedup = format!("embed:{article_id}");
-    jobs::enqueue(
+pub(crate) async fn enqueue_embed(
+    db: &Db,
+    article_id: uuid::Uuid,
+    content_revision: i64,
+) -> anyhow::Result<bool> {
+    let dedup = format!("embed:{article_id}:{content_revision}");
+    Ok(jobs::enqueue(
         db.pool(),
         "embed_article",
-        serde_json::json!({ "article_id": article_id }),
+        serde_json::json!({ "article_id": article_id, "content_revision": content_revision }),
         Some(&dedup),
         None,
         3,
     )
-    .await?;
-    Ok(())
+    .await?
+    .is_some())
 }
 
 /// Enqueue a single (deduped) `feed_refresh` job. Public so a freshly-started

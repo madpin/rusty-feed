@@ -6,12 +6,12 @@
   <div>
     <p class="eyebrow">Sources</p>
     <h1>Manage feeds</h1>
-    <p class="muted">Subscribe to the publications you want RustSS to follow.</p>
+    <p class="muted">Subscribe to the publications you want RustSS to follow. Refreshes and enrichment are queued once per shared feed.</p>
   </div>
   {% if !feeds.is_empty() %}
   <form method="post" action="/feeds/refresh-all">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <button type="submit">Refresh all</button>
+    <button type="submit">Queue all refreshes</button>
   </form>
   {% endif %}
 </div>
@@ -21,17 +21,23 @@
 
 <section class="panel">
   <h2>Add a feed</h2>
+  <p class="muted">New feeds begin in RSS-content mode. Administrators can choose public-page extraction or paywalled fallback from Content settings.</p>
   <form method="post" action="/feeds" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <label>Feed URL
       <input type="url" name="url" placeholder="https://example.com/feed.xml" required />
     </label>
-    <div class="form-actions"><button type="submit" class="primary">Add feed</button></div>
+    <div class="form-actions"><button type="submit" class="primary">Subscribe and queue refresh</button></div>
   </form>
 </section>
 
 <section class="panel">
-  <h2>Your feeds</h2>
+  <div class="section-heading">
+    <div>
+      <h2>Your feeds</h2>
+      <p class="muted">Content source policy is shared so each publication is fetched and enriched once for every subscriber.</p>
+    </div>
+  </div>
   {% if feeds.is_empty() %}
   <div class="empty-state">
     <p><strong>You have not subscribed to any feeds yet.</strong></p>
@@ -44,13 +50,15 @@
       <div>
         <strong><a href="/articles?feed={{ f.id }}">{{ f.name }}</a></strong>
         <span class="badge health-{{ f.health }}">{{ f.health }}</span>
-        <div class="meta">{{ f.url }}</div>
+        <span class="badge content-mode-{{ f.content_mode }}">{{ f.content_mode_label }}</span>
+        <div class="meta">Refresh every {{ f.fetch_interval_minutes }} minutes · {{ f.url }}</div>
       </div>
       <div class="feed-actions">
         <form method="post" action="/feeds/{{ f.id }}/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <button type="submit">Refresh</button>
+          <button type="submit">Queue refresh</button>
         </form>
+        {% if f.can_configure %}<a href="/feeds/{{ f.id }}/settings" class="btn">Content settings</a>{% endif %}
         <form method="post" action="/feeds/{{ f.id }}/unsubscribe"
               onsubmit="return confirm('Unsubscribe from this feed?');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
