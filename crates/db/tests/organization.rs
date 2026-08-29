@@ -176,6 +176,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
         articles::LibraryFilter {
             feed_id: None,
             category_id: Some(folder.id),
+            unfiled: false,
             tag: None,
         },
         false,
@@ -195,6 +196,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
         articles::LibraryFilter {
             feed_id: None,
             category_id: Some(folder.id),
+            unfiled: false,
             tag: Some("work"),
         },
         false,
@@ -213,6 +215,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
         articles::LibraryFilter {
             feed_id: None,
             category_id: None,
+            unfiled: false,
             tag: Some("personal"),
         },
         false,
@@ -223,6 +226,25 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
     .unwrap();
     assert_eq!(
         names(personal_items),
+        std::collections::HashSet::from(["Personal article".to_string()])
+    );
+    let unfiled_items = articles::list_for_user(
+        db.pool(),
+        alice.id,
+        articles::LibraryFilter {
+            feed_id: None,
+            category_id: None,
+            unfiled: true,
+            tag: None,
+        },
+        false,
+        20,
+        0,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        names(unfiled_items),
         std::collections::HashSet::from(["Personal article".to_string()])
     );
 
@@ -246,15 +268,23 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
         2
     );
 
-    read_articles::mark_all_read(db.pool(), alice.id, None, Some(folder.id), Some("work"))
-        .await
-        .unwrap();
+    read_articles::mark_all_read(
+        db.pool(),
+        alice.id,
+        None,
+        Some(folder.id),
+        false,
+        Some("work"),
+    )
+    .await
+    .unwrap();
     let unread_work = articles::list_for_user(
         db.pool(),
         alice.id,
         articles::LibraryFilter {
             feed_id: None,
             category_id: Some(folder.id),
+            unfiled: false,
             tag: Some("work"),
         },
         true,
@@ -270,6 +300,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
         articles::LibraryFilter {
             feed_id: None,
             category_id: None,
+            unfiled: false,
             tag: Some("personal"),
         },
         true,
@@ -279,4 +310,185 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
     .await
     .unwrap();
     assert_eq!(unread_personal.len(), 1);
+    read_articles::mark_all_read(db.pool(), alice.id, None, None, true, None)
+        .await
+        .unwrap();
+    let unread_unfiled = articles::list_for_user(
+        db.pool(),
+        alice.id,
+        articles::LibraryFilter {
+            feed_id: None,
+            category_id: None,
+            unfiled: true,
+            tag: None,
+        },
+        true,
+        20,
+        0,
+    )
+    .await
+    .unwrap();
+    assert!(unread_unfiled.is_empty());
+}
+
+#[tokio::test]
+async fn bulk_organization_is_atomic_and_personal() {
+    let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&database_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let alice = users::create(
+        db.pool(),
+        &format!("{}@example.test", unique("bulk-alice")),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let bob = users::create(
+        db.pool(),
+        &format!("{}@example.test", unique("bulk-bob")),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let (first, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://bulk.example/{}/first.xml", uuid::Uuid::now_v7()),
+        "First",
+        None,
+    )
+    .await
+    .unwrap();
+    let (second, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://bulk.example/{}/second.xml", uuid::Uuid::now_v7()),
+        "Second",
+        None,
+    )
+    .await
+    .unwrap();
+    let (foreign, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://bulk.example/{}/foreign.xml", uuid::Uuid::now_v7()),
+        "Foreign",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), alice.id, first.id, None)
+        .await
+        .unwrap();
+    subscriptions::subscribe(db.pool(), alice.id, second.id, None)
+        .await
+        .unwrap();
+    subscriptions::subscribe(db.pool(), bob.id, foreign.id, None)
+        .await
+        .unwrap();
+    subscriptions::update_organization(
+        db.pool(),
+        alice.id,
+        first.id,
+        &["existing".to_string()],
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::update_organization(
+        db.pool(),
+        alice.id,
+        second.id,
+        &["second".to_string()],
+        None,
+    )
+    .await
+    .unwrap();
+    let folder = categories::create(db.pool(), alice.id, &unique("Bulk"), None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        subscriptions::move_many_to_category(
+            db.pool(),
+            alice.id,
+            &[first.id, second.id],
+            Some(folder.id),
+        )
+        .await
+        .unwrap(),
+        2
+    );
+    assert!(
+        subscriptions::all_subscribed(db.pool(), alice.id, &[first.id, second.id])
+            .await
+            .unwrap()
+    );
+    assert!(
+        !subscriptions::all_subscribed(db.pool(), alice.id, &[first.id, foreign.id])
+            .await
+            .unwrap()
+    );
+    assert!(subscriptions::move_many_to_category(
+        db.pool(),
+        alice.id,
+        &[first.id, foreign.id],
+        None,
+    )
+    .await
+    .is_err());
+
+    assert_eq!(
+        subscriptions::update_tags_many(
+            db.pool(),
+            alice.id,
+            &[first.id, second.id],
+            subscriptions::BulkTagOperation::Add,
+            &["batch".to_string(), "existing".to_string()],
+        )
+        .await
+        .unwrap(),
+        2
+    );
+    assert_eq!(
+        subscriptions::update_tags_many(
+            db.pool(),
+            alice.id,
+            &[first.id, second.id],
+            subscriptions::BulkTagOperation::Remove,
+            &["existing".to_string()],
+        )
+        .await
+        .unwrap(),
+        2
+    );
+    assert_eq!(
+        subscriptions::update_tags_many(
+            db.pool(),
+            alice.id,
+            &[first.id, second.id],
+            subscriptions::BulkTagOperation::Replace,
+            &["final".to_string()],
+        )
+        .await
+        .unwrap(),
+        2
+    );
+    let organizations = subscriptions::list_organization(db.pool(), alice.id)
+        .await
+        .unwrap();
+    for feed_id in [first.id, second.id] {
+        let organization = organizations
+            .iter()
+            .find(|organization| organization.feed_id == feed_id)
+            .unwrap();
+        assert_eq!(organization.category_id, Some(folder.id));
+        assert_eq!(organization.tags, vec!["final".to_string()]);
+    }
 }

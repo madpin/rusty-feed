@@ -188,6 +188,7 @@ async fn preferences_save_roundtrip() {
     assert_eq!(stored["auto_mark_read"], false);
 
     let response = app
+        .clone()
         .oneshot(
             Request::post("/settings/layout")
                 .header("content-type", "application/x-www-form-urlencoded")
@@ -208,6 +209,43 @@ async fn preferences_save_roundtrip() {
     assert_eq!(stored["theme"], "ocean");
     assert_eq!(stored["sidebar_collapsed"], false);
     assert_eq!(stored["reader_panel_width"], 45);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/settings/layout")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&sidebar_collapsed=true"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let response = app
+        .oneshot(
+            Request::post("/settings/layout")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&reader_panel_width=62"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let stored = user_preferences::get(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored["theme"], "ocean");
+    assert_eq!(stored["sidebar_collapsed"], true);
+    assert_eq!(stored["reader_panel_width"], 62);
 }
 
 #[tokio::test]
@@ -313,7 +351,9 @@ async fn reading_actions_and_detail_work() {
     let csrf = find(&set_cookies(&resp), "rustss_csrf")
         .unwrap()
         .to_string();
-    assert!(body_string(resp).await.contains("Hello World Article"));
+    let list_body = body_string(resp).await;
+    assert!(list_body.contains("Hello World Article"));
+    assert!(!list_body.contains("AI summary unavailable"));
 
     // Mark read (as the JS client would): 204, and it persists.
     let resp = app
@@ -407,12 +447,14 @@ async fn reading_actions_and_detail_work() {
     assert!(body.contains("Hello World Article"));
     assert!(body.contains("Open comments"));
     assert!(body.contains("https://news.ycombinator.com/item?id=42"));
-    assert!(body.contains("AI summary unavailable"));
+    assert!(!body.contains("AI summary unavailable"));
     assert!(body.contains("Body text"));
     assert!(body.contains("https://ex.com/cover.png"));
     assert!(body.contains("data-live-view-toggle"));
     assert!(body.contains("data-reader-view-content"));
     assert!(body.contains("data-live-view"));
+    assert!(body.contains("Some publishers prohibit embedded pages"));
+    assert!(body.contains("data-live-view-fallback"));
     let frame_tag = body
         .split("<iframe")
         .nth(1)
@@ -444,8 +486,11 @@ async fn reading_actions_and_detail_work() {
     assert!(panel.contains("data-panel-read=\"true\""));
     assert!(panel.contains("Hello World Article"));
     assert!(panel.contains("Open comments"));
+    assert!(!panel.contains("AI summary unavailable"));
     assert!(panel.contains("data-live-view-toggle"));
     assert!(panel.contains("data-reader-view-content"));
+    assert!(panel.contains("Some publishers prohibit embedded pages"));
+    assert!(panel.contains("data-live-view-fallback"));
     let panel_frame_tag = panel
         .split("<iframe")
         .nth(1)
@@ -522,6 +567,112 @@ async fn article_detail_omits_unsafe_original_urls() {
         assert!(!body.contains("data-live-view-toggle"));
         assert!(!body.contains("data-live-view-frame"));
     }
+}
+
+#[tokio::test]
+async fn sidebar_keeps_all_feeds_visible_and_exposes_unfiled_scope() {
+    use rustss_db::models::NewArticle;
+    use rustss_db::{articles, categories, feeds, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let folder = categories::create(pool, user.id, "Reader folder", None)
+        .await
+        .unwrap();
+    let (filed_feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!(
+            "https://reader-sidebar.example/{}/filed.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Filed source",
+        None,
+    )
+    .await
+    .unwrap();
+    let (unfiled_feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!(
+            "https://reader-sidebar.example/{}/unfiled.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Unfiled source",
+        None,
+    )
+    .await
+    .unwrap();
+    for feed in [&filed_feed, &unfiled_feed] {
+        subscriptions::subscribe(pool, user.id, feed.id, None)
+            .await
+            .unwrap();
+    }
+    subscriptions::update_organization(pool, user.id, filed_feed.id, &[], Some(folder.id))
+        .await
+        .unwrap();
+    for (feed_id, title) in [
+        (filed_feed.id, "Visible only in folder scope"),
+        (unfiled_feed.id, "Visible only in unfiled scope"),
+    ] {
+        articles::upsert(
+            pool,
+            &NewArticle {
+                feed_id,
+                url: format!(
+                    "https://reader-sidebar.example/article/{}",
+                    uuid::Uuid::now_v7()
+                ),
+                comments_url: None,
+                guid: None,
+                title: title.to_string(),
+                author: None,
+                content: "body".to_string(),
+                excerpt: None,
+                image_url: None,
+                published_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles?category={}", folder.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    assert!(body.contains("Visible only in folder scope"));
+    assert!(body.contains("Filed source"));
+    assert!(body.contains("Unfiled source"));
+    assert!(body.contains("href=\"/articles?unfiled=1\""));
+    assert!(body.contains(&format!("href=\"/articles?feed={}\"", unfiled_feed.id)));
+    assert!(!body.contains("<details class=\"folder-tree-node"));
+
+    let response = app
+        .oneshot(
+            Request::get("/articles?unfiled=1")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    assert!(body.contains("Visible only in unfiled scope"));
+    assert!(!body.contains("Visible only in folder scope"));
 }
 
 #[tokio::test]

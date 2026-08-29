@@ -438,6 +438,7 @@ pub async fn list_for_feed(pool: &PgPool, feed_id: Uuid, limit: i64) -> Result<V
 pub struct LibraryFilter<'a> {
     pub feed_id: Option<Uuid>,
     pub category_id: Option<Uuid>,
+    pub unfiled: bool,
     pub tag: Option<&'a str>,
 }
 
@@ -481,7 +482,7 @@ pub async fn list_for_user(
                 coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
                 (b.article_id IS NOT NULL) AS is_bookmarked, \
-                (a.summary IS NOT NULL) AS has_summary, \
+                (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL) AS has_summary, \
                 af.feedback_value \
          FROM articles a \
          JOIN feeds f ON f.id = a.feed_id \
@@ -493,9 +494,11 @@ pub async fn list_for_user(
            AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
                 JOIN category_scope scope ON scope.id = ufc.user_category_id \
                 WHERE ufc.user_feed_id = uf.id)) \
-           AND ($4::text IS NULL OR uf.tags @> ARRAY[$4]::text[]) {read_filter} \
+           AND (NOT $4 OR NOT EXISTS (SELECT 1 FROM user_feed_categories ufc \
+                WHERE ufc.user_feed_id = uf.id)) \
+           AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[]) {read_filter} \
          ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
-         LIMIT $5 OFFSET $6",
+         LIMIT $6 OFFSET $7",
         read_filter = if unread_only {
             "AND r.article_id IS NULL"
         } else {
@@ -506,6 +509,7 @@ pub async fn list_for_user(
         .bind(user_id)
         .bind(filter.feed_id)
         .bind(filter.category_id)
+        .bind(filter.unfiled)
         .bind(filter.tag)
         .bind(limit)
         .bind(offset)

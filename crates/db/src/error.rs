@@ -14,6 +14,10 @@ pub enum DbError {
     /// An expected row was not found where one was required.
     #[error("not found")]
     NotFound,
+
+    /// A database-backed operation rejected a client-safe domain constraint.
+    #[error("{0}")]
+    Validation(String),
 }
 
 /// Convenience alias for repository results.

@@ -47,6 +47,7 @@ pub async fn mark_all_read(
     user_id: Uuid,
     feed_id: Option<Uuid>,
     category_id: Option<Uuid>,
+    unfiled: bool,
     tag: Option<&str>,
 ) -> Result<u64> {
     let res = sqlx::query(
@@ -65,12 +66,15 @@ pub async fn mark_all_read(
            AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
                 JOIN category_scope scope ON scope.id = ufc.user_category_id \
                 WHERE ufc.user_feed_id = uf.id)) \
-           AND ($4::text IS NULL OR uf.tags @> ARRAY[$4]::text[]) \
+           AND (NOT $4 OR NOT EXISTS (SELECT 1 FROM user_feed_categories ufc \
+                WHERE ufc.user_feed_id = uf.id)) \
+           AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[]) \
          ON CONFLICT (user_id, article_id) DO NOTHING",
     )
     .bind(user_id)
     .bind(feed_id)
     .bind(category_id)
+    .bind(unfiled)
     .bind(tag)
     .execute(pool)
     .await?;

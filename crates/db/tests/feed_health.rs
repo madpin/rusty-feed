@@ -1,4 +1,4 @@
-use rustss_db::{feeds, subscriptions, users, Db};
+use rustss_db::{feeds, jobs, subscriptions, users, Db};
 
 fn unique(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::now_v7())
@@ -145,4 +145,119 @@ async fn disabled_feeds_and_missing_icons_do_not_bypass_failure_backoff() {
         .await
         .unwrap();
     assert!(!is_due(&db, feed.id).await);
+}
+
+#[tokio::test]
+async fn forced_refresh_schedule_preserves_paused_sources() {
+    let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&database_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let user = users::create(
+        db.pool(),
+        &format!("{}@example.test", unique("forced-refresh")),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let (active, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!(
+            "https://feed-health.example/{}/active.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Active feed",
+        None,
+    )
+    .await
+    .unwrap();
+    let (paused, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!(
+            "https://feed-health.example/{}/paused.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Paused feed",
+        None,
+    )
+    .await
+    .unwrap();
+    for feed in [&active, &paused] {
+        subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+            .await
+            .unwrap();
+        feeds::record_fetch_success(db.pool(), feed.id, None, None)
+            .await
+            .unwrap();
+    }
+    sqlx::query("UPDATE feeds SET health_status = 'disabled' WHERE id = $1")
+        .bind(paused.id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    let run_at = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+    let active_job = jobs::enqueue(
+        db.pool(),
+        "fetch_feed",
+        serde_json::json!({ "feed_id": active.id }),
+        Some(&format!("test-active:{}", active.id)),
+        Some(run_at),
+        1,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let paused_job = jobs::enqueue(
+        db.pool(),
+        "fetch_feed",
+        serde_json::json!({ "feed_id": paused.id }),
+        Some(&format!("test-paused:{}", paused.id)),
+        Some(run_at),
+        1,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        feeds::reset_refresh_schedule(db.pool(), &[active.id, paused.id])
+            .await
+            .unwrap(),
+        vec![active.id]
+    );
+    assert_eq!(
+        jobs::run_pending_feed_fetches_now(db.pool(), &[active.id, paused.id])
+            .await
+            .unwrap(),
+        1
+    );
+    let active_after = feeds::find_by_id(db.pool(), active.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let paused_after = feeds::find_by_id(db.pool(), paused.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(active_after.last_fetched_at.is_none());
+    assert!(paused_after.last_fetched_at.is_some());
+    let active_ready: bool =
+        sqlx::query_scalar("SELECT run_at <= now() FROM job_queue WHERE id = $1")
+            .bind(active_job)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    let paused_ready: bool =
+        sqlx::query_scalar("SELECT run_at <= now() FROM job_queue WHERE id = $1")
+            .bind(paused_job)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert!(active_ready);
+    assert!(!paused_ready);
 }

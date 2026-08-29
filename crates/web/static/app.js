@@ -240,6 +240,116 @@
     });
   }
 
+  function initializeBulkFeedActions() {
+    var form = document.getElementById("bulk-feed-actions");
+    if (!form) return;
+    var inputs = Array.prototype.slice.call(document.querySelectorAll("[data-feed-select][form='bulk-feed-actions']"));
+    var selectAll = form.querySelector("[data-bulk-select-all]");
+    var count = form.querySelector("[data-bulk-selection-count]");
+    var actions = form.querySelectorAll("[data-bulk-action]");
+    var maximum = Number(form.getAttribute("data-bulk-max")) || 100;
+    function selectedCount() {
+      return inputs.filter(function (input) { return input.checked; }).length;
+    }
+    function sync() {
+      var selected = selectedCount();
+      if (count) count.textContent = selected ? selected + " feed" + (selected === 1 ? "" : "s") + " selected." : "Select feeds to use bulk actions.";
+      if (selectAll) {
+        selectAll.checked = inputs.length > 0 && selected === inputs.length;
+        selectAll.indeterminate = selected > 0 && selected < inputs.length;
+      }
+      Array.prototype.forEach.call(actions, function (action) {
+        action.disabled = selected === 0;
+      });
+    }
+    inputs.forEach(function (input) {
+      input.addEventListener("change", function () {
+        if (input.checked && selectedCount() > maximum) {
+          input.checked = false;
+          announce("Bulk actions support up to " + maximum + " feeds at once.", true);
+        }
+        sync();
+      });
+    });
+    if (selectAll) {
+      selectAll.addEventListener("change", function () {
+        inputs.forEach(function (input, index) { input.checked = selectAll.checked && index < maximum; });
+        if (selectAll.checked && inputs.length > maximum) {
+          announce("Selected the first " + maximum + " feeds. Refine the selection to choose others.", false);
+        }
+        sync();
+      });
+    }
+    sync();
+  }
+
+  function initializeFeedDragAndDrop() {
+    var csrf = document.documentElement.getAttribute("data-csrf-token");
+    var handles = document.querySelectorAll("[data-feed-drag]");
+    var targets = document.querySelectorAll("[data-feed-drop]");
+    if (!csrf || !handles.length || !targets.length) return;
+    var draggingId = null;
+    var draggingRow = null;
+    function clearTargets() {
+      Array.prototype.forEach.call(targets, function (target) {
+        target.classList.remove("drag-over");
+        target.removeAttribute("aria-busy");
+      });
+    }
+    Array.prototype.forEach.call(handles, function (handle) {
+      handle.addEventListener("dragstart", function (event) {
+        draggingId = handle.getAttribute("data-feed-id");
+        draggingRow = handle.closest("[data-feed-row]");
+        if (!draggingId || !event.dataTransfer) return;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", draggingId);
+        if (draggingRow) draggingRow.classList.add("dragging");
+      });
+      handle.addEventListener("dragend", function () {
+        if (draggingRow) draggingRow.classList.remove("dragging");
+        draggingId = null;
+        draggingRow = null;
+        clearTargets();
+      });
+    });
+    Array.prototype.forEach.call(targets, function (target) {
+      target.addEventListener("dragover", function (event) {
+        if (!draggingId) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        target.classList.add("drag-over");
+      });
+      target.addEventListener("dragleave", function (event) {
+        if (!target.contains(event.relatedTarget)) target.classList.remove("drag-over");
+      });
+      target.addEventListener("drop", function (event) {
+        event.preventDefault();
+        var feedId = draggingId || (event.dataTransfer && event.dataTransfer.getData("text/plain"));
+        if (!feedId) return;
+        var body = new URLSearchParams();
+        body.set("csrf_token", csrf);
+        body.set("folder_id", target.getAttribute("data-folder-id") || "");
+        target.setAttribute("aria-busy", "true");
+        fetch("/feeds/" + encodeURIComponent(feedId) + "/folder", {
+          method: "POST",
+          body: body,
+          headers: { "X-Requested-With": "fetch" },
+          credentials: "same-origin",
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error("move failed");
+            announce("Feed moved to " + (target.getAttribute("data-folder-label") || "the selected folder") + ".", false);
+            window.setTimeout(function () { window.location.reload(); }, 120);
+          })
+          .catch(function () {
+            target.removeAttribute("aria-busy");
+            announce("Could not move that feed. Please try the folder picker.", true);
+          })
+          .finally(clearTargets);
+      });
+    });
+  }
+
   function initializeSidebarToggle() {
     var root = document.documentElement;
     var buttons = document.querySelectorAll("[data-sidebar-toggle]");
@@ -346,15 +456,25 @@
   }
 
   function loadPanel(panel, url, trigger) {
+    if (panel._rustssAbort) panel._rustssAbort.abort();
+    var controller = window.AbortController ? new AbortController() : null;
+    panel._rustssAbort = controller;
+    var request = String((Number(panel.getAttribute("data-panel-request")) || 0) + 1);
+    panel.setAttribute("data-panel-request", request);
     reportReadingWithin(panel);
     panel.setAttribute("aria-busy", "true");
     panel.innerHTML = '<div class="reading-pane-empty">Loading article…</div>';
-    return fetch(url, { headers: { "X-Requested-With": "fetch" }, credentials: "same-origin" })
+    return fetch(url, {
+      headers: { "X-Requested-With": "fetch" },
+      credentials: "same-origin",
+      signal: controller ? controller.signal : undefined,
+    })
       .then(function (response) {
         if (!response.ok) throw new Error("panel failed");
         return response.text();
       })
       .then(function (html) {
+        if (panel.getAttribute("data-panel-request") !== request) return false;
         panel.innerHTML = html;
         panel.removeAttribute("aria-busy");
         initializeReadingTracking(panel);
@@ -380,8 +500,10 @@
           heading.setAttribute("tabindex", "-1");
           heading.focus({ preventScroll: true });
         }
+        return true;
       })
       .catch(function (error) {
+        if (panel.getAttribute("data-panel-request") !== request || (error && error.name === "AbortError")) return false;
         panel.removeAttribute("aria-busy");
         throw error;
       });
@@ -392,33 +514,55 @@
     var reader = article ? article.querySelector("[data-reader-view-content]") : null;
     var live = article ? article.querySelector("[data-live-view]") : null;
     var frame = live ? live.querySelector("[data-live-view-frame]") : null;
+    var fallback = live ? live.querySelector("[data-live-view-fallback]") : null;
     if (!reader || !live || !frame) return;
     var showLive = button.getAttribute("aria-expanded") !== "true";
+    var mixedContent = false;
     if (showLive) {
       var source = frame.getAttribute("data-live-src");
       if (!source) return;
+      try {
+        mixedContent = window.location.protocol === "https:" && new URL(source).protocol === "http:";
+      } catch (_) {
+        return;
+      }
       live.hidden = false;
       reader.hidden = true;
-      live.setAttribute("aria-busy", "true");
-      frame.addEventListener("load", function () {
-        if (!live.hidden) live.removeAttribute("aria-busy");
-      }, { once: true });
-      frame.addEventListener("error", function () {
-        if (!live.hidden) {
-          live.removeAttribute("aria-busy");
-          announce("Live view could not be loaded. Open the original article in a new tab.", true);
-        }
-      }, { once: true });
-      frame.setAttribute("src", source);
+      if (fallback) fallback.hidden = !mixedContent;
+      frame.hidden = mixedContent;
+      if (mixedContent) {
+        if (fallback) fallback.textContent = "This HTTP publisher page cannot be shown inside a secure RustSS page. Open original instead.";
+      } else {
+        live.setAttribute("aria-busy", "true");
+        frame.addEventListener("load", function () {
+          if (!live.hidden) live.removeAttribute("aria-busy");
+        }, { once: true });
+        frame.addEventListener("error", function () {
+          if (!live.hidden) {
+            live.removeAttribute("aria-busy");
+            announce("The publisher preview could not be loaded. Open the original article in a new tab.", true);
+          }
+        }, { once: true });
+        frame.setAttribute("src", source);
+      }
     } else {
       frame.removeAttribute("src");
+      frame.hidden = false;
+      if (fallback) fallback.hidden = true;
       live.hidden = true;
       live.removeAttribute("aria-busy");
       reader.hidden = false;
     }
     button.setAttribute("aria-expanded", String(showLive));
     button.textContent = showLive ? "Reader view" : "Live view";
-    announce(showLive ? "Live view opened." : "Reader view restored.", false);
+    announce(
+      showLive
+        ? (mixedContent
+          ? "Your browser blocks HTTP publisher previews from this secure page."
+          : "Trying the publisher preview. Some publishers prohibit embedded pages.")
+        : "Reader view restored.",
+      mixedContent
+    );
   }
 
   document.addEventListener("click", function (event) {
@@ -497,17 +641,30 @@
     form.requestSubmit();
   });
 
+  document.addEventListener("dblclick", function (event) {
+    var card = event.target.closest ? event.target.closest("[data-catalog-selectable]") : null;
+    if (!card || event.target.closest("a, button, input, select, textarea, label, form, summary, [contenteditable], [role='button']")) return;
+    var checkbox = card.querySelector("input[name='feed_id']");
+    if (!checkbox || checkbox.disabled || checkbox.checked) return;
+    event.preventDefault();
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    announce("Source selected. Subscribe to add it to your library.", false);
+  });
+
   // Implicit reading signal: on an article page, report time spent when the
   // reader leaves, so personalization can learn from completion/bounce.
   initializeReadingTracking(document);
   initializeFeedOrganizer();
+  initializeBulkFeedActions();
+  initializeFeedDragAndDrop();
   initializeSidebarToggle();
   initializePanelResize();
 
   // Inline reading: expand article content in the list instead of navigating.
   document.addEventListener("click", function (event) {
     var link = event.target.closest ? event.target.closest("a.article-link") : null;
-    if (!link) return;
+    if (!link || (event.button !== undefined && event.button !== 0) || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     var list = link.closest(".article-list");
     if (!list) return;
     var mode = list.getAttribute("data-reading-mode");
@@ -544,8 +701,21 @@
     }
     panel.setAttribute("data-panel-url", link.href + "/panel");
     loadPanel(panel, link.href + "/panel", link)
-      .then(function () { announce("Article opened.", false); })
+      .then(function (opened) { if (opened) announce("Article opened.", false); })
       .catch(function () { window.location.assign(link.href); });
+  });
+
+  document.addEventListener("click", function (event) {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    var card = event.target.closest ? event.target.closest(".article-card") : null;
+    if (!card || event.target.closest("a, button, input, select, textarea, label, form, summary, [contenteditable], [role='button']")) return;
+    var list = card.closest(".article-list");
+    if (!list || list.getAttribute("data-reading-mode") !== "side-panel") return;
+    if (!sidePanelAvailable(list.closest(".reading-workspace"))) return;
+    var link = card.querySelector("a.article-link");
+    if (!link) return;
+    event.preventDefault();
+    link.click();
   });
 
   document.addEventListener("click", function (event) {

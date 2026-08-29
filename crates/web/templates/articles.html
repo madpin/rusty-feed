@@ -21,6 +21,7 @@
           <input type="hidden" name="next" value="{{ back_url }}" />
           {% if let Some(feed_id) = feed_filter %}<input type="hidden" name="feed" value="{{ feed_id }}" />{% endif %}
           {% if let Some(category_id) = category_filter %}<input type="hidden" name="category" value="{{ category_id }}" />{% endif %}
+          {% if unfiled_only %}<input type="hidden" name="unfiled" value="1" />{% endif %}
           {% if let Some(tag) = tag_filter %}<input type="hidden" name="tag" value="{{ tag }}" />{% endif %}
           <button type="submit">Mark all read</button>
         </form>
@@ -81,8 +82,6 @@
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit" class="summary-button">Summarize with AI</button>
           </form>
-          {% else %}
-          <button type="button" class="summary-button" disabled title="An administrator must configure an LLM provider before summaries can be generated.">AI summary unavailable</button>
           {% endif %}
           <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
                 data-target="#card-{{ a.id }}" data-feedback-value="up" data-success-message="RustSS will show you more articles like this.">

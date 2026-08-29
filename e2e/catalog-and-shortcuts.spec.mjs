@@ -73,8 +73,14 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await expect(page.getByRole("heading", { name: "Personalized" })).toBeVisible();
   await page.goto("/articles");
   await expect(sidebar.locator(".folder-tree-feeds [data-feed-nav]").first()).toBeVisible();
+  expect(await sidebar.locator(".folder-tree-feeds [data-feed-nav]").count()).toBeGreaterThanOrEqual(2);
+  await expect(sidebar.locator("details.folder-tree-node")).toHaveCount(0);
   await sidebar.getByRole("link", { name: "Browser folder", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Folder: Browser folder" })).toBeVisible();
+  await expect(sidebar.getByRole("link", { name: "Unfiled feeds" })).toBeVisible();
+  await sidebar.getByRole("link", { name: "Unfiled feeds" }).click();
+  await expect(page.getByRole("heading", { name: "Unfiled" })).toBeVisible();
+  await sidebar.getByRole("link", { name: "Browser folder", exact: true }).click();
   await sidebar.getByRole("link", { name: "browser", exact: true }).click();
   await expect(page).toHaveURL(/tag=browser/);
   await expect(page.getByRole("heading", { name: "Browser folder · #browser" })).toBeVisible();
@@ -160,6 +166,106 @@ test("live view defers and clears the publisher frame", async ({ page }) => {
   await expect(reader).toBeVisible();
   await expect(live).toBeHidden();
   await expect(frame).not.toHaveAttribute("src");
+});
+
+test("side-panel cards and catalog cards support direct selection", async ({ page }) => {
+  await page.goto("/login");
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  await page.setContent(`
+    <div class="reading-workspace">
+      <ul class="article-list" data-reading-mode="side-panel" data-reading-panel="#reading-pane">
+        <li class="article-card" id="card-one">
+          <h3><a class="article-link" href="/articles/one">Article one</a></h3>
+          <p class="excerpt">Open from this card surface.</p>
+          <div class="actions"><button type="button">Leave this action alone</button></div>
+        </li>
+      </ul>
+      <aside class="reading-pane" id="reading-pane" style="display:block"></aside>
+    </div>
+    <article class="catalog-card" data-catalog-selectable>
+      <p class="catalog-description">Double click this source to select it.</p>
+      <a href="/catalog/one/preview">Preview</a>
+      <label><input type="checkbox" name="feed_id" value="one" /> Subscribe</label>
+    </article>
+    <form id="bulk-feed-actions">
+      <input type="checkbox" data-bulk-select-all />
+      <span data-bulk-selection-count></span>
+      <button type="button" data-bulk-action>Move selected</button>
+    </form>
+    <input type="checkbox" data-feed-select form="bulk-feed-actions" />
+    <input type="checkbox" data-feed-select form="bulk-feed-actions" />
+    <div id="action-status" role="status"></div>
+  `);
+  await page.addScriptTag({
+    content: `
+      window.__panelRequests = 0;
+      window.fetch = function () {
+        window.__panelRequests += 1;
+        return Promise.resolve({
+          ok: true,
+          text: function () {
+            return Promise.resolve('<article data-panel-article="one" data-panel-read="false" data-panel-bookmarked="false"><h2>Article opened in panel</h2></article>');
+          }
+        });
+      };
+    `,
+  });
+  await page.addScriptTag({ url: scriptUrl });
+
+  const card = page.locator("#card-one");
+  await card.locator(".excerpt").click();
+  await expect(page.locator("#reading-pane")).toContainText("Article opened in panel");
+  await expect(card).toHaveClass(/selected/);
+  expect(await page.evaluate(() => window.__panelRequests)).toBe(1);
+
+  await card.getByRole("button", { name: "Leave this action alone" }).click();
+  expect(await page.evaluate(() => window.__panelRequests)).toBe(1);
+
+  const catalogCard = page.locator("[data-catalog-selectable]");
+  await catalogCard.locator(".catalog-description").dblclick();
+  await expect(catalogCard.locator("input[name='feed_id']")).toBeChecked();
+
+  const bulkAction = page.locator("[data-bulk-action]");
+  await expect(bulkAction).toBeDisabled();
+  const bulkInputs = page.locator("[data-feed-select]");
+  await bulkInputs.nth(0).check();
+  await expect(page.locator("[data-bulk-selection-count]")).toHaveText("1 feed selected.");
+  await expect(bulkAction).toBeEnabled();
+  await page.locator("[data-bulk-select-all]").check();
+  await expect(page.locator("[data-bulk-selection-count]")).toHaveText("2 feeds selected.");
+});
+
+test("dragging a feed onto a folder submits only its folder move", async ({ page }) => {
+  await page.goto("/login");
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  await page.setContent(`
+    <button type="button" data-feed-drag data-feed-id="feed-one" draggable="true">Drag feed</button>
+    <div data-feed-drop data-folder-id="folder-one" data-folder-label="Folder one">Folder one</div>
+    <div id="action-status" role="status"></div>
+  `);
+  await page.addScriptTag({
+    content: `
+      document.documentElement.setAttribute("data-csrf-token", "csrf-token");
+      window.__moveRequest = null;
+      window.setTimeout = function () { return 0; };
+      window.fetch = function (url, options) {
+        window.__moveRequest = { url: url, body: String(options.body) };
+        return Promise.resolve({ ok: true });
+      };
+    `,
+  });
+  await page.addScriptTag({ url: scriptUrl });
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    const drag = document.querySelector("[data-feed-drag]");
+    const target = document.querySelector("[data-feed-drop]");
+    drag.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await expect.poll(() => page.evaluate(() => window.__moveRequest?.url)).toBe("/feeds/feed-one/folder");
+  await expect.poll(() => page.evaluate(() => window.__moveRequest?.body)).toContain("csrf_token=csrf-token");
+  await expect.poll(() => page.evaluate(() => window.__moveRequest?.body)).toContain("folder_id=folder-one");
 });
 
 test.describe("catalog preview without JavaScript", () => {

@@ -483,27 +483,34 @@ pub async fn save_layout(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
-    let mut prefs = load(&state.db, user.id).await;
+    let mut patch = serde_json::Map::new();
     if let Some(width) = form.sidebar_width {
-        prefs.sidebar_width = width;
+        patch.insert(
+            "sidebar_width".to_string(),
+            serde_json::json!(width.clamp(13, 24)),
+        );
     }
     if let Some(collapsed) = form.sidebar_collapsed.as_deref() {
-        prefs.sidebar_collapsed = match collapsed {
+        let collapsed = match collapsed {
             "true" => true,
             "false" => false,
             _ => return Err(AppError::Validation("Invalid sidebar state.".to_string())),
         };
+        patch.insert(
+            "sidebar_collapsed".to_string(),
+            serde_json::json!(collapsed),
+        );
     }
     if let Some(width) = form.reader_panel_width {
-        prefs.reader_panel_width = width;
+        patch.insert(
+            "reader_panel_width".to_string(),
+            serde_json::json!(width.clamp(38, 68)),
+        );
     }
-    let prefs = prefs.sanitized();
-    let patch = serde_json::json!({
-        "sidebar_width": prefs.sidebar_width,
-        "sidebar_collapsed": prefs.sidebar_collapsed,
-        "reader_panel_width": prefs.reader_panel_width,
-    });
-    user_preferences::upsert(state.db.pool(), user.id, &patch).await?;
+    if !patch.is_empty() {
+        user_preferences::upsert(state.db.pool(), user.id, &serde_json::Value::Object(patch))
+            .await?;
+    }
     if is_ajax {
         Ok(StatusCode::NO_CONTENT.into_response())
     } else {

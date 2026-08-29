@@ -15,37 +15,38 @@
     <p class="sidebar-label">Folders</p>
     <div class="folder-tree">
       {% for folder in folders %}
-      <details class="folder-tree-node" open>
-        <summary><a href="{{ folder.href }}"{% if folder.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ folder.name }}"><span class="sidebar-nav-icon" aria-hidden="true">▣</span><span class="sidebar-text">{{ folder.indent }}{{ folder.name }}</span><span class="sidebar-count">{{ folder.feed_count }}</span></a></summary>
+      <div class="folder-tree-node" style="padding-inline-start: {{ folder.depth }}rem">
+        <a href="{{ folder.href }}"{% if folder.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ folder.name }}"><span class="sidebar-nav-icon" aria-hidden="true">▣</span><span class="sidebar-text">{{ folder.name }}</span><span class="sidebar-count">{{ folder.feed_count }}</span></a>
+        {% if !folder.feeds.is_empty() %}
         <div class="folder-tree-feeds">
           {% for f in folder.feeds %}
           <a href="{{ f.href }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ f.name }}"><span class="feed-nav-icon" aria-hidden="true"><span>{{ f.initial }}</span>{% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}</span><span class="sidebar-text">{{ f.name }}</span></a>
           {% endfor %}
         </div>
-      </details>
+        {% endif %}
+      </div>
       {% endfor %}
-      {% if !unfiled_feeds.is_empty() %}
-      <details class="folder-tree-node folder-tree-unfiled" open>
-        <summary><span class="nav-link" aria-label="Unfiled feeds"><span class="sidebar-nav-icon" aria-hidden="true">□</span><span class="sidebar-text">Unfiled</span><span class="sidebar-count">{{ unfiled_feeds.len() }}</span></span></summary>
+      <div class="folder-tree-node folder-tree-unfiled">
+        <a href="{{ unfiled_url }}"{% if unfiled_only %} class="nav-link active" aria-current="page"{% else %} class="folder-tree-label"{% endif %} aria-label="Unfiled feeds"><span class="sidebar-nav-icon" aria-hidden="true">□</span><span class="sidebar-text">Unfiled</span><span class="sidebar-count">{{ unfiled_feeds.len() }}</span></a>
         <div class="folder-tree-feeds">
+          {% if unfiled_feeds.is_empty() %}<p class="sidebar-empty">All feeds are filed.</p>{% endif %}
           {% for f in unfiled_feeds %}
           <a href="{{ f.href }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ f.name }}"><span class="feed-nav-icon" aria-hidden="true"><span>{{ f.initial }}</span>{% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}</span><span class="sidebar-text">{{ f.name }}</span></a>
           {% endfor %}
         </div>
-      </details>
-      {% endif %}
+      </div>
     </div>
   </div>
   {% endif %}
   {% if !tags.is_empty() %}
-  <details class="sidebar-group sidebar-disclosure" open>
-    <summary class="sidebar-label">Tags</summary>
+  <div class="sidebar-group">
+    <p class="sidebar-label">Tags</p>
     <div class="feed-nav-list">
       {% for tag in tags %}
       <a href="{{ tag.href }}"{% if tag.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ tag.name }}"><span class="sidebar-nav-icon" aria-hidden="true">#</span><span class="sidebar-text">{{ tag.name }}</span><span class="sidebar-count">{{ tag.feed_count }}</span></a>
       {% endfor %}
     </div>
-  </details>
+  </div>
   {% endif %}
   <a href="/feeds" class="sidebar-link" aria-label="Manage feeds"><span class="sidebar-nav-icon" aria-hidden="true">+</span><span class="sidebar-text">Manage feeds</span></a>
 </div>

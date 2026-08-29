@@ -538,6 +538,270 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
     );
 }
 
+#[tokio::test]
+async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    );
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let user = users::find_by_email(state.db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE users SET role = 'user' WHERE id = $1")
+        .bind(user.id)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+    let folder = categories::create(state.db.pool(), user.id, "Bulk destination", None)
+        .await
+        .unwrap();
+    let (first, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!("https://bulk-ui.example/{}/first.xml", uuid::Uuid::now_v7()),
+        "Bulk first",
+        None,
+    )
+    .await
+    .unwrap();
+    let (second, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!(
+            "https://bulk-ui.example/{}/second.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Bulk second",
+        None,
+    )
+    .await
+    .unwrap();
+    let (foreign, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!(
+            "https://bulk-ui.example/{}/foreign.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Bulk foreign",
+        None,
+    )
+    .await
+    .unwrap();
+    for feed in [&first, &second] {
+        subscriptions::subscribe(state.db.pool(), user.id, feed.id, None)
+            .await
+            .unwrap();
+    }
+    let other = users::create(
+        state.db.pool(),
+        &format!("bulk-foreign-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(state.db.pool(), other.id, foreign.id, None)
+        .await
+        .unwrap();
+    subscriptions::update_organization(
+        state.db.pool(),
+        user.id,
+        first.id,
+        &["kept".to_string()],
+        None,
+    )
+    .await
+    .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let csrf = find(&set_cookies(&response), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let page = body_string(response).await;
+    assert!(page.contains("bulk-feed-actions"));
+    assert!(page.contains("data-feed-drag"));
+    assert!(page.contains("data-feed-drop"));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/refresh-everything")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    sqlx::query("UPDATE users SET role = 'admin' WHERE id = $1")
+        .bind(user.id)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_string(response)
+        .await
+        .contains("Reset schedules and refresh every source"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/bulk-move")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&feed_id={}&feed_id={}&folder_id={}",
+                    first.id, second.id, folder.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_string(response).await.contains("Moved 2 feed(s)"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/bulk-tags")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&feed_id={}&feed_id={}&tag_operation=add&tags=project%2Cpriority",
+                    first.id, second.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_string(response)
+        .await
+        .contains("Updated tags for 2 feed(s)"));
+    let organizations = subscriptions::list_organization(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    let first_organization = organizations
+        .iter()
+        .find(|organization| organization.feed_id == first.id)
+        .unwrap();
+    let second_organization = organizations
+        .iter()
+        .find(|organization| organization.feed_id == second.id)
+        .unwrap();
+    assert_eq!(first_organization.category_id, Some(folder.id));
+    assert_eq!(second_organization.category_id, Some(folder.id));
+    assert_eq!(
+        first_organization.tags,
+        vec![
+            "kept".to_string(),
+            "project".to_string(),
+            "priority".to_string()
+        ]
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/feeds/{}/folder", first.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}&folder_id=")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let first_organization = subscriptions::list_organization(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|organization| organization.feed_id == first.id)
+        .unwrap();
+    assert_eq!(first_organization.category_id, None);
+    assert_eq!(
+        first_organization.tags,
+        vec![
+            "kept".to_string(),
+            "project".to_string(),
+            "priority".to_string()
+        ]
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/refresh-selected")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&feed_id={}&feed_id={}",
+                    first.id, second.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(body_string(response)
+        .await
+        .contains("Queued 2 feed refresh(es)"));
+    for feed_id in [first.id, second.id] {
+        assert_eq!(
+            jobs::count_active_by_dedup(state.db.pool(), &format!("fetch_feed:{feed_id}"))
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
+    let response = app
+        .oneshot(
+            Request::post("/feeds/refresh-selected")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&feed_id={}",
+                    foreign.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
 /// Minimal application/x-www-form-urlencoded encoding for our test URL values.
 fn urlencoding_min(s: &str) -> String {
     s.replace('%', "%25")

@@ -9,10 +9,18 @@
     <p class="muted">Subscribe to the publications you want RustSS to follow. Refreshes and enrichment are queued once per shared feed.</p>
   </div>
   {% if !feeds.is_empty() %}
-  <form method="post" action="/feeds/refresh-all">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <button type="submit">Refresh all</button>
-  </form>
+  <div class="header-actions">
+    <form method="post" action="/feeds/refresh-all">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit">Refresh my feeds now</button>
+    </form>
+    {% if is_admin %}
+    <form method="post" action="/feeds/refresh-everything" onsubmit="return confirm('Reset the refresh schedule and queue every active shared source now? Paused sources stay paused.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit">Reset schedules and refresh every source</button>
+    </form>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
 
@@ -47,11 +55,11 @@
     </label>
     <div class="form-actions"><button type="submit">Create folder</button></div>
   </form>
-  {% if !categories.is_empty() %}
-  <ul class="folder-tree-manage" aria-label="Your folder tree">
-    {% for category in categories %}<li style="--folder-depth: {{ category.depth }}"><span aria-hidden="true">▣</span><span>{{ category.tree_name }}</span></li>{% endfor %}
+  <p class="muted feed-drop-hint">Drag a feed handle onto a folder below, or use the bulk controls in Your feeds. Keyboard and no-JavaScript users can use the folder picker.</p>
+  <ul class="folder-tree-manage feed-drop-list" aria-label="Your folder tree and feed drop targets">
+    <li class="feed-folder-drop" data-feed-drop data-folder-id="" data-folder-label="Unfiled"><span aria-hidden="true">□</span><span>Unfiled</span></li>
+    {% for category in categories %}<li class="feed-folder-drop" data-feed-drop data-folder-id="{{ category.id }}" data-folder-label="{{ category.name }}" style="padding-inline-start: {{ category.depth }}rem"><span aria-hidden="true">▣</span><span>{{ category.tree_name }}</span></li>{% endfor %}
   </ul>
-  {% endif %}
 </section>
 
 <section class="panel">
@@ -61,6 +69,34 @@
       <p class="muted">Feed icons are downloaded from feed metadata when available, with a safe favicon fallback. Folders and tags stay personal while content remains shared.</p>
     </div>
   </div>
+  {% if !feeds.is_empty() %}
+  <form id="bulk-feed-actions" method="post" action="/feeds/bulk-move" class="bulk-feed-actions" data-bulk-max="100">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="bulk-feed-selection">
+      <label class="check-row"><input type="checkbox" data-bulk-select-all aria-label="Select all feeds" /> <span>Select all</span></label>
+      <span data-bulk-selection-count role="status">Select feeds to use bulk actions.</span>
+    </div>
+    <label>Move selected to
+      <select name="folder_id">
+        <option value="">Unfiled</option>
+        {% for category in categories %}<option value="{{ category.id }}">{{ category.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit" formaction="/feeds/bulk-move" data-bulk-action>Move selected</button>
+    <label>Tag operation
+      <select name="tag_operation">
+        <option value="add">Add tags</option>
+        <option value="remove">Remove tags</option>
+        <option value="replace">Replace tags</option>
+      </select>
+    </label>
+    <label>Tags
+      <input type="text" name="tags" maxlength="819" placeholder="technology, work" />
+    </label>
+    <button type="submit" formaction="/feeds/bulk-tags" data-bulk-action>Update tags</button>
+    <button type="submit" formaction="/feeds/refresh-selected" data-bulk-action>Refresh selected</button>
+  </form>
+  {% endif %}
   {% if feeds.is_empty() %}
   <div class="empty-state">
     <p><strong>You have not subscribed to any feeds yet.</strong></p>
@@ -69,8 +105,10 @@
   {% else %}
   <ul class="feed-list">
     {% for f in feeds %}
-    <li class="feed-row">
+    <li class="feed-row" data-feed-row>
       <div class="feed-summary">
+        <label class="feed-select"><input type="checkbox" name="feed_id" value="{{ f.id }}" form="bulk-feed-actions" data-feed-select aria-label="Select {{ f.name }}" /></label>
+        <button type="button" class="feed-drag-handle" draggable="true" data-feed-drag data-feed-id="{{ f.id }}" data-feed-name="{{ f.name }}" aria-label="Drag {{ f.name }} to a folder">⠿</button>
         <span class="feed-icon" aria-hidden="true">
           <span class="feed-icon-fallback">{{ f.initial }}</span>
           {% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}

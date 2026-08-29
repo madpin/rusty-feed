@@ -137,6 +137,23 @@ pub async fn reclaim_stale(pool: &PgPool, older_than: Duration) -> Result<u64> {
     Ok(res.rows_affected())
 }
 
+/// Make delayed pending jobs for selected active feeds available immediately.
+pub async fn run_pending_feed_fetches_now(pool: &PgPool, feed_ids: &[Uuid]) -> Result<u64> {
+    if feed_ids.is_empty() {
+        return Ok(0);
+    }
+    let res = sqlx::query(
+        "UPDATE job_queue job SET run_at = now(), updated_at = now() \
+         FROM feeds feed WHERE job.kind = 'fetch_feed' AND job.status = 'pending' \
+           AND job.run_at > now() AND job.payload ->> 'feed_id' = feed.id::text \
+           AND feed.id = ANY($1) AND feed.health_status <> 'disabled'",
+    )
+    .bind(feed_ids)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected())
+}
+
 /// Fetch a job's current status (tests/inspection).
 pub async fn get_status(pool: &PgPool, id: Uuid) -> Result<Option<String>> {
     Ok(

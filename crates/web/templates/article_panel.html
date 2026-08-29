@@ -64,8 +64,6 @@
       <input type="hidden" name="next" value="/articles/{{ id }}" />
       <button type="submit" class="primary">Generate AI summary</button>
     </form>
-    {% else %}
-    <div class="summary-action"><button type="button" disabled title="An administrator must configure an LLM provider before summaries can be generated.">AI summary unavailable</button></div>
     {% endif %}
 
     <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}">
@@ -76,9 +74,10 @@
   {% if let Some(url) = url %}
   <section class="live-view" id="live-view-{{ id }}" data-live-view aria-label="Live publisher view" hidden>
     <div class="live-view-toolbar">
-      <p id="live-view-note-{{ id }}"><strong>Live view</strong> loads the publisher page directly in a restricted frame. The publisher or browser may block it; use Open original if it does not appear.</p>
+      <p id="live-view-note-{{ id }}"><strong>Live view</strong> is a restricted publisher preview. Some publishers prohibit embedded pages; Open original is the reliable view.</p>
       <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
     </div>
+    <p class="live-view-fallback" data-live-view-fallback role="alert" hidden></p>
     <iframe class="live-view-frame" data-live-view-frame data-live-src="{{ url }}" title="Live publisher view: {{ title }}" sandbox="allow-scripts" referrerpolicy="no-referrer" credentialless loading="lazy" aria-describedby="live-view-note-{{ id }}"></iframe>
   </section>
   {% endif %}

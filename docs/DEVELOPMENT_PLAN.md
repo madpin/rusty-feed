@@ -283,9 +283,9 @@ DoD commit: `feat(llm): summarization + durable cost ledger + unified secrets`.
 Tasks:
 - [x] Curated feed magazine: 97 starter sources, country/category/language facets, automatic facet filtering, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
 - [x] Configurable keyboard shortcuts: arrow-key-first defaults, capture/reset controls, server-side validation, and safe Library article/feed actions.
-- [x] Personal feed organization: nested folder tree, one current folder per feed, normalized multi-valued tags, scoped Library/mark-all-read filters, cached source icons, and a persisted reduced sidebar.
-- [x] Feed health baseline: structured safe failure history, one-attempt health cycles, daily checks after three failures, weekly checks after 14 failing days, manual-disabled preservation, and an admin operations viewer. Notifications and explicit pause/reset controls remain with bulk operations.
-- [ ] Bulk feed operations (category/tags/settings/enable-disable/delete/refresh) with partial-failure + authz.
+- [x] Personal feed organization: stable hierarchical navigation, one current folder per feed, an Unfiled scope, normalized multi-valued tags, scoped Library/mark-all-read filters, cached source icons, and a persisted reduced sidebar.
+- [x] Feed health baseline: structured safe failure history, one-attempt health cycles, daily checks after three failures, weekly checks after 14 failing days, manual-disabled preservation, an admin operations viewer, and an active-source schedule reset/queue action. Notifications and explicit pause/resume controls remain.
+- [~] Bulk personal feed operations: folder/Unfiled moves, add/remove/replace tags, and queue refresh for selected subscriptions are scoped and implemented, with progressive drag-to-folder support. Shared settings/enable-disable and destructive bulk-unsubscribe actions remain.
 - [ ] OPML import/export (categories preserved; category-selection import — fixes reference bug).
 - [ ] CleanupAgent (retention, **preserve bookmarks**, configurable age basis; VACUUM/ANALYZE) — FND-005/009.
 - [~] Admin dashboard: overview counts, user/admin-role management, shared-feed inventory/cadence, curated feed magazine editing, safe operations activity, and cost visibility are implemented. Storage/memory, manual triggers, provider config, constraints, and maintenance actions remain.

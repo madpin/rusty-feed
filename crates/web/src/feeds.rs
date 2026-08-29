@@ -2,7 +2,7 @@
 //! and unsubscribe. Content acquisition stays shared per feed, regardless of
 //! subscriber count.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use askama::Template;
 use axum::extract::{Path, State};
@@ -15,13 +15,24 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use rustss_core::feed_content::{FeedContentMode, FeedContentSettings};
-use rustss_db::{articles, catalog, categories, feed_icons, feeds, subscriptions, Feed};
+use rustss_db::{
+    articles, catalog, categories, feed_icons, feeds, jobs, subscriptions, DbError, Feed,
+};
 use rustss_feeds::{enqueue_fetch_feed, normalize_url};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
 use crate::error::AppError;
 use crate::state::AppState;
+
+const MAX_BULK_FEED_SELECTION: usize = 100;
+
+#[derive(Default)]
+struct RefreshQueueOutcome {
+    queued: usize,
+    already_queued: usize,
+    failed: usize,
+}
 
 struct FeedRow {
     id: String,
@@ -119,6 +130,13 @@ pub struct AddForm {
 #[derive(Deserialize)]
 pub struct CsrfForm {
     csrf_token: String,
+}
+
+#[derive(Deserialize)]
+pub struct MoveFolderForm {
+    csrf_token: String,
+    #[serde(default)]
+    folder_id: String,
 }
 
 #[derive(Deserialize)]
@@ -241,6 +259,15 @@ fn normalize_tags(value: &str) -> Result<Vec<String>, String> {
     Ok(tags)
 }
 
+fn parse_folder_id(value: &str) -> Result<Option<Uuid>, String> {
+    match value.trim() {
+        "" => Ok(None),
+        value => Uuid::parse_str(value)
+            .map(Some)
+            .map_err(|_| "The selected folder was invalid.".to_string()),
+    }
+}
+
 fn parse_organization_form(
     values: Vec<(String, String)>,
 ) -> Result<(String, Vec<String>, Option<Uuid>), String> {
@@ -253,15 +280,7 @@ fn parse_organization_form(
             "csrf_token" if csrf_token.is_none() => csrf_token = Some(value),
             "tags" if tags.is_none() => tags = Some(value),
             "tag_option" => tag_options.push(value),
-            "folder_id" if folder_id.is_none() => {
-                folder_id = Some(match value.trim() {
-                    "" => None,
-                    value => Some(
-                        Uuid::parse_str(value)
-                            .map_err(|_| "The selected folder was invalid.".to_string())?,
-                    ),
-                });
-            }
+            "folder_id" if folder_id.is_none() => folder_id = Some(parse_folder_id(&value)?),
             _ => return Err("The feed organization could not be processed.".to_string()),
         }
     }
@@ -272,6 +291,74 @@ fn parse_organization_form(
         .collect::<Vec<_>>()
         .join(",");
     Ok((csrf_token, normalize_tags(&tags)?, folder_id.flatten()))
+}
+
+struct BulkForm {
+    csrf_token: String,
+    feed_ids: Vec<Uuid>,
+    folder_id: Option<Uuid>,
+    tags: Vec<String>,
+    tag_operation: subscriptions::BulkTagOperation,
+}
+
+fn parse_bulk_form(values: Vec<(String, String)>) -> Result<BulkForm, String> {
+    let mut csrf_token = None;
+    let mut feed_ids = BTreeSet::new();
+    let mut folder_id = None;
+    let mut tags = None;
+    let mut tag_operation = None;
+    for (name, value) in values {
+        match name.as_str() {
+            "csrf_token" if csrf_token.is_none() => csrf_token = Some(value),
+            "feed_id" => {
+                let feed_id = Uuid::parse_str(&value)
+                    .map_err(|_| "A selected feed was invalid.".to_string())?;
+                feed_ids.insert(feed_id);
+            }
+            "folder_id" if folder_id.is_none() => folder_id = Some(parse_folder_id(&value)?),
+            "tags" if tags.is_none() => tags = Some(value),
+            "tag_operation" if tag_operation.is_none() => tag_operation = Some(value),
+            _ => return Err("The bulk feed action could not be processed.".to_string()),
+        }
+    }
+    let csrf_token =
+        csrf_token.ok_or_else(|| "The bulk feed action could not be processed.".to_string())?;
+    if feed_ids.is_empty() {
+        return Err("Choose at least one feed first.".to_string());
+    }
+    if feed_ids.len() > MAX_BULK_FEED_SELECTION {
+        return Err(format!(
+            "Choose at most {MAX_BULK_FEED_SELECTION} feeds at once."
+        ));
+    }
+    let tag_operation = match tag_operation.as_deref().unwrap_or("add") {
+        "add" => subscriptions::BulkTagOperation::Add,
+        "remove" => subscriptions::BulkTagOperation::Remove,
+        "replace" => subscriptions::BulkTagOperation::Replace,
+        _ => return Err("Choose a valid tag operation.".to_string()),
+    };
+    Ok(BulkForm {
+        csrf_token,
+        feed_ids: feed_ids.into_iter().collect(),
+        folder_id: folder_id.flatten(),
+        tags: normalize_tags(&tags.unwrap_or_default())?,
+        tag_operation,
+    })
+}
+
+async fn queue_refreshes(state: &AppState, feed_ids: &[Uuid]) -> RefreshQueueOutcome {
+    let mut outcome = RefreshQueueOutcome::default();
+    for feed_id in feed_ids {
+        match enqueue_fetch_feed(&state.db, *feed_id).await {
+            Ok(Some(_)) => outcome.queued += 1,
+            Ok(None) => outcome.already_queued += 1,
+            Err(error) => {
+                outcome.failed += 1;
+                tracing::warn!(feed_id = %feed_id, error = %error, "could not queue feed refresh");
+            }
+        }
+    }
+    outcome
 }
 
 fn feed_row(
@@ -716,8 +803,12 @@ pub async fn refresh(
         return Err(AppError::NotFound);
     }
     let is_admin = user.role == "admin";
-    let queued = enqueue_fetch_feed(&state.db, id).await?.is_some();
-    let message = if queued {
+    let feed = feeds::find_by_id(state.db.pool(), id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let message = if feed.health_status == "disabled" {
+        "This source is paused and was not refreshed.".to_string()
+    } else if enqueue_fetch_feed(&state.db, id).await?.is_some() {
         "Refresh queued.".to_string()
     } else {
         "A refresh is already queued.".to_string()
@@ -745,26 +836,319 @@ pub async fn refresh_all(
         return Err(AppError::Forbidden);
     }
     let feeds = feeds::list_for_user(state.db.pool(), user.id).await?;
-    let mut queued = 0u64;
-    for feed in &feeds {
-        if enqueue_fetch_feed(&state.db, feed.id).await?.is_some() {
-            queued += 1;
-        }
-    }
+    let active: Vec<_> = feeds
+        .iter()
+        .filter(|feed| feed.health_status != "disabled")
+        .map(|feed| feed.id)
+        .collect();
+    let outcome = queue_refreshes(&state, &active).await;
+    let paused = feeds.len() - active.len();
     let is_admin = user.role == "admin";
+    let mut message = format!(
+        "Queued {} of {} active feed refreshes; {} were already queued.",
+        outcome.queued,
+        active.len(),
+        outcome.already_queued
+    );
+    if paused > 0 {
+        message.push_str(&format!(" {paused} paused source(s) were unchanged."));
+    }
+    if outcome.failed > 0 {
+        message.push_str(&format!(" {} could not be queued.", outcome.failed));
+    }
     render_page(
         &state,
         user.id,
         user.email,
         is_admin,
         jar,
-        Some(format!(
-            "Queued {queued} of {} feed refreshes.",
-            feeds.len()
-        )),
+        Some(message),
         None,
     )
     .await
+}
+
+pub async fn move_to_folder(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<MoveFolderForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let is_admin = user.role == "admin";
+    let folder_id = match parse_folder_id(&form.folder_id) {
+        Ok(folder_id) => folder_id,
+        Err(error) => {
+            return render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+    };
+    match subscriptions::move_many_to_category(state.db.pool(), user.id, &[id], folder_id).await {
+        Ok(_) => {
+            let destination = folder_id.map_or("Unfiled", |_| "the selected folder");
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                Some(format!("Feed moved to {destination}.")),
+                None,
+            )
+            .await
+        }
+        Err(DbError::NotFound) => Err(AppError::NotFound),
+        Err(DbError::Validation(error)) => {
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub async fn bulk_move(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(values): Form<Vec<(String, String)>>,
+) -> Result<Response, AppError> {
+    let is_admin = user.role == "admin";
+    let form = match parse_bulk_form(values) {
+        Ok(form) => form,
+        Err(error) => {
+            return render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+    };
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    match subscriptions::move_many_to_category(
+        state.db.pool(),
+        user.id,
+        &form.feed_ids,
+        form.folder_id,
+    )
+    .await
+    {
+        Ok(moved) => {
+            let destination = form.folder_id.map_or("Unfiled", |_| "the selected folder");
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                Some(format!("Moved {moved} feed(s) to {destination}.")),
+                None,
+            )
+            .await
+        }
+        Err(DbError::NotFound) => Err(AppError::NotFound),
+        Err(DbError::Validation(error)) => {
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub async fn bulk_tags(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(values): Form<Vec<(String, String)>>,
+) -> Result<Response, AppError> {
+    let is_admin = user.role == "admin";
+    let form = match parse_bulk_form(values) {
+        Ok(form) => form,
+        Err(error) => {
+            return render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+    };
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if form.tags.is_empty() && form.tag_operation != subscriptions::BulkTagOperation::Replace {
+        return render_page(
+            &state,
+            user.id,
+            user.email,
+            is_admin,
+            jar,
+            None,
+            Some("Enter at least one tag to add or remove.".to_string()),
+        )
+        .await;
+    }
+    match subscriptions::update_tags_many(
+        state.db.pool(),
+        user.id,
+        &form.feed_ids,
+        form.tag_operation,
+        &form.tags,
+    )
+    .await
+    {
+        Ok(updated) => {
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                Some(format!("Updated tags for {updated} feed(s).")),
+                None,
+            )
+            .await
+        }
+        Err(DbError::NotFound) => Err(AppError::NotFound),
+        Err(DbError::Validation(error)) => {
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub async fn refresh_selected(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(values): Form<Vec<(String, String)>>,
+) -> Result<Response, AppError> {
+    let is_admin = user.role == "admin";
+    let form = match parse_bulk_form(values) {
+        Ok(form) => form,
+        Err(error) => {
+            return render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+    };
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if !subscriptions::all_subscribed(state.db.pool(), user.id, &form.feed_ids).await? {
+        return Err(AppError::NotFound);
+    }
+    let selected = BTreeSet::from_iter(form.feed_ids.iter().copied());
+    let feeds = feeds::list_for_user(state.db.pool(), user.id).await?;
+    let active: Vec<_> = feeds
+        .iter()
+        .filter(|feed| selected.contains(&feed.id) && feed.health_status != "disabled")
+        .map(|feed| feed.id)
+        .collect();
+    let paused = form.feed_ids.len() - active.len();
+    let outcome = queue_refreshes(&state, &active).await;
+    let mut message = format!(
+        "Queued {} feed refresh(es); {} were already queued.",
+        outcome.queued, outcome.already_queued
+    );
+    if paused > 0 {
+        message.push_str(&format!(" {paused} paused source(s) were unchanged."));
+    }
+    if outcome.failed > 0 {
+        message.push_str(&format!(" {} could not be queued.", outcome.failed));
+    }
+    render_page(
+        &state,
+        user.id,
+        user.email,
+        is_admin,
+        jar,
+        Some(message),
+        None,
+    )
+    .await
+}
+
+pub async fn refresh_everything(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(form): Form<CsrfForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if user.role != "admin" {
+        return Err(AppError::Forbidden);
+    }
+    let active_feed_ids = feeds::list_active_ids(state.db.pool()).await?;
+    let feed_ids = feeds::reset_refresh_schedule(state.db.pool(), &active_feed_ids).await?;
+    let rescheduled = jobs::run_pending_feed_fetches_now(state.db.pool(), &feed_ids).await?;
+    let outcome = queue_refreshes(&state, &feed_ids).await;
+    let mut message = format!(
+        "Reset scheduling for {} active shared source(s), queued {} new refresh(es), and released {rescheduled} delayed refresh(es). Paused sources were unchanged.",
+        feed_ids.len(), outcome.queued
+    );
+    if outcome.already_queued > 0 {
+        message.push_str(&format!(" {} were already queued.", outcome.already_queued));
+    }
+    if outcome.failed > 0 {
+        message.push_str(&format!(" {} could not be queued.", outcome.failed));
+    }
+    render_page(&state, user.id, user.email, true, jar, Some(message), None).await
 }
 
 /// `GET /feeds/{id}/settings`.

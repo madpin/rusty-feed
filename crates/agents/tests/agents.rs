@@ -155,6 +155,35 @@ async fn fetch_feed_job_ingests_and_records_a_run() {
 }
 
 #[tokio::test]
+async fn paused_feed_fetch_job_skips_network_access() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let server = MockServer::start().await;
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("{}/paused.xml", server.uri()),
+        "Paused feed",
+        None,
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE feeds SET health_status = 'disabled' WHERE id = $1")
+        .bind(feed.id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let result = FetchFeedAgent
+        .run(&ctx(db.clone()), json!({ "feed_id": feed.id }))
+        .await
+        .unwrap();
+    assert_eq!(result["skipped"], "feed is paused");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn failing_job_backs_off_then_dies() {
     let Some(db) = connect().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");

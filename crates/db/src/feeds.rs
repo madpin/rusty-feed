@@ -107,6 +107,29 @@ pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Feed>> {
         .await?)
 }
 
+/// List non-paused shared feeds eligible for a forced refresh.
+pub async fn list_active_ids(pool: &PgPool) -> Result<Vec<Uuid>> {
+    Ok(
+        sqlx::query_scalar("SELECT id FROM feeds WHERE health_status <> 'disabled'")
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
+/// Mark selected non-paused shared feeds due immediately without clearing health history.
+pub async fn reset_refresh_schedule(pool: &PgPool, feed_ids: &[Uuid]) -> Result<Vec<Uuid>> {
+    if feed_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(sqlx::query_scalar(
+        "UPDATE feeds SET last_fetched_at = NULL, updated_at = now() \
+         WHERE id = ANY($1) AND health_status <> 'disabled' RETURNING id",
+    )
+    .bind(feed_ids)
+    .fetch_all(pool)
+    .await?)
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AdminFeed {
     pub id: Uuid,

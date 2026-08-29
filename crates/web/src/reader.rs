@@ -60,7 +60,7 @@ struct FeedNav {
 
 struct FolderNav {
     name: String,
-    indent: String,
+    depth: usize,
     feed_count: i64,
     active: bool,
     href: String,
@@ -101,7 +101,9 @@ struct ArticlesTemplate {
     feed_filter: Option<String>,
     category_filter: Option<String>,
     tag_filter: Option<String>,
+    unfiled_url: String,
     unread_only: bool,
+    unfiled_only: bool,
     reading_mode: String,
     side_panel: bool,
     sort: String,
@@ -194,6 +196,8 @@ pub struct ArticlesQuery {
     category: Option<Uuid>,
     #[serde(default)]
     tag: Option<String>,
+    #[serde(default)]
+    unfiled: Option<String>,
     /// `recent` (default) or `relevance`.
     #[serde(default)]
     sort: Option<String>,
@@ -228,6 +232,8 @@ pub struct MarkAllReadForm {
     category: Option<Uuid>,
     #[serde(default)]
     tag: Option<String>,
+    #[serde(default)]
+    unfiled: Option<String>,
 }
 
 /// Only allow same-origin relative redirects (avoid open-redirects).
@@ -290,6 +296,7 @@ fn normalized_tag(value: Option<String>) -> Result<Option<String>, String> {
 fn articles_url(
     feed_id: Option<Uuid>,
     category_id: Option<Uuid>,
+    unfiled: bool,
     tag: Option<&str>,
     unread: bool,
     sort: &str,
@@ -304,6 +311,9 @@ fn articles_url(
     }
     if let Some(category_id) = category_id {
         query.append_pair("category", &category_id.to_string());
+    }
+    if unfiled {
+        query.append_pair("unfiled", "1");
     }
     if let Some(tag) = tag {
         query.append_pair("tag", tag);
@@ -340,12 +350,13 @@ fn append_folder_nav(
         let category_id = category.id;
         output.push(FolderNav {
             name: category.name,
-            indent: "↳ ".repeat(depth),
+            depth,
             feed_count: category.feed_count,
             active: Some(category_id) == context.selected,
             href: articles_url(
                 None,
                 Some(category_id),
+                false,
                 context.tag,
                 context.unread,
                 context.sort,
@@ -365,31 +376,6 @@ fn append_folder_nav(
             context,
         );
     }
-}
-
-fn category_scope_ids(
-    categories: &[categories::CategoryWithFeedCount],
-    selected: Option<Uuid>,
-) -> HashSet<Uuid> {
-    let Some(selected) = selected else {
-        return HashSet::new();
-    };
-    let mut children = HashMap::<Uuid, Vec<Uuid>>::new();
-    for category in categories {
-        if let Some(parent_id) = category.parent_id {
-            children.entry(parent_id).or_default().push(category.id);
-        }
-    }
-    let mut scope = HashSet::from([selected]);
-    let mut frontier = vec![selected];
-    while let Some(parent_id) = frontier.pop() {
-        for child_id in children.get(&parent_id).into_iter().flatten() {
-            if scope.insert(*child_id) {
-                frontier.push(*child_id);
-            }
-        }
-    }
-    scope
 }
 
 fn folder_nav(
@@ -422,12 +408,13 @@ fn folder_nav(
             let category_id = category.id;
             output.push(FolderNav {
                 name: category.name,
-                indent: String::new(),
+                depth: 0,
                 feed_count: category.feed_count,
                 active: Some(category_id) == context.selected,
                 href: articles_url(
                     None,
                     Some(category_id),
+                    false,
                     context.tag,
                     context.unread,
                     context.sort,
@@ -457,7 +444,8 @@ pub async fn list(
     let unread_only = unread_param || !prefs.show_read_articles;
     let offset = q.offset.unwrap_or(0).max(0);
     let feed_id = q.feed;
-    let category_id = q.category;
+    let unfiled = q.unfiled.as_deref() == Some("1");
+    let category_id = if unfiled { None } else { q.category };
     if let Some(category_id) = category_id {
         if !categories::belongs_to_user(state.db.pool(), user.id, category_id).await? {
             return Err(AppError::NotFound);
@@ -473,6 +461,7 @@ pub async fn list(
     let filter = articles::LibraryFilter {
         feed_id,
         category_id,
+        unfiled,
         tag: tag.as_deref(),
     };
     let (article_views, has_next) = if sort == "relevance" {
@@ -493,14 +482,17 @@ pub async fn list(
             .find(|category| category.id == category_id)
             .map(|category| category.name.as_str())
     });
-    let category_scope = category_scope_ids(&category_records, category_id);
-    let scope_label = match (category_name, tag.as_deref()) {
-        (Some(category), Some(tag)) => format!("{category} · #{tag}"),
-        (Some(category), None) => format!("Folder: {category}"),
-        (None, Some(tag)) => format!("Tag: #{tag}"),
-        (None, None) if unread_only => "Unread only".to_string(),
-        (None, None) if sort == "relevance" => "Personalized".to_string(),
-        (None, None) => "Most recent".to_string(),
+    let scope_label = if unfiled {
+        "Unfiled".to_string()
+    } else {
+        match (category_name, tag.as_deref()) {
+            (Some(category), Some(tag)) => format!("{category} · #{tag}"),
+            (Some(category), None) => format!("Folder: {category}"),
+            (None, Some(tag)) => format!("Tag: #{tag}"),
+            (None, None) if unread_only => "Unread only".to_string(),
+            (None, None) if sort == "relevance" => "Personalized".to_string(),
+            (None, None) => "Most recent".to_string(),
+        }
     };
     let organizations: HashMap<Uuid, subscriptions::FeedOrganization> = organizations
         .into_iter()
@@ -512,34 +504,13 @@ pub async fn list(
     let mut unfiled_feeds = Vec::new();
     for feed in feed_records {
         let organization = organizations.get(&feed.id);
-        let in_category = category_id.is_none_or(|_| {
-            organization.is_some_and(|organization| {
-                organization
-                    .category_id
-                    .is_some_and(|category_id| category_scope.contains(&category_id))
-            })
-        });
-        let has_tag = tag.as_ref().is_none_or(|tag| {
-            organization
-                .is_some_and(|organization| organization.tags.iter().any(|value| value == tag))
-        });
-        if !in_category || !has_tag {
-            continue;
-        }
         let id = feed.id;
         let nav = FeedNav {
             id: id.to_string(),
             initial: feed_initial(&feed.name),
             has_icon: icon_ids.contains(&id),
             active: Some(id) == feed_id,
-            href: articles_url(
-                Some(id),
-                category_id,
-                tag.as_deref(),
-                unread_param,
-                sort,
-                None,
-            ),
+            href: articles_url(Some(id), None, false, None, unread_param, sort, None),
             name: feed.name,
         };
         if let Some(folder_id) = organization.and_then(|organization| organization.category_id) {
@@ -562,6 +533,7 @@ pub async fn list(
             let href = articles_url(
                 None,
                 category_id,
+                false,
                 Some(&tag_record.name),
                 unread_param,
                 sort,
@@ -579,6 +551,7 @@ pub async fn list(
     let back_url = articles_url(
         feed_id,
         category_id,
+        unfiled,
         tag.as_deref(),
         unread_param,
         sort,
@@ -596,13 +569,39 @@ pub async fn list(
         folders,
         unfiled_feeds,
         tags,
-        recent_url: articles_url(None, category_id, tag.as_deref(), false, "recent", None),
-        unread_url: articles_url(None, category_id, tag.as_deref(), true, "recent", None),
-        relevance_url: articles_url(None, category_id, tag.as_deref(), false, "relevance", None),
+        recent_url: articles_url(
+            None,
+            category_id,
+            unfiled,
+            tag.as_deref(),
+            false,
+            "recent",
+            None,
+        ),
+        unread_url: articles_url(
+            None,
+            category_id,
+            unfiled,
+            tag.as_deref(),
+            true,
+            "recent",
+            None,
+        ),
+        relevance_url: articles_url(
+            None,
+            category_id,
+            unfiled,
+            tag.as_deref(),
+            false,
+            "relevance",
+            None,
+        ),
+        unfiled_url: articles_url(None, None, true, None, unread_param, sort, None),
         scope_label,
         feed_filter: feed_id.map(|feed_id| feed_id.to_string()),
         category_filter: category_id.map(|category_id| category_id.to_string()),
         tag_filter: tag.clone(),
+        unfiled_only: unfiled,
         unread_only,
         reading_mode: prefs.reading_mode,
         side_panel,
@@ -613,6 +612,7 @@ pub async fn list(
         prev_url: articles_url(
             feed_id,
             category_id,
+            unfiled,
             tag.as_deref(),
             unread_param,
             sort,
@@ -621,6 +621,7 @@ pub async fn list(
         next_url: articles_url(
             feed_id,
             category_id,
+            unfiled,
             tag.as_deref(),
             unread_param,
             sort,
@@ -1115,7 +1116,9 @@ pub async fn mark_all_read(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
-    if let Some(category_id) = form.category {
+    let unfiled = form.unfiled.as_deref() == Some("1");
+    let category_id = if unfiled { None } else { form.category };
+    if let Some(category_id) = category_id {
         if !categories::belongs_to_user(state.db.pool(), user.id, category_id).await? {
             return Err(AppError::NotFound);
         }
@@ -1125,7 +1128,8 @@ pub async fn mark_all_read(
         state.db.pool(),
         user.id,
         form.feed,
-        form.category,
+        category_id,
+        unfiled,
         tag.as_deref(),
     )
     .await?;
