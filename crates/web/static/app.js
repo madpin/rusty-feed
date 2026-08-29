@@ -387,6 +387,47 @@
       });
   }
 
+  function toggleLiveView(button) {
+    var article = button.closest("article");
+    var reader = article ? article.querySelector("[data-reader-view-content]") : null;
+    var live = article ? article.querySelector("[data-live-view]") : null;
+    var frame = live ? live.querySelector("[data-live-view-frame]") : null;
+    if (!reader || !live || !frame) return;
+    var showLive = button.getAttribute("aria-expanded") !== "true";
+    if (showLive) {
+      var source = frame.getAttribute("data-live-src");
+      if (!source) return;
+      live.hidden = false;
+      reader.hidden = true;
+      live.setAttribute("aria-busy", "true");
+      frame.addEventListener("load", function () {
+        if (!live.hidden) live.removeAttribute("aria-busy");
+      }, { once: true });
+      frame.addEventListener("error", function () {
+        if (!live.hidden) {
+          live.removeAttribute("aria-busy");
+          announce("Live view could not be loaded. Open the original article in a new tab.", true);
+        }
+      }, { once: true });
+      frame.setAttribute("src", source);
+    } else {
+      frame.removeAttribute("src");
+      live.hidden = true;
+      live.removeAttribute("aria-busy");
+      reader.hidden = false;
+    }
+    button.setAttribute("aria-expanded", String(showLive));
+    button.textContent = showLive ? "Reader view" : "Live view";
+    announce(showLive ? "Live view opened." : "Reader view restored.", false);
+  }
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-live-view-toggle]") : null;
+    if (!button) return;
+    event.preventDefault();
+    toggleLiveView(button);
+  });
+
   // In-place article actions (mark read/unread, save/unsave, mark all read).
   document.addEventListener("submit", function (event) {
     var form = event.target;
@@ -651,7 +692,7 @@
     }
     if (event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229) return;
     if (document.querySelector(".account-menu[open], dialog[open]")) return;
-    if (event.target.closest && event.target.closest("input, textarea, select, button, summary, [contenteditable], [role='textbox'], [role='combobox'], audio, video")) return;
+    if (event.target.closest && event.target.closest("input, textarea, select, button, summary, iframe, [contenteditable], [role='textbox'], [role='combobox'], audio, video")) return;
     var root = document.documentElement;
     if (root.getAttribute("data-shortcuts-enabled") !== "true") return;
     var shortcut = shortcutFromEvent(event);

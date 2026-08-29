@@ -7,9 +7,14 @@
   <p class="eyebrow">{{ feed_name }}</p>
   <h1>{{ title }}</h1>
   <div class="reader-meta">
-    {% if let Some(when) = published %}{{ when }} · {% endif %}
+    {% if let Some(when) = published %}<span>{{ when }}</span>{% endif %}
+    {% if let Some(url) = url %}
     <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
-    {% if let Some(comments_url) = comments_url %} · <a href="{{ comments_url }}" target="_blank" rel="noopener noreferrer">Open comments</a>{% endif %}
+    <button type="button" class="button-quiet live-view-toggle" data-live-view-toggle aria-controls="live-view-{{ id }}" aria-expanded="false">Live view</button>
+    {% else %}
+    <span>Original link unavailable</span>
+    {% endif %}
+    {% if let Some(comments_url) = comments_url %}<a href="{{ comments_url }}" target="_blank" rel="noopener noreferrer">Open comments</a>{% endif %}
   </div>
   {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
   {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
@@ -50,30 +55,42 @@
     </form>
   </div>
 
-  {% if let Some(text) = summary %}
-  <div class="summary-box">
-    <h2>AI summary</h2>
-    <p>{{ text }}</p>
-    {% if !key_points.is_empty() %}
-    <ul>{% for p in key_points %}<li>{{ p }}</li>{% endfor %}</ul>
+  <div data-reader-view-content>
+    {% if let Some(text) = summary %}
+    <div class="summary-box">
+      <h2>AI summary</h2>
+      <p>{{ text }}</p>
+      {% if !key_points.is_empty() %}
+      <ul>{% for p in key_points %}<li>{{ p }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if !topics.is_empty() %}
+      <p class="muted">Topics: {% for t in topics %}<span class="badge">{{ t }}</span> {% endfor %}</p>
+      {% endif %}
+    </div>
+    {% else if can_summarize %}
+    <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-success-message="AI summary queued. Refresh this article shortly.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="/articles/{{ id }}" />
+      <button type="submit" class="primary">Generate AI summary</button>
+      <span class="muted">The summary is prepared in the background.</span>
+    </form>
+    {% else %}
+    <div class="summary-action"><button type="button" disabled title="An administrator must configure an LLM provider before summaries can be generated.">AI summary unavailable</button><span class="muted">Configure an LLM provider to enable article summaries.</span></div>
     {% endif %}
-    {% if !topics.is_empty() %}
-    <p class="muted">Topics: {% for t in topics %}<span class="badge">{{ t }}</span> {% endfor %}</p>
-    {% endif %}
-  </div>
-  {% else if can_summarize %}
-  <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-success-message="AI summary queued. Refresh this article shortly.">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <input type="hidden" name="next" value="/articles/{{ id }}" />
-    <button type="submit" class="primary">Generate AI summary</button>
-    <span class="muted">The summary is prepared in the background.</span>
-  </form>
-  {% else %}
-  <div class="summary-action"><button type="button" disabled title="An administrator must configure an LLM provider before summaries can be generated.">AI summary unavailable</button><span class="muted">Configure an LLM provider to enable article summaries.</span></div>
-  {% endif %}
 
-  <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}">
-    {{ content|safe }}
+    <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}">
+      {{ content|safe }}
+    </div>
   </div>
+
+  {% if let Some(url) = url %}
+  <section class="live-view" id="live-view-{{ id }}" data-live-view aria-label="Live publisher view" hidden>
+    <div class="live-view-toolbar">
+      <p id="live-view-note-{{ id }}"><strong>Live view</strong> loads the publisher page directly in a restricted frame. The publisher or browser may block it; use Open original if it does not appear.</p>
+      <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
+    </div>
+    <iframe class="live-view-frame" data-live-view-frame data-live-src="{{ url }}" title="Live publisher view: {{ title }}" sandbox="allow-scripts" referrerpolicy="no-referrer" credentialless loading="lazy" aria-describedby="live-view-note-{{ id }}"></iframe>
+  </section>
+  {% endif %}
 </article>
 {% endblock %}

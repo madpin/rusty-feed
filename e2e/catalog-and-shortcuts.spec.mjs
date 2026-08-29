@@ -126,6 +126,42 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await expect(page.locator("html")).toHaveAttribute("data-sidebar-collapsed", "false");
 });
 
+test("live view defers and clears the publisher frame", async ({ page }) => {
+  await page.goto("/login");
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  await page.setContent(`
+    <article>
+      <button type="button" data-live-view-toggle aria-controls="live-view-test" aria-expanded="false">Live view</button>
+      <div data-reader-view-content>Saved reader content</div>
+      <section id="live-view-test" data-live-view hidden>
+        <iframe data-live-view-frame data-live-src="https://example.invalid/live"></iframe>
+      </section>
+    </article>
+    <div id="action-status" role="status"></div>
+  `);
+  await page.addScriptTag({ url: scriptUrl });
+
+  const toggle = page.locator("[data-live-view-toggle]");
+  const reader = page.locator("[data-reader-view-content]");
+  const live = page.locator("[data-live-view]");
+  const frame = page.locator("[data-live-view-frame]");
+  await expect(frame).not.toHaveAttribute("src");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toHaveText("Reader view");
+  await expect(reader).toBeHidden();
+  await expect(live).toBeVisible();
+  await expect(frame).toHaveAttribute("src", "https://example.invalid/live");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveText("Live view");
+  await expect(reader).toBeVisible();
+  await expect(live).toBeHidden();
+  await expect(frame).not.toHaveAttribute("src");
+});
+
 test.describe("catalog preview without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
 

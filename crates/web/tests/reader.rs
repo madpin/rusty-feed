@@ -410,6 +410,19 @@ async fn reading_actions_and_detail_work() {
     assert!(body.contains("AI summary unavailable"));
     assert!(body.contains("Body text"));
     assert!(body.contains("https://ex.com/cover.png"));
+    assert!(body.contains("data-live-view-toggle"));
+    assert!(body.contains("data-reader-view-content"));
+    assert!(body.contains("data-live-view"));
+    let frame_tag = body
+        .split("<iframe")
+        .nth(1)
+        .and_then(|fragment| fragment.split('>').next())
+        .expect("reader should render a live-view frame");
+    assert!(frame_tag.contains("data-live-src=\"https://ex.com/"));
+    assert!(frame_tag.contains("sandbox=\"allow-scripts\""));
+    assert!(frame_tag.contains("referrerpolicy=\"no-referrer\""));
+    assert!(frame_tag.contains("credentialless"));
+    assert!(!frame_tag.contains(" src="));
     assert!(
         !body.contains("<script>alert(1)"),
         "content must be sanitized"
@@ -431,6 +444,84 @@ async fn reading_actions_and_detail_work() {
     assert!(panel.contains("data-panel-read=\"true\""));
     assert!(panel.contains("Hello World Article"));
     assert!(panel.contains("Open comments"));
+    assert!(panel.contains("data-live-view-toggle"));
+    assert!(panel.contains("data-reader-view-content"));
+    let panel_frame_tag = panel
+        .split("<iframe")
+        .nth(1)
+        .and_then(|fragment| fragment.split('>').next())
+        .expect("panel should render a live-view frame");
+    assert!(panel_frame_tag.contains("data-live-src=\"https://ex.com/"));
+    assert!(panel_frame_tag.contains("sandbox=\"allow-scripts\""));
+    assert!(panel_frame_tag.contains("referrerpolicy=\"no-referrer\""));
+    assert!(panel_frame_tag.contains("credentialless"));
+    assert!(!panel_frame_tag.contains(" src="));
+}
+
+#[tokio::test]
+async fn article_detail_omits_unsafe_original_urls() {
+    use rustss_db::models::NewArticle;
+    use rustss_db::{articles, feeds, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "Unsafe URL Feed",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let unsafe_url = format!("javascript:alert({})", uuid::Uuid::now_v7());
+    let (article, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: unsafe_url.clone(),
+            comments_url: None,
+            guid: None,
+            title: "Unsafe source".into(),
+            author: None,
+            content: "<p>Safe stored content</p>".into(),
+            excerpt: None,
+            image_url: None,
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    for endpoint in [
+        format!("/articles/{}", article.id),
+        format!("/articles/{}/panel", article.id),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(endpoint)
+                    .header("cookie", format!("rustss_sid={sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response).await;
+        assert!(body.contains("Original link unavailable"));
+        assert!(!body.contains(&unsafe_url));
+        assert!(!body.contains("data-live-view-toggle"));
+        assert!(!body.contains("data-live-view-frame"));
+    }
 }
 
 #[tokio::test]

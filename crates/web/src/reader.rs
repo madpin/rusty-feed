@@ -123,7 +123,7 @@ struct ArticleTemplate {
     id: String,
     title: String,
     feed_name: String,
-    url: String,
+    url: Option<String>,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
@@ -146,7 +146,7 @@ struct ArticlePanelTemplate {
     id: String,
     title: String,
     feed_name: String,
-    url: String,
+    url: Option<String>,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
@@ -166,7 +166,7 @@ struct ReaderView {
     id: String,
     title: String,
     feed_name: String,
-    url: String,
+    url: Option<String>,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
@@ -242,11 +242,28 @@ fn safe_external_url(value: Option<&str>) -> Option<String> {
     let value = value?;
     let mut url = url::Url::parse(value).ok()?;
     if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
     {
         return None;
+    }
+    match url.host()? {
+        url::Host::Domain(host)
+            if host.trim_end_matches('.').eq_ignore_ascii_case("localhost")
+                || host
+                    .trim_end_matches('.')
+                    .to_ascii_lowercase()
+                    .ends_with(".localhost") =>
+        {
+            return None;
+        }
+        url::Host::Ipv4(ip) if !rustss_feeds::is_global_ip(&std::net::IpAddr::V4(ip)) => {
+            return None;
+        }
+        url::Host::Ipv6(ip) if !rustss_feeds::is_global_ip(&std::net::IpAddr::V6(ip)) => {
+            return None;
+        }
+        _ => {}
     }
     url.set_fragment(None);
     Some(url.to_string())
@@ -889,7 +906,7 @@ async fn reader_view(
         title: article.title,
         feed_name,
         image_url: safe_external_url(article.image_url.as_deref()),
-        url: article.url.clone(),
+        url: safe_external_url(Some(&article.url)),
         comments_url: safe_external_url(article.comments_url.as_deref())
             .filter(|comments_url| comments_url != &article.url),
         published: article.published_at.map(|d| d.date().to_string()),
@@ -1113,4 +1130,33 @@ pub async fn mark_all_read(
     )
     .await?;
     Ok(action_response(is_ajax, form.next))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_external_url;
+
+    #[test]
+    fn external_urls_reject_unsafe_origins_and_strip_fragments() {
+        assert_eq!(
+            safe_external_url(Some("https://example.com/article#section")).as_deref(),
+            Some("https://example.com/article")
+        );
+        for url in [
+            "javascript:alert(1)",
+            "data:text/html,hello",
+            "file:///etc/passwd",
+            "https://user:password@example.com/article",
+            "https://localhost/article",
+            "https://reader.localhost/article",
+            "https://127.0.0.1/article",
+            "https://[::1]/article",
+            "https://169.254.169.254/latest/meta-data",
+        ] {
+            assert!(
+                safe_external_url(Some(url)).is_none(),
+                "{url} should be rejected"
+            );
+        }
+    }
 }
