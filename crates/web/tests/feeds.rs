@@ -13,7 +13,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use rustss_agents::{Agent, AgentContext, FetchFeedAgent};
 use rustss_cache::Cache;
-use rustss_db::{feeds, jobs, subscriptions, users, Db};
+use rustss_db::{
+    articles, categories, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle,
+};
 use rustss_feeds::SafeFetchClient;
 use rustss_web::{router, AppSettings, AppState};
 use serde_json::json;
@@ -298,6 +300,226 @@ async fn admin_can_set_shared_article_page_policy() {
             .await
             .unwrap(),
         1
+    );
+}
+
+#[tokio::test]
+async fn users_organize_feeds_into_multiple_folders_and_tags() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    );
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let user = users::find_by_email(state.db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!(
+            "https://organization-ui.example/{}.xml",
+            uuid::Uuid::now_v7()
+        ),
+        "Organized feed",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(state.db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&response), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/categories")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}&name=Work")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let work = categories::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|category| category.name == "Work")
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/categories")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&name=Research&parent_id={}",
+                    work.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let research = categories::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|category| category.name == "Research")
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/feeds/{}/organization", feed.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&tags=Rust%2C+Work&category_id={}&category_id={}",
+                    work.id, research.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    assert!(body.contains("Feed organization saved."));
+    assert!(body.contains("Folders: Work, Work / Research"));
+    assert!(body.contains("#rust"));
+    let mut organizations = subscriptions::list_organization(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    let organization = organizations.pop().unwrap();
+    assert_eq!(
+        organization.tags,
+        vec!["rust".to_string(), "work".to_string()]
+    );
+    assert_eq!(organization.category_ids, vec![research.id, work.id]);
+
+    articles::upsert(
+        state.db.pool(),
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!(
+                "https://organization-ui.example/article/{}",
+                uuid::Uuid::now_v7()
+            ),
+            guid: None,
+            title: "Folder article".to_string(),
+            author: None,
+            content: "body".to_string(),
+            excerpt: None,
+            image_url: None,
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles?category={}", work.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = body_string(response).await;
+    assert!(body.contains("Folder: Work"));
+    assert!(body.contains("Folder article"));
+    let other_user = users::create(
+        state.db.pool(),
+        &format!("foreign-folder-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let foreign = categories::create(state.db.pool(), other_user.id, "Foreign", None)
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles?category={}", foreign.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let icon = vec![0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 1];
+    feed_icons::record_success(
+        state.db.pool(),
+        feed.id,
+        "https://organization-ui.example/icon.png",
+        "image/png",
+        &icon,
+    )
+    .await
+    .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = body_string(response).await;
+    assert!(body.contains(&format!("/feeds/{}/icon", feed.id)));
+    assert!(!body.contains("https://organization-ui.example/icon.png"));
+    let response = app
+        .oneshot(
+            Request::get(format!("/feeds/{}/icon", feed.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/png");
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    assert_eq!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        icon
     );
 }
 

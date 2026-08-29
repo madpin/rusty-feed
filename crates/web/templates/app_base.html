@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ theme }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" data-shortcuts-enabled="{{ ui.shortcuts.enabled }}" data-shortcut-next-article="{{ ui.shortcuts.next_article }}" data-shortcut-previous-article="{{ ui.shortcuts.previous_article }}" data-shortcut-save-article="{{ ui.shortcuts.save_article }}" data-shortcut-mark-unread="{{ ui.shortcuts.mark_unread }}" data-shortcut-next-feed="{{ ui.shortcuts.next_feed }}" data-shortcut-previous-feed="{{ ui.shortcuts.previous_feed }}" style="--sidebar-width: {{ ui.sidebar_width }}rem; --reader-panel-width: {{ ui.reader_panel_width }}%;">
+<html lang="en" data-theme="{{ theme }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" data-shortcuts-enabled="{{ ui.shortcuts.enabled }}" data-shortcut-next-article="{{ ui.shortcuts.next_article }}" data-shortcut-previous-article="{{ ui.shortcuts.previous_article }}" data-shortcut-save-article="{{ ui.shortcuts.save_article }}" data-shortcut-mark-unread="{{ ui.shortcuts.mark_unread }}" data-shortcut-next-feed="{{ ui.shortcuts.next_feed }}" data-shortcut-previous-feed="{{ ui.shortcuts.previous_feed }}" data-sidebar-collapsed="{{ ui.sidebar_collapsed }}" style="--sidebar-width: {{ ui.sidebar_width }}rem; --reader-panel-width: {{ ui.reader_panel_width }}%;">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -37,7 +37,7 @@
       </details>
     </header>
     <div class="layout {% block layout_class %}no-context-sidebar{% endblock %}">
-      <aside class="sidebar">{% block sidebar %}{% endblock %}</aside>
+      <aside class="sidebar" id="library-sidebar">{% block sidebar %}{% endblock %}</aside>
       <main class="content" id="main-content">{% block content %}{% endblock %}</main>
     </div>
     <div id="action-status" class="action-status" role="status" aria-live="polite"></div>

@@ -148,7 +148,7 @@ async fn preferences_save_roundtrip() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "theme=ocean&reading_mode=side-panel&articles_per_page=30&article_density=compact&reader_font_size=large&reader_line_height=airy&sidebar_width=19&reader_panel_width=61&shortcuts_enabled=true&shortcut_next_article=ArrowDown&shortcut_previous_article=ArrowUp&csrf_token={csrf}"
+                    "theme=ocean&reading_mode=side-panel&articles_per_page=30&article_density=compact&reader_font_size=large&reader_line_height=airy&sidebar_width=19&sidebar_collapsed=true&reader_panel_width=61&shortcuts_enabled=true&shortcut_next_article=ArrowDown&shortcut_previous_article=ArrowUp&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
@@ -159,6 +159,7 @@ async fn preferences_save_roundtrip() {
     assert!(body.contains("Preferences saved"));
     assert!(body.contains("data-theme=\"ocean\""));
     assert!(body.contains("--sidebar-width: 19rem"));
+    assert!(body.contains("data-sidebar-collapsed=\"true\""));
     assert!(body.contains("--reader-panel-width: 61%"));
     assert!(body.contains("data-shortcut-next-article=\"ArrowDown\""));
 
@@ -178,6 +179,7 @@ async fn preferences_save_roundtrip() {
     assert_eq!(stored["reader_font_size"], "large");
     assert_eq!(stored["reader_line_height"], "airy");
     assert_eq!(stored["sidebar_width"], 19);
+    assert_eq!(stored["sidebar_collapsed"], true);
     assert_eq!(stored["reader_panel_width"], 61);
     assert_eq!(stored["shortcuts"]["enabled"], true);
     assert_eq!(stored["shortcuts"]["next_article"], "ArrowDown");
@@ -192,7 +194,7 @@ async fn preferences_save_roundtrip() {
                 .header("x-requested-with", "fetch")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "csrf_token={csrf}&reader_panel_width=45"
+                    "csrf_token={csrf}&reader_panel_width=45&sidebar_collapsed=false"
                 )))
                 .unwrap(),
         )
@@ -204,6 +206,7 @@ async fn preferences_save_roundtrip() {
         .unwrap()
         .unwrap();
     assert_eq!(stored["theme"], "ocean");
+    assert_eq!(stored["sidebar_collapsed"], false);
     assert_eq!(stored["reader_panel_width"], 45);
 }
 

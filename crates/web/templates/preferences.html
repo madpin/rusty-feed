@@ -38,6 +38,10 @@
         <input type="number" name="sidebar_width" min="13" max="24" value="{{ prefs_sidebar_width }}" required />
       </label>
     </div>
+    <label class="check-row">
+      <input type="checkbox" name="sidebar_collapsed" value="true"{% if prefs_sidebar_collapsed %} checked{% endif %} />
+      <span>Start the Library with a reduced sidebar</span>
+    </label>
   </fieldset>
 
   <fieldset>

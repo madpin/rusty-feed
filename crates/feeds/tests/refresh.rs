@@ -24,6 +24,15 @@ fn rss(run: &str) -> String {
     )
 }
 
+fn rss_with_icon(run: &str, icon_url: &str) -> String {
+    rss(run).replace(
+        "<item><title>One</title>",
+        &format!(
+            "<image><url>{icon_url}</url><title>Mock News</title><link>https://mock.example</link></image>\n  <item><title>One</title>"
+        ),
+    )
+}
+
 #[tokio::test]
 async fn fetch_returns_body_and_validators() {
     let server = MockServer::start().await;
@@ -119,4 +128,110 @@ async fn refresh_ingests_articles() {
         .await
         .unwrap();
     assert_eq!(arts.len(), 2);
+}
+
+#[tokio::test]
+async fn refresh_downloads_a_declared_feed_icon() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let run = uuid::Uuid::now_v7().to_string();
+    let server = MockServer::start().await;
+    let icon = vec![
+        0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 1, 2, 3,
+    ];
+    Mock::given(method("GET"))
+        .and(path("/icon.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(icon.clone()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/feed.xml"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(rss_with_icon(&run, &format!("{}/icon.png", server.uri()))),
+        )
+        .mount(&server)
+        .await;
+
+    let (feed, _) = rustss_db::feeds::upsert_by_url(
+        db.pool(),
+        &format!("{}/feed.xml?run={run}", server.uri()),
+        "Mock News",
+        None,
+    )
+    .await
+    .unwrap();
+    let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
+    refresh_feed(&db, &client, &feed).await.unwrap();
+
+    let stored = rustss_db::feed_icons::get(db.pool(), feed.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.content_type, "image/png");
+    assert_eq!(stored.content, icon);
+    assert_eq!(
+        rustss_db::feeds::find_by_id(db.pool(), feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .image_url,
+        Some(format!("{}/icon.png", server.uri()))
+    );
+}
+
+#[tokio::test]
+async fn feeds_missing_an_icon_attempt_are_queued_for_backfill() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let user = rustss_db::users::create(
+        db.pool(),
+        &format!("icon-backfill-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let (feed, _) = rustss_db::feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://icon-backfill.example/{}.xml", uuid::Uuid::now_v7()),
+        "Icon backfill",
+        None,
+    )
+    .await
+    .unwrap();
+    rustss_db::subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+    rustss_db::feeds::record_fetch_success(db.pool(), feed.id, None, None)
+        .await
+        .unwrap();
+    assert!(rustss_db::feeds::list_due(db.pool(), 10_000)
+        .await
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate.id == feed.id));
+    rustss_db::feed_icons::record_failure(
+        db.pool(),
+        feed.id,
+        "https://icon-backfill.example/favicon.ico",
+        "not found",
+    )
+    .await
+    .unwrap();
+    assert!(!rustss_db::feeds::list_due(db.pool(), 10_000)
+        .await
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate.id == feed.id));
 }

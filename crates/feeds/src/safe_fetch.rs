@@ -108,7 +108,14 @@ impl SafeFetchClient {
             .user_agent(USER_AGENT)
             .timeout(timeout)
             .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(5))
+            .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                if attempt.previous().len() >= 5 || !allows_redirect(attempt.url(), allow_private) {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            }))
+            .no_proxy()
             .dns_resolver(Arc::new(SafeResolver { allow_private }))
             .build()
             .map_err(FeedError::Http)?;
@@ -125,9 +132,13 @@ impl SafeFetchClient {
 
     /// Validate a URL for this client (scheme + IP-literal policy).
     pub fn validate_url(&self, url: &str) -> Result<(), FeedError> {
+        let parsed = url::Url::parse(url).map_err(|_| FeedError::InvalidUrl(url.to_string()))?;
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err(FeedError::InvalidUrl(
+                "URL credentials are not allowed".to_string(),
+            ));
+        }
         if self.allow_private {
-            let parsed =
-                url::Url::parse(url).map_err(|_| FeedError::InvalidUrl(url.to_string()))?;
             return match parsed.scheme() {
                 "http" | "https" => Ok(()),
                 other => Err(FeedError::UnsupportedScheme(other.to_string())),
@@ -135,6 +146,13 @@ impl SafeFetchClient {
         }
         ensure_http_scheme(url)
     }
+}
+
+fn allows_redirect(url: &url::Url, allow_private: bool) -> bool {
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+    allow_private || ensure_http_scheme(url.as_str()).is_ok()
 }
 
 impl Default for SafeFetchClient {
@@ -149,6 +167,11 @@ impl Default for SafeFetchClient {
 /// [`SafeResolver`] at connect time.
 pub fn ensure_http_scheme(url: &str) -> Result<(), FeedError> {
     let parsed = url::Url::parse(url).map_err(|_| FeedError::InvalidUrl(url.to_string()))?;
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(FeedError::InvalidUrl(
+            "URL credentials are not allowed".to_string(),
+        ));
+    }
     match parsed.scheme() {
         "http" | "https" => {}
         other => return Err(FeedError::UnsupportedScheme(other.to_string())),
@@ -213,6 +236,23 @@ mod tests {
         assert!(ensure_http_scheme("http://127.0.0.1/feed").is_err());
         assert!(ensure_http_scheme("http://169.254.169.254/latest/meta-data").is_err());
         assert!(ensure_http_scheme("http://[::1]/feed").is_err());
+        assert!(ensure_http_scheme("https://user:pass@example.com/feed").is_err());
         assert!(ensure_http_scheme("http://1.1.1.1/feed").is_ok());
+    }
+
+    #[test]
+    fn redirect_policy_rejects_private_literals_and_credentials() {
+        assert!(!allows_redirect(
+            &url::Url::parse("http://127.0.0.1/private").unwrap(),
+            false
+        ));
+        assert!(!allows_redirect(
+            &url::Url::parse("https://user:pass@example.com/private").unwrap(),
+            false
+        ));
+        assert!(allows_redirect(
+            &url::Url::parse("https://example.com/next").unwrap(),
+            false
+        ));
     }
 }

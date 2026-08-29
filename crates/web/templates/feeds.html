@@ -32,10 +32,33 @@
 </section>
 
 <section class="panel">
+  <h2>Folders and categories</h2>
+  <p class="muted">Folders are personal. A feed can belong to more than one folder, and folders can be nested.</p>
+  <form method="post" action="/feeds/categories" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Folder name
+      <input type="text" name="name" maxlength="80" placeholder="Technology" required />
+    </label>
+    <label>Parent folder
+      <select name="parent_id">
+        <option value="">Top-level folder</option>
+        {% for category in categories %}<option value="{{ category.id }}">{{ category.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="form-actions"><button type="submit">Create folder</button></div>
+  </form>
+  {% if !categories.is_empty() %}
+  <div class="folder-summary" aria-label="Your folders">
+    {% for category in categories %}<span class="badge">{{ category.name }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel">
   <div class="section-heading">
     <div>
       <h2>Your feeds</h2>
-      <p class="muted">Content source policy is shared so each publication is fetched and enriched once for every subscriber.</p>
+      <p class="muted">Feed icons are downloaded from feed metadata when available, with a safe favicon fallback. Categories and tags stay personal while content remains shared.</p>
     </div>
   </div>
   {% if feeds.is_empty() %}
@@ -47,11 +70,19 @@
   <ul class="feed-list">
     {% for f in feeds %}
     <li class="feed-row">
-      <div>
-        <strong><a href="/articles?feed={{ f.id }}">{{ f.name }}</a></strong>
-        <span class="badge health-{{ f.health }}">{{ f.health }}</span>
-        <span class="badge content-mode-{{ f.content_mode }}">{{ f.content_mode_label }}</span>
-        <div class="meta">Refresh every {{ f.fetch_interval_minutes }} minutes · {{ f.url }}</div>
+      <div class="feed-summary">
+        <span class="feed-icon" aria-hidden="true">
+          <span class="feed-icon-fallback">{{ f.initial }}</span>
+          {% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}
+        </span>
+        <div>
+          <strong><a href="/articles?feed={{ f.id }}">{{ f.name }}</a></strong>
+          <span class="badge health-{{ f.health }}">{{ f.health }}</span>
+          <span class="badge content-mode-{{ f.content_mode }}">{{ f.content_mode_label }}</span>
+          <div class="meta">Refresh every {{ f.fetch_interval_minutes }} minutes · {{ f.url }}</div>
+          {% if !f.category_names.is_empty() %}<div class="feed-organization-meta">Folders: {{ f.category_names }}</div>{% endif %}
+          {% if !f.tags.is_empty() %}<div class="feed-tags">{% for tag in f.tags %}<span class="badge">#{{ tag }}</span>{% endfor %}</div>{% endif %}
+        </div>
       </div>
       <div class="feed-actions">
         <form method="post" action="/feeds/{{ f.id }}/refresh">
@@ -65,6 +96,28 @@
           <button type="submit" class="danger">Unsubscribe</button>
         </form>
       </div>
+      <details class="feed-organization">
+        <summary>Organize folders and tags</summary>
+        <form method="post" action="/feeds/{{ f.id }}/organization" class="stack">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <label>Tags
+            <input type="text" name="tags" value="{{ f.tags_input }}" maxlength="819" placeholder="technology, work, read later" />
+          </label>
+          {% if f.category_choices.is_empty() %}
+          <p class="muted">Create a folder above to place this feed in one or more categories.</p>
+          {% else %}
+          <fieldset>
+            <legend>Folders</legend>
+            <div class="check-options">
+              {% for category in f.category_choices %}
+              <label class="check-row"><input type="checkbox" name="category_id" value="{{ category.id }}"{% if category.selected %} checked{% endif %} /> <span>{{ category.name }}</span></label>
+              {% endfor %}
+            </div>
+          </fieldset>
+          {% endif %}
+          <div class="form-actions"><button type="submit">Save organization</button></div>
+        </form>
+      </details>
     </li>
     {% endfor %}
   </ul>

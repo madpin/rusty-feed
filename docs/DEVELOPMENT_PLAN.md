@@ -283,6 +283,7 @@ DoD commit: `feat(llm): summarization + durable cost ledger + unified secrets`.
 Tasks:
 - [x] Curated feed magazine: starter sources, country/category/language facets, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
 - [x] Configurable keyboard shortcuts: capture/reset controls, server-side validation, and safe Library article/feed actions.
+- [x] Personal feed organization: nested folders, multi-folder assignment, normalized tags, scoped Library/mark-all-read filters, cached source icons, and a persisted reduced sidebar.
 - [ ] Feed health tracking (states, consecutive failures, auto-disable, error log, notifications) integrated with FetchFeedAgent.
 - [ ] Bulk feed operations (category/tags/settings/enable-disable/delete/refresh) with partial-failure + authz.
 - [ ] OPML import/export (categories preserved; category-selection import — fixes reference bug).

@@ -40,17 +40,38 @@ pub async fn is_read(pool: &PgPool, user_id: Uuid, article_id: Uuid) -> Result<b
     Ok(found.is_some())
 }
 
-/// Mark every article in the user's subscribed feeds as read. Returns the number
+/// Mark articles in the selected personal Library scope as read. Returns the number
 /// newly marked.
-pub async fn mark_all_read(pool: &PgPool, user_id: Uuid) -> Result<u64> {
+pub async fn mark_all_read(
+    pool: &PgPool,
+    user_id: Uuid,
+    feed_id: Option<Uuid>,
+    category_id: Option<Uuid>,
+    tag: Option<&str>,
+) -> Result<u64> {
     let res = sqlx::query(
-        "INSERT INTO read_articles (id, user_id, article_id) \
+        "WITH RECURSIVE category_scope(id) AS ( \
+             SELECT id FROM user_categories WHERE id = $3::uuid AND user_id = $1 \
+             UNION \
+             SELECT child.id FROM user_categories child \
+             JOIN category_scope scope ON child.parent_id = scope.id \
+             WHERE child.user_id = $1 \
+         ) \
+         INSERT INTO read_articles (id, user_id, article_id) \
          SELECT gen_random_uuid(), $1, a.id \
          FROM articles a \
          JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+         WHERE ($2::uuid IS NULL OR a.feed_id = $2) \
+           AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
+                JOIN category_scope scope ON scope.id = ufc.user_category_id \
+                WHERE ufc.user_feed_id = uf.id)) \
+           AND ($4::text IS NULL OR uf.tags @> ARRAY[$4]::text[]) \
          ON CONFLICT (user_id, article_id) DO NOTHING",
     )
     .bind(user_id)
+    .bind(feed_id)
+    .bind(category_id)
+    .bind(tag)
     .execute(pool)
     .await?;
     Ok(res.rows_affected())

@@ -52,6 +52,7 @@
     {% for entry in entries %}
     <article class="catalog-card{% if entry.featured %} featured{% endif %}{% if entry.subscribed %} subscribed{% endif %}">
       <div class="catalog-card-heading">
+        <span class="feed-icon catalog-feed-icon" aria-hidden="true"><span class="feed-icon-fallback">{{ entry.initial }}</span>{% if entry.has_icon %}<img src="/feeds/{{ entry.feed_id }}/icon" alt="" loading="lazy" />{% endif %}</span>
         <div>
           <p class="eyebrow">{{ entry.category }} · {{ entry.country }}</p>
           <h2>{{ entry.title }}</h2>

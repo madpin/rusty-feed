@@ -24,6 +24,24 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await page.getByRole("button", { name: "Subscribe to selected" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Subscribed to 2 source" })).toBeVisible();
 
+  await page.goto("/feeds");
+  await page.getByLabel("Folder name").fill("Browser folder");
+  await page.getByRole("button", { name: "Create folder" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Browser folder" })).toBeVisible();
+  const organization = page.locator(".feed-organization").first();
+  await organization.locator("summary").click();
+  await organization.getByLabel("Tags").fill("browser, e2e");
+  await organization.getByLabel("Browser folder").check();
+  await organization.getByRole("button", { name: "Save organization" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Feed organization saved" })).toBeVisible();
+  await page.goto("/articles");
+  const sidebar = page.locator("#library-sidebar");
+  await sidebar.getByRole("link", { name: "Browser folder", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Folder: Browser folder" })).toBeVisible();
+  await sidebar.getByRole("link", { name: "browser", exact: true }).click();
+  await expect(page).toHaveURL(/tag=browser/);
+  await expect(page.getByRole("heading", { name: "Browser folder · #browser" })).toBeVisible();
+
   const adminResponse = await page.goto("/admin");
   expect(adminResponse?.status()).toBe(403);
 
@@ -53,4 +71,16 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await page.getByLabel("Enable keyboard shortcuts").uncheck();
   await page.getByRole("button", { name: "Save preferences" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-shortcuts-enabled", "false");
+
+  await page.goto("/articles");
+  const expandedSidebarWidth = await sidebar.evaluate((element) => element.getBoundingClientRect().width);
+  const sidebarToggle = page.locator("[data-sidebar-toggle]").first();
+  await sidebarToggle.click();
+  await expect(page.locator("html")).toHaveAttribute("data-sidebar-collapsed", "true");
+  expect(await sidebar.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThan(expandedSidebarWidth);
+  await expect(page.locator("#action-status")).toContainText("Sidebar reduced.");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-sidebar-collapsed", "true");
+  await page.locator("[data-sidebar-toggle]").first().click();
+  await expect(page.locator("html")).toHaveAttribute("data-sidebar-collapsed", "false");
 });

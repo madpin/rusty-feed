@@ -12,6 +12,7 @@ use crate::error::FeedError;
 pub struct ParsedFeed {
     pub title: Option<String>,
     pub site_url: Option<String>,
+    pub icon_url: Option<String>,
     pub articles: Vec<NewArticle>,
 }
 
@@ -26,6 +27,12 @@ pub fn parse_feed(feed_id: Uuid, bytes: &[u8]) -> Result<ParsedFeed, FeedError> 
         .find(|l| l.rel.as_deref() == Some("alternate"))
         .or_else(|| feed.links.first())
         .map(|l| l.href.clone());
+    let icon_url = feed
+        .icon
+        .as_ref()
+        .or(feed.logo.as_ref())
+        .map(|image| image.uri.clone())
+        .filter(|url| !url.trim().is_empty());
 
     let mut articles = Vec::new();
     for entry in feed.entries {
@@ -96,6 +103,7 @@ pub fn parse_feed(feed_id: Uuid, bytes: &[u8]) -> Result<ParsedFeed, FeedError> 
     Ok(ParsedFeed {
         title,
         site_url,
+        icon_url,
         articles,
     })
 }
@@ -133,6 +141,7 @@ mod tests {
     <rss version="2.0"><channel>
       <title>Example</title>
       <link>https://example.com</link>
+      <image><url>https://example.com/icon.png</url><title>Example</title><link>https://example.com</link></image>
       <item>
         <title>First Post</title>
         <link>https://example.com/1</link>
@@ -145,12 +154,29 @@ mod tests {
     fn parses_rss_items() {
         let parsed = parse_feed(Uuid::now_v7(), RSS).unwrap();
         assert_eq!(parsed.title.as_deref(), Some("Example"));
+        assert_eq!(
+            parsed.icon_url.as_deref(),
+            Some("https://example.com/icon.png")
+        );
         assert_eq!(parsed.articles.len(), 1);
         let a = &parsed.articles[0];
         assert_eq!(a.url, "https://example.com/1");
         assert_eq!(a.title, "First Post");
         assert_eq!(a.guid.as_deref(), Some("guid-1"));
         assert_eq!(a.excerpt.as_deref(), Some("Hello world"));
+    }
+
+    #[test]
+    fn atom_icon_takes_precedence_over_logo() {
+        let atom = br#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+          <title>Example</title><icon>https://example.com/icon.png</icon><logo>https://example.com/logo.png</logo>
+          <entry><id>one</id><title>One</title><link href="https://example.com/one" /></entry>
+        </feed>"#;
+        let parsed = parse_feed(Uuid::now_v7(), atom).unwrap();
+        assert_eq!(
+            parsed.icon_url.as_deref(),
+            Some("https://example.com/icon.png")
+        );
     }
 
     #[test]

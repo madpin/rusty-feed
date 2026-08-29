@@ -201,6 +201,7 @@ pub struct Preferences {
     pub reader_font_size: String,
     pub reader_line_height: String,
     pub sidebar_width: u8,
+    pub sidebar_collapsed: bool,
     pub reader_panel_width: u8,
     pub shortcuts: KeyboardShortcuts,
 }
@@ -217,6 +218,7 @@ impl Default for Preferences {
             reader_font_size: "medium".to_string(),
             reader_line_height: "relaxed".to_string(),
             sidebar_width: 17,
+            sidebar_collapsed: false,
             reader_panel_width: 56,
             shortcuts: KeyboardShortcuts::default(),
         }
@@ -286,6 +288,7 @@ struct PreferencesTemplate {
     prefs_reader_font_size: String,
     prefs_reader_line_height: String,
     prefs_sidebar_width: u8,
+    prefs_sidebar_collapsed: bool,
     prefs_reader_panel_width: u8,
     saved: bool,
     error: Option<String>,
@@ -310,6 +313,8 @@ pub struct PrefsForm {
     #[serde(default)]
     sidebar_width: Option<u8>,
     #[serde(default)]
+    sidebar_collapsed: Option<String>,
+    #[serde(default)]
     reader_panel_width: Option<u8>,
     #[serde(default)]
     shortcuts_enabled: Option<String>,
@@ -332,6 +337,8 @@ pub struct LayoutForm {
     csrf_token: String,
     #[serde(default)]
     sidebar_width: Option<u8>,
+    #[serde(default)]
+    sidebar_collapsed: Option<String>,
     #[serde(default)]
     reader_panel_width: Option<u8>,
 }
@@ -364,6 +371,7 @@ fn preferences_template(
         prefs_reader_font_size: prefs.reader_font_size,
         prefs_reader_line_height: prefs.reader_line_height,
         prefs_sidebar_width: prefs.sidebar_width,
+        prefs_sidebar_collapsed: prefs.sidebar_collapsed,
         prefs_reader_panel_width: prefs.reader_panel_width,
         saved,
         error,
@@ -449,6 +457,7 @@ pub async fn save(
             .reader_line_height
             .unwrap_or(current.reader_line_height),
         sidebar_width: form.sidebar_width.unwrap_or(current.sidebar_width),
+        sidebar_collapsed: form.sidebar_collapsed.is_some(),
         reader_panel_width: form
             .reader_panel_width
             .unwrap_or(current.reader_panel_width),
@@ -478,12 +487,20 @@ pub async fn save_layout(
     if let Some(width) = form.sidebar_width {
         prefs.sidebar_width = width;
     }
+    if let Some(collapsed) = form.sidebar_collapsed.as_deref() {
+        prefs.sidebar_collapsed = match collapsed {
+            "true" => true,
+            "false" => false,
+            _ => return Err(AppError::Validation("Invalid sidebar state.".to_string())),
+        };
+    }
     if let Some(width) = form.reader_panel_width {
         prefs.reader_panel_width = width;
     }
     let prefs = prefs.sanitized();
     let patch = serde_json::json!({
         "sidebar_width": prefs.sidebar_width,
+        "sidebar_collapsed": prefs.sidebar_collapsed,
         "reader_panel_width": prefs.reader_panel_width,
     });
     user_preferences::upsert(state.db.pool(), user.id, &patch).await?;

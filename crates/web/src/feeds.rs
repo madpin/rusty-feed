@@ -2,8 +2,11 @@
 //! and unsubscribe. Content acquisition stays shared per feed, regardless of
 //! subscriber count.
 
+use std::collections::{HashMap, HashSet};
+
 use askama::Template;
 use axum::extract::{Path, State};
+use axum::http::header;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
@@ -11,7 +14,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use rustss_core::feed_content::{FeedContentMode, FeedContentSettings};
-use rustss_db::{articles, feeds, subscriptions, Feed};
+use rustss_db::{articles, catalog, categories, feed_icons, feeds, subscriptions, Feed};
 use rustss_feeds::{enqueue_fetch_feed, normalize_url};
 
 use crate::auth::csrf;
@@ -22,12 +25,32 @@ use crate::state::AppState;
 struct FeedRow {
     id: String,
     name: String,
+    initial: String,
+    has_icon: bool,
     url: String,
     health: String,
     content_mode: String,
     content_mode_label: String,
     fetch_interval_minutes: i32,
+    tags: Vec<String>,
+    tags_input: String,
+    category_names: String,
+    category_choices: Vec<CategoryChoice>,
     can_configure: bool,
+}
+
+#[derive(Clone)]
+struct CategoryOption {
+    id: String,
+    raw_id: Uuid,
+    name: String,
+}
+
+#[derive(Clone)]
+struct CategoryChoice {
+    id: String,
+    name: String,
+    selected: bool,
 }
 
 struct FeedSettingsView {
@@ -50,6 +73,7 @@ struct FeedsTemplate {
     ui: crate::prefs::Preferences,
     is_admin: bool,
     feeds: Vec<FeedRow>,
+    categories: Vec<CategoryOption>,
     message: Option<String>,
     error: Option<String>,
 }
@@ -79,6 +103,14 @@ pub struct CsrfForm {
 }
 
 #[derive(Deserialize)]
+pub struct CategoryForm {
+    csrf_token: String,
+    name: String,
+    #[serde(default)]
+    parent_id: String,
+}
+
+#[derive(Deserialize)]
 pub struct ContentSettingsForm {
     csrf_token: String,
     content_mode: String,
@@ -95,16 +127,138 @@ fn content_settings(feed: &Feed) -> FeedContentSettings {
     FeedContentSettings::from_json(feed.extraction_settings.as_ref())
 }
 
-fn feed_row(feed: Feed, can_configure: bool) -> FeedRow {
+fn feed_initial(name: &str) -> String {
+    name.chars()
+        .find(|character| character.is_alphanumeric())
+        .map(|character| character.to_uppercase().collect())
+        .unwrap_or_else(|| "•".to_string())
+}
+
+fn category_options(categories: &[categories::UserCategory]) -> Vec<CategoryOption> {
+    let by_id: HashMap<Uuid, &categories::UserCategory> = categories
+        .iter()
+        .map(|category| (category.id, category))
+        .collect();
+    categories
+        .iter()
+        .map(|category| {
+            let mut names = Vec::new();
+            let mut current = Some(category.id);
+            let mut visited = HashSet::new();
+            while let Some(id) = current {
+                let Some(category) = by_id.get(&id) else {
+                    break;
+                };
+                if !visited.insert(id) {
+                    break;
+                }
+                names.push(category.name.clone());
+                current = category.parent_id;
+            }
+            names.reverse();
+            CategoryOption {
+                id: category.id.to_string(),
+                raw_id: category.id,
+                name: names.join(" / "),
+            }
+        })
+        .collect()
+}
+
+fn normalize_tags(value: &str) -> Result<Vec<String>, String> {
+    let mut tags = Vec::new();
+    let mut seen = HashSet::new();
+    for tag in value.split([',', '\n']) {
+        let tag = tag.trim().to_lowercase();
+        if tag.is_empty() {
+            continue;
+        }
+        if tag.chars().count() > 40 || tag.chars().any(char::is_control) {
+            return Err("Each tag must be at most 40 printable characters.".to_string());
+        }
+        if seen.insert(tag.clone()) {
+            tags.push(tag);
+        }
+    }
+    if tags.len() > 20 {
+        return Err("Use at most 20 tags per feed.".to_string());
+    }
+    Ok(tags)
+}
+
+fn parse_organization_form(
+    values: Vec<(String, String)>,
+) -> Result<(String, Vec<String>, Vec<Uuid>), String> {
+    let mut csrf_token = None;
+    let mut tags = None;
+    let mut category_ids = Vec::new();
+    for (name, value) in values {
+        match name.as_str() {
+            "csrf_token" if csrf_token.is_none() => csrf_token = Some(value),
+            "tags" if tags.is_none() => tags = Some(value),
+            "category_id" => category_ids.push(
+                Uuid::parse_str(&value)
+                    .map_err(|_| "A selected folder was invalid.".to_string())?,
+            ),
+            _ => return Err("The feed organization could not be processed.".to_string()),
+        }
+    }
+    if category_ids.len() > 50 {
+        return Err("Use at most 50 folders per feed.".to_string());
+    }
+    let csrf_token =
+        csrf_token.ok_or_else(|| "The feed organization could not be processed.".to_string())?;
+    Ok((
+        csrf_token,
+        normalize_tags(tags.as_deref().unwrap_or_default())?,
+        category_ids,
+    ))
+}
+
+fn feed_row(
+    feed: Feed,
+    can_configure: bool,
+    organization: Option<&subscriptions::FeedOrganization>,
+    categories: &[CategoryOption],
+    has_icon: bool,
+) -> FeedRow {
     let settings = content_settings(&feed);
+    let category_ids = organization
+        .map(|organization| organization.category_ids.as_slice())
+        .unwrap_or_default();
+    let category_choices: Vec<_> = categories
+        .iter()
+        .map(|category| CategoryChoice {
+            id: category.id.clone(),
+            name: category.name.clone(),
+            selected: category_ids.contains(&category.raw_id),
+        })
+        .collect();
+    let mut category_names: Vec<_> = category_choices
+        .iter()
+        .filter(|category| category.selected)
+        .map(|category| category.name.as_str())
+        .collect();
+    category_names.sort();
+    let category_names = category_names.join(", ");
+    let tags = organization
+        .map(|organization| organization.tags.clone())
+        .unwrap_or_default();
+    let tags_input = tags.join(", ");
     FeedRow {
         id: feed.id.to_string(),
+        initial: feed_initial(&feed.name),
         name: feed.name,
         url: feed.url,
         health: feed.health_status,
         content_mode: settings.mode.as_str().to_string(),
         content_mode_label: settings.mode.label().to_string(),
         fetch_interval_minutes: feed.fetch_interval_minutes,
+        tags,
+        tags_input,
+        category_names,
+        category_choices,
+        has_icon,
         can_configure,
     }
 }
@@ -133,12 +287,33 @@ async fn render_page(
     error: Option<String>,
 ) -> Result<Response, AppError> {
     let ui = crate::prefs::load(&state.db, user_id).await;
-    let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
-    let feeds = feeds::list_for_user(state.db.pool(), user_id)
-        .await?
+    let (feed_records, category_records, organizations) = tokio::try_join!(
+        feeds::list_for_user(state.db.pool(), user_id),
+        categories::list_for_user(state.db.pool(), user_id),
+        subscriptions::list_organization(state.db.pool(), user_id),
+    )?;
+    let categories = category_options(&category_records);
+    let organizations: HashMap<Uuid, subscriptions::FeedOrganization> = organizations
         .into_iter()
-        .map(|feed| feed_row(feed, is_admin))
+        .map(|organization| (organization.feed_id, organization))
         .collect();
+    let feed_ids: Vec<Uuid> = feed_records.iter().map(|feed| feed.id).collect();
+    let icon_ids = feed_icons::available_for_feeds(state.db.pool(), &feed_ids).await?;
+    let feeds = feed_records
+        .into_iter()
+        .map(|feed| {
+            let feed_id = feed.id;
+            let has_icon = icon_ids.contains(&feed_id);
+            feed_row(
+                feed,
+                is_admin,
+                organizations.get(&feed_id),
+                &categories,
+                has_icon,
+            )
+        })
+        .collect();
+    let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = FeedsTemplate {
         theme: ui.theme.clone(),
         user_email,
@@ -146,6 +321,7 @@ async fn render_page(
         ui,
         is_admin,
         feeds,
+        categories,
         message,
         error,
     }
@@ -286,6 +462,155 @@ pub async fn add(
         None,
     )
     .await
+}
+
+pub async fn create_category(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(form): Form<CategoryForm>,
+) -> Result<Response, AppError> {
+    let is_admin = user.role == "admin";
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let name = form.name.trim();
+    if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
+        return render_page(
+            &state,
+            user.id,
+            user.email,
+            is_admin,
+            jar,
+            None,
+            Some("Folder names must be between 1 and 80 characters.".to_string()),
+        )
+        .await;
+    }
+    let parent_id = match form.parent_id.trim() {
+        "" => None,
+        value => match Uuid::parse_str(value) {
+            Ok(id) => Some(id),
+            Err(_) => {
+                return render_page(
+                    &state,
+                    user.id,
+                    user.email,
+                    is_admin,
+                    jar,
+                    None,
+                    Some("Choose a valid parent folder.".to_string()),
+                )
+                .await;
+            }
+        },
+    };
+    match categories::create(state.db.pool(), user.id, name, parent_id).await {
+        Ok(_) => {
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                Some(format!("Folder “{name}” is ready.")),
+                None,
+            )
+            .await
+        }
+        Err(rustss_db::DbError::NotFound) => {
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some("Choose a parent folder in your own library.".to_string()),
+            )
+            .await
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub async fn update_organization(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(values): Form<Vec<(String, String)>>,
+) -> Result<Response, AppError> {
+    let is_admin = user.role == "admin";
+    let (csrf_token, tags, category_ids) = match parse_organization_form(values) {
+        Ok(form) => form,
+        Err(error) => {
+            return render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await;
+        }
+    };
+    if !csrf::verify(&jar, &csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    match subscriptions::update_organization(state.db.pool(), user.id, id, &tags, &category_ids)
+        .await
+    {
+        Ok(()) => {
+            render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                Some("Feed organization saved.".to_string()),
+                None,
+            )
+            .await
+        }
+        Err(rustss_db::DbError::NotFound) => Err(AppError::NotFound),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub async fn icon(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    if user.role != "admin"
+        && !subscriptions::is_subscribed(state.db.pool(), user.id, id).await?
+        && !catalog::is_published_feed(state.db.pool(), id).await?
+    {
+        return Err(AppError::NotFound);
+    }
+    let icon = feed_icons::get(state.db.pool(), id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let content_type = match icon.content_type.as_str() {
+        "image/png" => "image/png",
+        "image/jpeg" => "image/jpeg",
+        "image/gif" => "image/gif",
+        "image/webp" => "image/webp",
+        "image/x-icon" => "image/x-icon",
+        _ => return Err(AppError::NotFound),
+    };
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "private, max-age=604800"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        icon.content,
+    )
+        .into_response())
 }
 
 /// `POST /feeds/{id}/refresh`.

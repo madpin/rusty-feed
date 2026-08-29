@@ -6,6 +6,7 @@
 //! (`docs/ARCHITECTURE.md` §11.1, §12). Background scheduling is M7.
 
 pub mod error;
+mod icons;
 mod normalize;
 mod parse;
 pub mod safe_fetch;
@@ -20,6 +21,8 @@ use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 
 use rustss_db::{jobs, Db, Feed};
 use uuid::Uuid;
+
+use crate::icons::{favicon_url, resolve_icon_url, try_refresh_feed_icon};
 
 /// Max feed body we will buffer (protects against huge/hostile responses).
 const MAX_FEED_BYTES: usize = 10 * 1024 * 1024;
@@ -141,6 +144,15 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
     };
 
     if outcome.not_modified {
+        if let Some(icon_url) = feed
+            .image_url
+            .clone()
+            .or_else(|| favicon_url(feed.site_url.as_deref(), &feed.url))
+        {
+            if let Err(error) = try_refresh_feed_icon(db, client, feed.id, &icon_url).await {
+                tracing::debug!(feed_id = %feed.id, error = %error, "feed icon refresh failed");
+            }
+        }
         rustss_db::feeds::record_fetch_success(
             db.pool(),
             feed.id,
@@ -167,7 +179,17 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
         )
         .await;
     }
-
+    let icon_url = parsed
+        .icon_url
+        .as_deref()
+        .and_then(|url| resolve_icon_url(url, &outcome.final_url))
+        .or_else(|| feed.image_url.clone())
+        .or_else(|| {
+            favicon_url(
+                parsed.site_url.as_deref().or(feed.site_url.as_deref()),
+                &outcome.final_url,
+            )
+        });
     let mut stats = RefreshStats::default();
     for article in &parsed.articles {
         match rustss_db::articles::upsert(db.pool(), article).await {
@@ -185,6 +207,12 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
         outcome.last_modified.as_deref(),
     )
     .await?;
+    if let Some(icon_url) = icon_url {
+        let _ = rustss_db::feeds::update_image_url(db.pool(), feed.id, &icon_url).await;
+        if let Err(error) = try_refresh_feed_icon(db, client, feed.id, &icon_url).await {
+            tracing::debug!(feed_id = %feed.id, error = %error, "feed icon refresh failed");
+        }
+    }
 
     Ok(stats)
 }

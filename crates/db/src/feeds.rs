@@ -63,8 +63,8 @@ pub async fn upsert_by_url(
 }
 
 /// List feeds due for a refresh, system-wide (not per-user): not disabled, and
-/// either never fetched or past their `fetch_interval_minutes`. Ordered oldest
-/// first. This is what makes refresh O(1) per shared feed.
+/// either never fetched, past its `fetch_interval_minutes`, or due for a weekly
+/// icon attempt. Ordered oldest first. This is what makes refresh O(1) per shared feed.
 pub async fn list_due(pool: &PgPool, limit: i64) -> Result<Vec<Feed>> {
     let sql = format!(
         "SELECT {FEED_COLUMNS} FROM feeds \
@@ -73,7 +73,9 @@ pub async fn list_due(pool: &PgPool, limit: i64) -> Result<Vec<Feed>> {
                 OR EXISTS (SELECT 1 FROM feed_catalog_entries ce \
                            WHERE ce.feed_id = feeds.id AND ce.published)) \
            AND (last_fetched_at IS NULL \
-                OR last_fetched_at + make_interval(mins => fetch_interval_minutes) <= now()) \
+                OR last_fetched_at + make_interval(mins => fetch_interval_minutes) <= now() \
+                OR NOT EXISTS (SELECT 1 FROM feed_icons fi WHERE fi.feed_id = feeds.id \
+                    AND fi.last_attempt_at > now() - interval '7 days')) \
          ORDER BY last_fetched_at ASC NULLS FIRST \
          LIMIT $1"
     );
@@ -150,6 +152,18 @@ pub async fn update_metadata(
         .bind(site_url)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+pub async fn update_image_url(pool: &PgPool, feed_id: Uuid, image_url: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE feeds SET image_url = $2, updated_at = now() WHERE id = $1 \
+         AND image_url IS DISTINCT FROM $2",
+    )
+    .bind(feed_id)
+    .bind(image_url)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

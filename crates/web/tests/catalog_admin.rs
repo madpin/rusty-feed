@@ -5,7 +5,7 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rustss_cache::Cache;
-use rustss_db::{catalog, feeds, subscriptions, users, Db};
+use rustss_db::{catalog, feed_icons, feeds, subscriptions, users, Db};
 use rustss_web::{router, AppSettings, AppState};
 
 fn set_cookies(response: &Response<Body>) -> Vec<(String, String)> {
@@ -135,6 +135,20 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     )
     .await
     .unwrap();
+    let rust_feed = feeds::find_by_url(state.db.pool(), "https://blog.rust-lang.org/feed.xml")
+        .await
+        .unwrap()
+        .unwrap();
+    let icon = vec![0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0];
+    feed_icons::record_success(
+        state.db.pool(),
+        rust_feed.id,
+        "https://blog.rust-lang.org/icon.png",
+        "image/png",
+        &icon,
+    )
+    .await
+    .unwrap();
 
     let response = app
         .clone()
@@ -153,9 +167,31 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     let page = body_string(response).await;
     assert!(page.contains("Discover feeds"));
     assert!(page.contains("Rust Blog"));
+    assert!(page.contains(&format!("/feeds/{}/icon", rust_feed.id)));
     assert!(page.contains("Go Blog"));
     assert!(page.contains("Al Jazeera English"));
     assert!(page.contains("Catalog UI source"));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/feeds/{}/icon", rust_feed.id))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        icon
+    );
 
     let response = app
         .clone()

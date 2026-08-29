@@ -1,17 +1,46 @@
-<div class="sidebar-group">
-  <p class="sidebar-label">View</p>
-  <a href="/articles"{% if !unread_only && sort == "recent" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Most recent</a>
-  <a href="/articles?unread=1"{% if unread_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Unread only</a>
-  <a href="/articles?sort=relevance"{% if sort == "relevance" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Personalized</a>
-</div>
-<div class="sidebar-group">
-  <p class="sidebar-label">Feeds</p>
-  <div class="feed-nav-list">
-    {% for f in feeds %}
-    <a href="/articles?feed={{ f.id }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %}>{{ f.name }}</a>
-    {% else %}
-    <p class="sidebar-empty">No feeds yet.</p>
-    {% endfor %}
+<div class="sidebar-context">
+  {% if ui.sidebar_collapsed %}
+  <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="library-sidebar" aria-expanded="false" aria-label="Expand sidebar"><span data-sidebar-toggle-glyph aria-hidden="true">›</span><span class="sidebar-text" data-sidebar-toggle-label>Expand sidebar</span></button>
+  {% else %}
+  <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="library-sidebar" aria-expanded="true" aria-label="Reduce sidebar"><span data-sidebar-toggle-glyph aria-hidden="true">‹</span><span class="sidebar-text" data-sidebar-toggle-label>Reduce sidebar</span></button>
+  {% endif %}
+  <div class="sidebar-group">
+    <p class="sidebar-label">View</p>
+    <a href="{{ recent_url }}" aria-label="Most recent"{% if !unread_only && sort == "recent" %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">●</span><span class="sidebar-text">Most recent</span></a>
+    <a href="{{ unread_url }}" aria-label="Unread only"{% if unread_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">○</span><span class="sidebar-text">Unread only</span></a>
+    <a href="{{ relevance_url }}" aria-label="Personalized"{% if sort == "relevance" %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">✦</span><span class="sidebar-text">Personalized</span></a>
   </div>
-  <a href="/feeds" class="sidebar-link">Manage feeds</a>
+  {% if !categories.is_empty() %}
+  <div class="sidebar-group">
+    <p class="sidebar-label">Folders</p>
+    <div class="feed-nav-list">
+      {% for category in categories %}
+      <a href="{{ category.href }}"{% if category.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ category.name }}"><span class="sidebar-nav-icon" aria-hidden="true">▣</span><span class="sidebar-text">{{ category.indent }}{{ category.name }}</span><span class="sidebar-count">{{ category.feed_count }}</span></a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% if !tags.is_empty() %}
+  <div class="sidebar-group">
+    <p class="sidebar-label">Tags</p>
+    <div class="feed-nav-list">
+      {% for tag in tags %}
+      <a href="{{ tag.href }}"{% if tag.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ tag.name }}"><span class="sidebar-nav-icon" aria-hidden="true">#</span><span class="sidebar-text">{{ tag.name }}</span><span class="sidebar-count">{{ tag.feed_count }}</span></a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  <div class="sidebar-group">
+    <p class="sidebar-label">Feeds</p>
+    <div class="feed-nav-list">
+      {% for f in feeds %}
+      <a href="{{ f.href }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ f.name }}">
+        <span class="feed-nav-icon" aria-hidden="true"><span>{{ f.initial }}</span>{% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}</span><span class="sidebar-text">{{ f.name }}</span>
+      </a>
+      {% else %}
+      <p class="sidebar-empty">No feeds in this view.</p>
+      {% endfor %}
+    </div>
+    <a href="/feeds" class="sidebar-link" aria-label="Manage feeds"><span class="sidebar-nav-icon" aria-hidden="true">+</span><span class="sidebar-text">Manage feeds</span></a>
+  </div>
 </div>

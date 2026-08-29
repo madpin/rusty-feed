@@ -166,6 +166,53 @@
       });
   }
 
+  function syncSidebarToggle(buttons, collapsed) {
+    Array.prototype.forEach.call(buttons, function (button) {
+      button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      button.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Reduce sidebar");
+      var glyph = button.querySelector("[data-sidebar-toggle-glyph]");
+      if (glyph) glyph.textContent = collapsed ? "›" : "‹";
+      var label = button.querySelector("[data-sidebar-toggle-label]");
+      if (label) label.textContent = collapsed ? "Expand sidebar" : "Reduce sidebar";
+    });
+  }
+
+  function initializeSidebarToggle() {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll("[data-sidebar-toggle]");
+    if (!buttons.length) return;
+    syncSidebarToggle(buttons, root.getAttribute("data-sidebar-collapsed") === "true");
+    Array.prototype.forEach.call(buttons, function (button) {
+      button.addEventListener("click", function () {
+        var wasCollapsed = root.getAttribute("data-sidebar-collapsed") === "true";
+        var collapsed = !wasCollapsed;
+        var url = root.getAttribute("data-layout-url");
+        var csrf = root.getAttribute("data-csrf-token");
+        root.setAttribute("data-sidebar-collapsed", String(collapsed));
+        syncSidebarToggle(buttons, collapsed);
+        if (!url || !csrf) return;
+        var body = new URLSearchParams();
+        body.set("csrf_token", csrf);
+        body.set("sidebar_collapsed", String(collapsed));
+        fetch(url, {
+          method: "POST",
+          body: body,
+          headers: { "X-Requested-With": "fetch" },
+          credentials: "same-origin",
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error("sidebar state save failed");
+            announce(collapsed ? "Sidebar reduced." : "Sidebar expanded.", false);
+          })
+          .catch(function () {
+            root.setAttribute("data-sidebar-collapsed", String(wasCollapsed));
+            syncSidebarToggle(buttons, wasCollapsed);
+            announce("Could not save the sidebar state.", true);
+          });
+      });
+    });
+  }
+
   function initializePanelResize() {
     var workspace = document.querySelector(".reading-workspace");
     var handle = workspace ? workspace.querySelector(".panel-resizer") : null;
@@ -343,6 +390,7 @@
   // Implicit reading signal: on an article page, report time spent when the
   // reader leaves, so personalization can learn from completion/bounce.
   initializeReadingTracking(document);
+  initializeSidebarToggle();
   initializePanelResize();
 
   // Inline reading: expand article content in the list instead of navigating.

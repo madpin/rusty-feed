@@ -3,7 +3,7 @@
 {% block body_class %}page-articles{% endblock %}
 {% block layout_class %}has-context-sidebar{% endblock %}
 {% block sidebar %}
-<div class="sidebar-context">{% include "library_context.html" %}</div>
+{% include "library_context.html" %}
 {% endblock %}
 {% block content %}
 <div{% if side_panel %} class="reading-workspace"{% endif %}>
@@ -11,7 +11,7 @@
     <div class="content-header">
       <div>
         <p class="eyebrow">Your library</p>
-        <h1>{% if unread_only %}Unread articles{% else if sort == "relevance" %}For you{% else %}All articles{% endif %}</h1>
+        <h1>{{ scope_label }}</h1>
       </div>
       <div class="header-actions">
         <a href="/settings/preferences#keyboard-shortcuts" class="button-quiet">Keyboard shortcuts</a>
@@ -19,6 +19,9 @@
         <form method="post" action="/articles/read-all" class="js-action" data-action="mark-all-read" data-success-message="All articles marked read.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <input type="hidden" name="next" value="{{ back_url }}" />
+          {% if let Some(feed_id) = feed_filter %}<input type="hidden" name="feed" value="{{ feed_id }}" />{% endif %}
+          {% if let Some(category_id) = category_filter %}<input type="hidden" name="category" value="{{ category_id }}" />{% endif %}
+          {% if let Some(tag) = tag_filter %}<input type="hidden" name="tag" value="{{ tag }}" />{% endif %}
           <button type="submit">Mark all read</button>
         </form>
         {% endif %}

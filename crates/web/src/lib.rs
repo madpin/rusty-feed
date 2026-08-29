@@ -68,6 +68,9 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/summarize", post(reader::summarize))
         .route("/feeds", get(feeds::page).post(feeds::add))
         .route("/feeds/refresh-all", post(feeds::refresh_all))
+        .route("/feeds/categories", post(feeds::create_category))
+        .route("/feeds/{id}/icon", get(feeds::icon))
+        .route("/feeds/{id}/organization", post(feeds::update_organization))
         .route(
             "/feeds/{id}/settings",
             get(feeds::settings_page).post(feeds::update_settings),

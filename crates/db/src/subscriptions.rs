@@ -73,6 +73,82 @@ pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<UserFeed>
         .await?)
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FeedOrganization {
+    pub feed_id: Uuid,
+    pub tags: Vec<String>,
+    pub category_ids: Vec<Uuid>,
+}
+
+pub async fn list_organization(pool: &PgPool, user_id: Uuid) -> Result<Vec<FeedOrganization>> {
+    Ok(sqlx::query_as(
+        "SELECT uf.feed_id, uf.tags, \
+         coalesce(array_agg(c.id ORDER BY c.name) FILTER (WHERE c.id IS NOT NULL), '{}') AS category_ids \
+         FROM user_feeds uf \
+         LEFT JOIN user_feed_categories ufc ON ufc.user_feed_id = uf.id \
+         LEFT JOIN user_categories c ON c.id = ufc.user_category_id AND c.user_id = uf.user_id \
+         WHERE uf.user_id = $1 GROUP BY uf.feed_id, uf.tags",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn update_organization(
+    pool: &PgPool,
+    user_id: Uuid,
+    feed_id: Uuid,
+    tags: &[String],
+    category_ids: &[Uuid],
+) -> Result<()> {
+    let mut transaction = pool.begin().await?;
+    let user_feed_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM user_feeds WHERE user_id = $1 AND feed_id = $2 FOR UPDATE",
+    )
+    .bind(user_id)
+    .bind(feed_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some(user_feed_id) = user_feed_id else {
+        return Err(DbError::NotFound);
+    };
+    let category_ids: std::collections::BTreeSet<Uuid> = category_ids.iter().copied().collect();
+    let valid_category_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM user_categories WHERE user_id = $1 AND id = ANY($2)",
+    )
+    .bind(user_id)
+    .bind(category_ids.iter().copied().collect::<Vec<_>>())
+    .fetch_one(&mut *transaction)
+    .await?;
+    if valid_category_count != category_ids.len() as i64 {
+        return Err(DbError::NotFound);
+    }
+    sqlx::query(
+        "UPDATE user_feeds SET tags = $3, updated_at = now() WHERE id = $1 AND user_id = $2",
+    )
+    .bind(user_feed_id)
+    .bind(user_id)
+    .bind(tags)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("DELETE FROM user_feed_categories WHERE user_feed_id = $1")
+        .bind(user_feed_id)
+        .execute(&mut *transaction)
+        .await?;
+    for category_id in category_ids {
+        sqlx::query(
+            "INSERT INTO user_feed_categories (id, user_feed_id, user_category_id) VALUES ($1, $2, $3)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(user_feed_id)
+        .bind(category_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    Ok(())
+}
+
 /// Count subscriptions to a feed (across all users). Handy for dedup assertions.
 pub async fn count_for_feed(pool: &PgPool, feed_id: Uuid) -> Result<i64> {
     Ok(

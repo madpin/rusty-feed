@@ -102,6 +102,16 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
     )
 }
 
+pub async fn is_published_feed(pool: &PgPool, feed_id: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM feed_catalog_entries WHERE feed_id = $1 AND published",
+    )
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await?
+    .is_some())
+}
+
 pub async fn categories(pool: &PgPool) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar(
         "SELECT DISTINCT category FROM feed_catalog_entries WHERE published ORDER BY category",

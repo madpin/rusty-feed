@@ -8,7 +8,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{catalog, User};
+use rustss_db::{catalog, feed_icons, User};
 use rustss_feeds::enqueue_fetch_feed;
 
 use crate::auth::csrf;
@@ -27,6 +27,8 @@ struct Facet {
 
 struct CatalogView {
     feed_id: String,
+    initial: String,
+    has_icon: bool,
     title: String,
     description: Option<String>,
     category: String,
@@ -74,9 +76,18 @@ fn selected(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn view(entry: catalog::CatalogEntry) -> CatalogView {
+fn feed_initial(name: &str) -> String {
+    name.chars()
+        .find(|character| character.is_alphanumeric())
+        .map(|character| character.to_uppercase().collect())
+        .unwrap_or_else(|| "•".to_string())
+}
+
+fn view(entry: catalog::CatalogEntry, has_icon: bool) -> CatalogView {
     CatalogView {
         feed_id: entry.feed_id.to_string(),
+        initial: feed_initial(&entry.title),
+        has_icon,
         title: entry.title,
         description: entry.description,
         category: entry.category,
@@ -115,10 +126,16 @@ async fn render_page(
         country.as_deref(),
         language.as_deref(),
     )
-    .await?
-    .into_iter()
-    .map(view)
-    .collect();
+    .await?;
+    let feed_ids: Vec<Uuid> = entries.iter().map(|entry| entry.feed_id).collect();
+    let icon_ids = feed_icons::available_for_feeds(state.db.pool(), &feed_ids).await?;
+    let entries = entries
+        .into_iter()
+        .map(|entry| {
+            let has_icon = icon_ids.contains(&entry.feed_id);
+            view(entry, has_icon)
+        })
+        .collect();
     let (categories, countries, languages) = tokio::try_join!(
         catalog::categories(state.db.pool()),
         catalog::countries(state.db.pool()),

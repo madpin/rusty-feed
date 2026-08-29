@@ -51,6 +51,7 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 - Saved searches with a boolean+semantic DSL (`AND`/`OR`/`NOT`/phrases/groups) and match notifications
 - LLM summaries (summary + key points + topics) with a provider cascade and cost tracking
 - Feed magazine: 41 verified starter sources across news, technology, research, science, security, and public-interest; country/category/language filters, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
+- Personal feed organization: nested folders, multi-folder assignment, tags, category/tag-scoped reading, downloaded source icons, and a reduced sidebar mode
 - Feed health tracking (healthy/warning/error/disabled, auto-disable)
 - Three reading modes (side panel / inline / standalone), themes, deep typography/display preferences, and configurable keyboard shortcuts
 - Admin dashboard: instance stats, users/roles, shared feed inventory, feed magazine editing, and AI costs

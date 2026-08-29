@@ -431,6 +431,13 @@ pub async fn list_for_feed(pool: &PgPool, feed_id: Uuid, limit: i64) -> Result<V
         .await?)
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LibraryFilter<'a> {
+    pub feed_id: Option<Uuid>,
+    pub category_id: Option<Uuid>,
+    pub tag: Option<&'a str>,
+}
+
 /// A row for the reading list: shared article fields plus this user's personal
 /// flags and the source feed name.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -453,14 +460,21 @@ pub struct ArticleListItem {
 pub async fn list_for_user(
     pool: &PgPool,
     user_id: Uuid,
-    feed_id: Option<Uuid>,
+    filter: LibraryFilter<'_>,
     unread_only: bool,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ArticleListItem>> {
     let sql = format!(
-        "SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
-                f.name AS feed_name, \
+        "WITH RECURSIVE category_scope(id) AS ( \
+             SELECT id FROM user_categories WHERE id = $3::uuid AND user_id = $1 \
+             UNION \
+             SELECT child.id FROM user_categories child \
+             JOIN category_scope scope ON child.parent_id = scope.id \
+             WHERE child.user_id = $1 \
+         ) \
+         SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
+                coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
                 (b.article_id IS NOT NULL) AS is_bookmarked, \
                 af.feedback_value \
@@ -470,9 +484,13 @@ pub async fn list_for_user(
          LEFT JOIN read_articles r ON r.article_id = a.id AND r.user_id = $1 \
          LEFT JOIN bookmarks b ON b.article_id = a.id AND b.user_id = $1 \
          LEFT JOIN article_feedback af ON af.article_id = a.id AND af.user_id = $1 \
-         WHERE ($2::uuid IS NULL OR a.feed_id = $2) {read_filter} \
+         WHERE ($2::uuid IS NULL OR a.feed_id = $2) \
+           AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
+                JOIN category_scope scope ON scope.id = ufc.user_category_id \
+                WHERE ufc.user_feed_id = uf.id)) \
+           AND ($4::text IS NULL OR uf.tags @> ARRAY[$4]::text[]) {read_filter} \
          ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
-         LIMIT $3 OFFSET $4",
+         LIMIT $5 OFFSET $6",
         read_filter = if unread_only {
             "AND r.article_id IS NULL"
         } else {
@@ -481,7 +499,9 @@ pub async fn list_for_user(
     );
     Ok(sqlx::query_as::<_, ArticleListItem>(&sql)
         .bind(user_id)
-        .bind(feed_id)
+        .bind(filter.feed_id)
+        .bind(filter.category_id)
+        .bind(filter.tag)
         .bind(limit)
         .bind(offset)
         .fetch_all(pool)
