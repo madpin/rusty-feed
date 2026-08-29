@@ -13,6 +13,7 @@ pub mod agent_runs;
 pub mod api_tokens;
 pub mod articles;
 pub mod bookmarks;
+pub mod catalog;
 pub mod cost_ledger;
 pub mod domain_state;
 pub mod embeddings;

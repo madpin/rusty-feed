@@ -31,6 +31,7 @@ struct SearchTemplate {
     user_email: String,
     csrf_token: String,
     ui: prefs::Preferences,
+    is_admin: bool,
     query: String,
     searched: bool,
     hits: Vec<Hit>,
@@ -50,6 +51,7 @@ pub async fn page(
     Query(query): Query<SearchQuery>,
 ) -> Result<Response, AppError> {
     let prefs = prefs::load(&state.db, user.id).await;
+    let is_admin = user.role == "admin";
     let q = query.q.unwrap_or_default();
     let trimmed = q.trim();
 
@@ -89,6 +91,7 @@ pub async fn page(
         user_email: user.email,
         csrf_token,
         ui: prefs,
+        is_admin,
         query: q,
         searched,
         hits,

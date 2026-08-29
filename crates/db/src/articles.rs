@@ -488,6 +488,12 @@ pub async fn list_for_user(
         .await?)
 }
 
+pub async fn count(pool: &PgPool) -> Result<i64> {
+    Ok(sqlx::query_scalar("SELECT count(*) FROM articles")
+        .fetch_one(pool)
+        .await?)
+}
+
 /// Count articles with a given URL (0 or 1). Handy for dedup assertions.
 pub async fn count_by_url(pool: &PgPool, url: &str) -> Result<i64> {
     Ok(

@@ -147,6 +147,14 @@ pub async fn get_status(pool: &PgPool, id: Uuid) -> Result<Option<String>> {
     )
 }
 
+pub async fn count_active(pool: &PgPool) -> Result<i64> {
+    Ok(
+        sqlx::query_scalar("SELECT count(*) FROM job_queue WHERE status IN ('pending', 'running')")
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
 /// Count active (pending/running) jobs for a dedup key — for tests/inspection.
 pub async fn count_active_by_dedup(pool: &PgPool, dedup_key: &str) -> Result<i64> {
     Ok(sqlx::query_scalar(

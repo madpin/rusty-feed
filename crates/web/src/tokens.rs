@@ -10,7 +10,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::api_tokens;
+use rustss_db::{api_tokens, User};
 
 use crate::auth::extractor::AuthUser;
 use crate::auth::{csrf, token};
@@ -33,6 +33,7 @@ struct TokensTemplate {
     user_email: String,
     csrf_token: String,
     ui: prefs::Preferences,
+    is_admin: bool,
     new_token: Option<String>,
     notice: Option<String>,
     error: Option<String>,
@@ -52,16 +53,15 @@ pub struct CsrfForm {
 
 async fn render_page(
     state: &AppState,
-    user_id: Uuid,
-    user_email: String,
+    user: &User,
     jar: CookieJar,
     new_token: Option<String>,
     notice: Option<String>,
     error: Option<String>,
 ) -> Result<Response, AppError> {
-    let ui = prefs::load(&state.db, user_id).await;
+    let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
-    let tokens = api_tokens::list_for_user(state.db.pool(), user_id)
+    let tokens = api_tokens::list_for_user(state.db.pool(), user.id)
         .await?
         .into_iter()
         .map(|t| TokenView {
@@ -76,9 +76,10 @@ async fn render_page(
     let reveal = new_token.is_some();
     let body = TokensTemplate {
         theme: ui.theme.clone(),
-        user_email,
+        user_email: user.email.clone(),
         csrf_token,
         ui,
+        is_admin: user.role == "admin",
         new_token,
         notice,
         error,
@@ -102,7 +103,7 @@ pub async fn list(
     AuthUser(user): AuthUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
-    render_page(&state, user.id, user.email, jar, None, None, None).await
+    render_page(&state, &user, jar, None, None, None).await
 }
 
 /// `POST /settings/tokens` — create a token and show it once.
@@ -119,8 +120,7 @@ pub async fn create(
     if name.is_empty() {
         return render_page(
             &state,
-            user.id,
-            user.email,
+            &user,
             jar,
             None,
             None,
@@ -132,8 +132,7 @@ pub async fn create(
     api_tokens::create(state.db.pool(), user.id, name, &generated.hash, &[]).await?;
     render_page(
         &state,
-        user.id,
-        user.email,
+        &user,
         jar,
         Some(generated.raw),
         Some("Token created.".to_string()),
@@ -162,5 +161,5 @@ pub async fn revoke(
             Some("That token is already revoked or no longer exists.".to_string()),
         )
     };
-    render_page(&state, user.id, user.email, jar, None, notice, error).await
+    render_page(&state, &user, jar, None, notice, error).await
 }

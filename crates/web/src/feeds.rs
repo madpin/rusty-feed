@@ -48,6 +48,7 @@ struct FeedsTemplate {
     user_email: String,
     csrf_token: String,
     ui: crate::prefs::Preferences,
+    is_admin: bool,
     feeds: Vec<FeedRow>,
     message: Option<String>,
     error: Option<String>,
@@ -60,6 +61,7 @@ struct FeedSettingsTemplate {
     user_email: String,
     csrf_token: String,
     ui: crate::prefs::Preferences,
+    is_admin: bool,
     feed: FeedSettingsView,
     message: Option<String>,
     error: Option<String>,
@@ -142,6 +144,7 @@ async fn render_page(
         user_email,
         csrf_token,
         ui,
+        is_admin,
         feeds,
         message,
         error,
@@ -168,6 +171,7 @@ async fn render_settings_page(
         user_email,
         csrf_token,
         ui,
+        is_admin: true,
         feed: feed_settings_view(feed),
         message,
         error,
@@ -348,13 +352,14 @@ pub async fn settings_page(
     jar: CookieJar,
     Path(id): Path<Uuid>,
 ) -> Result<Response, AppError> {
-    if !subscriptions::is_subscribed(state.db.pool(), user.id, id).await? {
+    let is_admin = user.role == "admin";
+    if !is_admin && !subscriptions::is_subscribed(state.db.pool(), user.id, id).await? {
         return Err(AppError::NotFound);
     }
     let feed = feeds::find_by_id(state.db.pool(), id)
         .await?
         .ok_or(AppError::NotFound)?;
-    if user.role != "admin" {
+    if !is_admin {
         return render_page(
             &state,
             user.id,
@@ -382,9 +387,6 @@ pub async fn update_settings(
     }
     if user.role != "admin" {
         return Err(AppError::Forbidden);
-    }
-    if !subscriptions::is_subscribed(state.db.pool(), user.id, id).await? {
-        return Err(AppError::NotFound);
     }
     let feed = feeds::find_by_id(state.db.pool(), id)
         .await?

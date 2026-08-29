@@ -2,7 +2,7 @@
 {% block title %}{{ title }}{% endblock %}
 {% block body_class %}page-article{% endblock %}
 {% block content %}
-<article class="reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" id="article-{{ id }}">
+<article class="reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" id="article-{{ id }}" data-current-article="{{ id }}">
   <a href="/articles" class="back-link">Back to library</a>
   <p class="eyebrow">{{ feed_name }}</p>
   <h1>{{ title }}</h1>

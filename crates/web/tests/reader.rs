@@ -148,7 +148,7 @@ async fn preferences_save_roundtrip() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "theme=ocean&reading_mode=side-panel&articles_per_page=30&article_density=compact&reader_font_size=large&reader_line_height=airy&sidebar_width=19&reader_panel_width=61&csrf_token={csrf}"
+                    "theme=ocean&reading_mode=side-panel&articles_per_page=30&article_density=compact&reader_font_size=large&reader_line_height=airy&sidebar_width=19&reader_panel_width=61&shortcuts_enabled=true&shortcut_next_article=ArrowDown&shortcut_previous_article=ArrowUp&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
@@ -160,6 +160,7 @@ async fn preferences_save_roundtrip() {
     assert!(body.contains("data-theme=\"ocean\""));
     assert!(body.contains("--sidebar-width: 19rem"));
     assert!(body.contains("--reader-panel-width: 61%"));
+    assert!(body.contains("data-shortcut-next-article=\"ArrowDown\""));
 
     // Persisted correctly.
     let user = users::find_by_email(state.db.pool(), &email)
@@ -178,6 +179,9 @@ async fn preferences_save_roundtrip() {
     assert_eq!(stored["reader_line_height"], "airy");
     assert_eq!(stored["sidebar_width"], 19);
     assert_eq!(stored["reader_panel_width"], 61);
+    assert_eq!(stored["shortcuts"]["enabled"], true);
+    assert_eq!(stored["shortcuts"]["next_article"], "ArrowDown");
+    assert_eq!(stored["shortcuts"]["previous_article"], "ArrowUp");
     assert_eq!(stored["show_read_articles"], false);
     assert_eq!(stored["auto_mark_read"], false);
 
@@ -201,6 +205,52 @@ async fn preferences_save_roundtrip() {
         .unwrap();
     assert_eq!(stored["theme"], "ocean");
     assert_eq!(stored["reader_panel_width"], 45);
+}
+
+#[tokio::test]
+async fn duplicate_shortcuts_return_an_accessible_error_without_saving() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/settings/preferences")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&response), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let response = app
+        .oneshot(
+            Request::post("/settings/preferences")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "theme=system&reading_mode=side-panel&articles_per_page=20&shortcuts_enabled=true&shortcut_next_article=j&shortcut_previous_article=j&csrf_token={csrf}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    assert!(body.contains("Previous article conflicts with Next article."));
+    let user = users::find_by_email(state.db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(user_preferences::get(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
@@ -567,5 +617,7 @@ async fn static_css_is_served() {
     assert_eq!(resp.status(), StatusCode::OK);
     let js = body_string(resp).await;
     assert!(js.contains("new URLSearchParams()"));
+    assert!(js.contains("shortcutFromEvent"));
+    assert!(js.contains("data-shortcuts-enabled"));
     assert!(!js.contains("arguments.callee"));
 }

@@ -10,6 +10,7 @@
   </div>
 </div>
 {% if saved %}<p class="notice" role="status">Preferences saved.</p>{% endif %}
+{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 <form method="post" action="/settings/preferences" class="stack panel preference-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
   <fieldset>
@@ -78,6 +79,21 @@
       <input type="checkbox" name="auto_mark_read" value="true"{% if prefs_auto_mark_read %} checked{% endif %} />
       <span>Mark articles read when opened</span>
     </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Keyboard shortcuts</legend>
+    <p class="muted">Click a binding, then press the key combination you want. Clear a field to disable it. Article and feed navigation works from the Library; Save and Mark unread also work in a reader. Shortcuts do not run while you are typing in a field.</p>
+    <label class="check-row"><input type="checkbox" name="shortcuts_enabled" value="true"{% if ui.shortcuts.enabled %} checked{% endif %} /> <span>Enable keyboard shortcuts</span></label>
+    <div class="form-grid shortcut-grid">
+      <label>Next article <input class="shortcut-input" data-shortcut-input type="text" name="shortcut_next_article" value="{{ ui.shortcuts.next_article }}" autocomplete="off" /></label>
+      <label>Previous article <input class="shortcut-input" data-shortcut-input type="text" name="shortcut_previous_article" value="{{ ui.shortcuts.previous_article }}" autocomplete="off" /></label>
+      <label>Save for later <input class="shortcut-input" data-shortcut-input type="text" name="shortcut_save_article" value="{{ ui.shortcuts.save_article }}" autocomplete="off" /></label>
+      <label>Mark unread <input class="shortcut-input" data-shortcut-input type="text" name="shortcut_mark_unread" value="{{ ui.shortcuts.mark_unread }}" autocomplete="off" /></label>
+      <label>Next feed <input class="shortcut-input" data-shortcut-input type="text" name="shortcut_next_feed" value="{{ ui.shortcuts.next_feed }}" autocomplete="off" /></label>
+      <label>Previous feed <input class="shortcut-input" data-shortcut-input type="text" name="shortcut_previous_feed" value="{{ ui.shortcuts.previous_feed }}" autocomplete="off" /></label>
+    </div>
+    <button type="button" class="button-quiet" data-reset-shortcuts>Restore shortcut defaults</button>
   </fieldset>
   <div class="form-actions"><button type="submit" class="primary">Save preferences</button></div>
 </form>

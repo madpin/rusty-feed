@@ -1,0 +1,82 @@
+{% extends "app_base.html" %}
+{% block title %}Discover feeds{% endblock %}
+{% block body_class %}page-catalog{% endblock %}
+{% block content %}
+<div class="page-header catalog-header">
+  <div>
+    <p class="eyebrow">Curated by your administrator</p>
+    <h1>Discover feeds</h1>
+    <p class="muted">Browse a magazine of trusted sources. Compare their observed posting cadence and RSS depth, then subscribe to several at once.</p>
+  </div>
+  <a class="btn" href="/feeds">Add your own feed URL</a>
+</div>
+
+{% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
+{% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
+
+<form method="get" action="/catalog" class="catalog-filters panel">
+  <label>Category
+    <select name="category">
+      <option value="">All categories</option>
+      {% for category in categories %}<option value="{{ category.value }}"{% if category.selected %} selected{% endif %}>{{ category.value }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Country
+    <select name="country">
+      <option value="">All countries</option>
+      {% for country in countries %}<option value="{{ country.value }}"{% if country.selected %} selected{% endif %}>{{ country.value }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Language
+    <select name="language">
+      <option value="">All languages</option>
+      {% for language in languages %}<option value="{{ language.value }}"{% if language.selected %} selected{% endif %}>{{ language.value }}</option>{% endfor %}
+    </select>
+  </label>
+  <div class="catalog-filter-action"><button type="submit">Apply filters</button></div>
+</form>
+
+{% if entries.is_empty() %}
+<div class="empty-state">
+  <p><strong>No curated sources match these filters.</strong></p>
+  <p>Try a broader filter, or <a href="/feeds">add a feed URL yourself</a>.</p>
+</div>
+{% else %}
+<form method="post" action="/catalog/subscribe" class="catalog-selection">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <div class="catalog-selection-bar">
+    <div><strong>{{ entries.len() }} sources</strong><span>Choose the ones you want in your library.</span></div>
+    <button type="submit" class="primary">Subscribe to selected</button>
+  </div>
+  <div class="catalog-grid">
+    {% for entry in entries %}
+    <article class="catalog-card{% if entry.featured %} featured{% endif %}{% if entry.subscribed %} subscribed{% endif %}">
+      <div class="catalog-card-heading">
+        <div>
+          <p class="eyebrow">{{ entry.category }} · {{ entry.country }}</p>
+          <h2>{{ entry.title }}</h2>
+        </div>
+        {% if entry.featured %}<span class="badge">Featured</span>{% endif %}
+      </div>
+      {% if let Some(description) = entry.description %}<p>{{ description }}</p>{% endif %}
+      <dl class="catalog-stats">
+        <div><dt>RSS body</dt><dd>{{ entry.average_content }}</dd></div>
+        <div><dt>Posts</dt><dd>{{ entry.article_count }}</dd></div>
+        <div><dt>Frequency</dt><dd>{{ entry.frequency }}</dd></div>
+        <div><dt>Last post</dt><dd>{{ entry.last_post }}</dd></div>
+      </dl>
+      <div class="catalog-card-footer">
+        <span class="badge health-{{ entry.health }}">{{ entry.health }}</span>
+        <span class="catalog-language">{{ entry.language }}</span>
+        <a href="{{ entry.url }}" target="_blank" rel="noopener noreferrer">View RSS</a>
+      </div>
+      <label class="catalog-choice">
+        <input type="checkbox" name="feed_id" value="{{ entry.feed_id }}"{% if entry.subscribed %} checked disabled{% endif %} />
+        <span>{% if entry.subscribed %}Already in your library{% else %}Subscribe to this source{% endif %}</span>
+      </label>
+    </article>
+    {% endfor %}
+  </div>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "app_base.html" %}
+{% block title %}Manage users{% endblock %}
+{% block body_class %}page-admin page-admin-users{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Users</h1>
+    <p class="muted">Roles are enforced server-side. You cannot demote your own administrator account or remove the final administrator.</p>
+  </div>
+</div>
+{% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
+{% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>User</th><th>Joined</th><th>Role</th><th>Update</th></tr></thead>
+    <tbody>
+    {% for member in users %}
+      <tr>
+        <td><strong>{{ member.email }}</strong><br><span class="muted">{{ member.name }}</span></td>
+        <td>{{ member.created }}</td>
+        <td>{{ member.role }}</td>
+        <td>
+          {% if member.can_change && member.role != "guest" %}
+          <form method="post" action="/admin/users/{{ member.id }}/role" class="admin-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <select name="role" aria-label="Role for {{ member.email }}">
+              <option value="admin"{% if member.role == "admin" %} selected{% endif %}>Admin</option>
+              <option value="user"{% if member.role == "user" %} selected{% endif %}>User</option>
+            </select>
+            <button type="submit">Save</button>
+          </form>
+          {% else %}<span class="muted">{% if member.role == "guest" %}Guest role is not editable here{% else %}Current administrator{% endif %}</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

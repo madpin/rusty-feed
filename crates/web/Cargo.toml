@@ -32,10 +32,10 @@ reqwest = { workspace = true }
 base64 = { workspace = true }
 rust-embed = { workspace = true }
 url = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 rustss-agents = { workspace = true }
-tokio = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true }
 http-body-util = "0.1"

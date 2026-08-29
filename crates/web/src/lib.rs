@@ -10,6 +10,8 @@
 
 mod admin;
 pub mod auth;
+mod catalog;
+mod catalog_view;
 mod error;
 pub mod extract;
 mod feeds;
@@ -72,6 +74,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/feeds/{id}/refresh", post(feeds::refresh))
         .route("/feeds/{id}/unsubscribe", post(feeds::unsubscribe))
+        .route("/catalog", get(catalog::page))
+        .route("/catalog/subscribe", post(catalog::subscribe))
         .route("/search", get(search::page))
         .route("/searches", get(saved::page).post(saved::create))
         .route("/searches/{id}", get(saved::results))
@@ -79,6 +83,15 @@ pub fn router(state: AppState) -> Router {
         .route("/searches/{id}/delete", post(saved::delete))
         .route("/notifications", get(saved::notifications_page))
         .route("/notifications/read", post(saved::mark_read))
+        .route("/admin", get(admin::dashboard))
+        .route("/admin/users", get(admin::users_page))
+        .route("/admin/users/{id}/role", post(admin::update_role))
+        .route("/admin/feeds", get(admin::feeds_page))
+        .route(
+            "/admin/catalog",
+            get(admin::catalog_page).post(admin::create_catalog_entry),
+        )
+        .route("/admin/catalog/{id}", post(admin::update_catalog_entry))
         .route("/admin/costs", get(admin::costs))
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
         .route("/settings/layout", post(prefs::save_layout))

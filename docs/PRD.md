@@ -108,7 +108,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-AUTH-2 (P0):** Sign up / sign in via local email + password, hashed with **Argon2id**.
 - **FR-AUTH-3 (P0):** Server-side sessions persisted in Postgres; secure, HTTP-only, SameSite cookies.
 - **FR-AUTH-4 (P0):** Roles: `ADMIN`, `USER`, `GUEST`. Admin-only routes enforced server-side.
-- **FR-AUTH-5 (P0):** On user creation, auto-subscribe to default feeds (idempotent).
+- **FR-AUTH-5 (P0):** New users can discover and explicitly choose curated shared feeds; custom feed URLs always remain available.
 - **FR-AUTH-6 (P1):** Registration controls for self-hosters (open / invite-only / closed) and a bootstrap "first user becomes admin" rule.
 
 ### 5.2 Feeds & Subscriptions
@@ -120,6 +120,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-FEED-6 (P0):** OPML 2.0 import (auto-create categories, dedupe feeds) and export (grouped by category).
 - **FR-FEED-7 (P0):** Feed **health tracking**: states `healthy | warning | error | disabled`, consecutive-failure counting, configurable auto-disable threshold, per-error audit log, manual enable/disable/reset, optional error notifications.
 - **FR-FEED-8 (P1):** OPML import with explicit **category selection** and correct category import (fixes a known reference bug).
+- **FR-FEED-9 (P0):** Admin-curated feed magazine: editorial title/description, country/category/language facets, featured/order/publish controls, live shared-feed stats (post count, RSS body depth, posting cadence, latest post), and idempotent multi-select subscriptions. Catalog membership never restricts custom URL subscriptions.
 
 ### 5.3 Feed Refresh (background)
 - **FR-REFRESH-1 (P0):** Scheduled refresh of all due feeds; a feed is refreshed **once per cycle** regardless of how many users subscribe.
@@ -178,13 +179,14 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-UX-2 (P0):** Extensive user preferences (30+ fields): theme (14 themes incl. system), font sizes, reading typography (family, size, line-height, paragraph/break spacing), article list density/borders/spacing/section order, sidebar width/collapse, articles-per-page, infinite-scroll mode, sort order/direction, show/hide read, auto-mark-read, related excerpts, reading-time display, learning knobs (bounce threshold, recency weight/decay, low-relevance visibility), and per-user LLM/embedding config.
 - **FR-UX-3 (P0):** Preferences applied server-side to rendered pages (theme/typography) and persisted.
 - **FR-UX-4 (P1):** "Seen" state (card viewed) distinct from "read".
-- **FR-UX-5 (P2):** Configurable keyboard shortcuts (with conflict validation), touch gestures, configurable date formats, ADHD-friendly reading formatting, i18n/language switcher — backlog.
+- **FR-UX-5 (P0):** Configurable keyboard shortcuts with server-side conflict validation, safe editable-control/IME/modifier guards, and an easy preference capture/reset UI. Default commands cover next/previous article, save for later, mark unread, and next/previous feed.
+- **FR-UX-6 (P2):** Touch gestures, configurable date formats, ADHD-friendly reading formatting, and i18n/language switcher — backlog.
 
 ### 5.11 Admin & Operations
-- **FR-ADM-1 (P0):** Admin dashboard: system stats (users, feeds, articles, embedding coverage), cache/Redis + Postgres storage metrics, memory usage.
+- **FR-ADM-1 (P0):** Admin dashboard: system stats for users, shared feeds, articles, catalog entries, active jobs, and durable AI costs; links to management surfaces.
 - **FR-ADM-2 (P0):** Job management: view **run history** (status, duration, stats, logs), trigger jobs manually.
 - **FR-ADM-3 (P0):** System configuration: embedding provider + auto-generate, LLM system credentials/models, provider enable/disable, new-user default preferences, and **min/max constraints** for user settings.
-- **FR-ADM-4 (P0):** User management: list users, view details, change roles, reset a user's learned data.
+- **FR-ADM-4 (P0):** User management: list users and change admin/user roles with CSRF protection, self-demotion prevention, and last-admin protection. Resetting another user's learned data remains backlog.
 - **FR-ADM-5 (P0):** Maintenance actions: cache clear, Postgres `VACUUM/ANALYZE`, delete/regenerate embeddings, cleanup old articles.
 - **FR-ADM-6 (P1):** Storage/cost visibility with cleanup/compaction actions; installation/version info; application log viewer (backlog-aligned).
 
@@ -299,7 +301,7 @@ All P0 requirements in §5, the multi-user dedup guarantees in §6, and the NFR 
 Registration controls; OPML category selection/fix; hybrid search; "seen" state; batched health notifications; **bookmarks/favorites** + retention preservation; storage/cost admin views; media proxy.
 
 ### 8.3 v2 — Backlog (P2)
-News **clustering + LLM cluster digests**; ADHD-friendly reading formatting; configurable **keyboard shortcuts**; **i18n**/language switcher; touch gestures; configurable date formats; auto-link bare URLs; YouTube embeds; installation/version + log viewer; advanced OPML.
+News **clustering + LLM cluster digests**; ADHD-friendly reading formatting; **i18n**/language switcher; touch gestures; configurable date formats; auto-link bare URLs; YouTube embeds; installation/version + log viewer; advanced OPML.
 
 ---
 

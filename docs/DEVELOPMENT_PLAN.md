@@ -281,11 +281,13 @@ DoD commit: `feat(llm): summarization + durable cost ledger + unified secrets`.
 **Refs:** ARCH §9.1, §17; PRD §5.2/§5.9/§5.11/§5.13; FND-105.
 
 Tasks:
+- [x] Curated feed magazine: starter sources, country/category/language facets, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
+- [x] Configurable keyboard shortcuts: capture/reset controls, server-side validation, and safe Library article/feed actions.
 - [ ] Feed health tracking (states, consecutive failures, auto-disable, error log, notifications) integrated with FetchFeedAgent.
 - [ ] Bulk feed operations (category/tags/settings/enable-disable/delete/refresh) with partial-failure + authz.
 - [ ] OPML import/export (categories preserved; category-selection import — fixes reference bug).
 - [ ] CleanupAgent (retention, **preserve bookmarks**, configurable age basis; VACUUM/ANALYZE) — FND-005/009.
-- [ ] Admin dashboard: stats (users/feeds/articles/embedding coverage), storage (PG/Redis), memory, job history + manual triggers, provider/model config, constraints, user/role mgmt, maintenance actions.
+- [~] Admin dashboard: overview counts, user/admin-role management, shared-feed inventory, curated feed magazine editing, and cost visibility are implemented. Storage/memory, job history/manual triggers, provider config, constraints, and maintenance actions remain.
 - [ ] **GReader API adapter** under `/api/greader/` (ARCH §9.1): ClientLogin + T token (via `api_tokens`), subscription/list+edit, tag/list, stream/contents + items/ids + items/contents, edit-tag, mark-all-as-read, user-info. Map read→`read_articles`, star→`bookmarks`, labels→categories.
 - [ ] GReader integration tests replaying real client request sequences (FND-105).
 
@@ -297,7 +299,7 @@ DoD commit(s): `feat(web): admin, opml, feed health, bulk ops` + `feat(api): gre
 ## Post-v1
 
 - **v1.1:** bookmarks/favorites UI polish, "seen" state, hybrid search UX, OPML category-selection, batched health notifications, media proxy, registration invites.
-- **v2:** ClusterAgent (group related articles) + DigestAgent (LLM event/daily digests, optional email), configurable keyboard shortcuts (+ conflict validation), i18n/message catalogs, ADHD reading formatting, touch gestures, date-format prefs, auto-link bare URLs, YouTube embeds, storage/log admin tooling.
+- **v2:** ClusterAgent (group related articles) + DigestAgent (LLM event/daily digests, optional email), i18n/message catalogs, ADHD reading formatting, touch gestures, date-format prefs, auto-link bare URLs, YouTube embeds, storage/log admin tooling.
 
 ---
 

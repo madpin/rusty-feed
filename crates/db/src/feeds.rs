@@ -69,6 +69,9 @@ pub async fn list_due(pool: &PgPool, limit: i64) -> Result<Vec<Feed>> {
     let sql = format!(
         "SELECT {FEED_COLUMNS} FROM feeds \
          WHERE health_status <> 'disabled' \
+           AND (EXISTS (SELECT 1 FROM user_feeds uf WHERE uf.feed_id = feeds.id) \
+                OR EXISTS (SELECT 1 FROM feed_catalog_entries ce \
+                           WHERE ce.feed_id = feeds.id AND ce.published)) \
            AND (last_fetched_at IS NULL \
                 OR last_fetched_at + make_interval(mins => fetch_interval_minutes) <= now()) \
          ORDER BY last_fetched_at ASC NULLS FIRST \
@@ -96,6 +99,41 @@ pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Feed>> {
         .bind(user_id)
         .fetch_all(pool)
         .await?)
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AdminFeed {
+    pub id: Uuid,
+    pub name: String,
+    pub url: String,
+    pub health_status: String,
+    pub fetch_interval_minutes: i32,
+    pub extraction_settings: Option<Json>,
+    pub subscriber_count: i64,
+    pub article_count: i64,
+    pub last_post_at: Option<time::OffsetDateTime>,
+}
+
+pub async fn count(pool: &PgPool) -> Result<i64> {
+    Ok(sqlx::query_scalar("SELECT count(*) FROM feeds")
+        .fetch_one(pool)
+        .await?)
+}
+
+pub async fn list_admin(pool: &PgPool, limit: i64) -> Result<Vec<AdminFeed>> {
+    Ok(sqlx::query_as(
+        "SELECT f.id, f.name, f.url, f.health_status, f.fetch_interval_minutes, \
+           f.extraction_settings, s.subscriber_count, a.article_count, a.last_post_at \
+         FROM feeds f \
+         LEFT JOIN LATERAL (SELECT count(*)::bigint AS subscriber_count \
+                            FROM user_feeds WHERE feed_id = f.id) s ON true \
+         LEFT JOIN LATERAL (SELECT count(*)::bigint AS article_count, max(published_at) AS last_post_at \
+                            FROM articles WHERE feed_id = f.id) a ON true \
+         ORDER BY f.updated_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
 }
 
 /// Update a feed's canonical name/site URL from parsed feed metadata. (Per-user

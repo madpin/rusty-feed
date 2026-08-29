@@ -1,0 +1,29 @@
+{% extends "app_base.html" %}
+{% block title %}Administration{% endblock %}
+{% block body_class %}page-admin page-admin-dashboard{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Instance overview</h1>
+    <p class="muted">Manage members, shared sources, the discovery magazine, and background work.</p>
+  </div>
+</div>
+<div class="admin-stat-grid">
+  <a class="admin-stat" href="/admin/users"><strong>{{ stats.users }}</strong><span>Users</span></a>
+  <a class="admin-stat" href="/admin/feeds"><strong>{{ stats.feeds }}</strong><span>Shared feeds</span></a>
+  <a class="admin-stat" href="/admin/catalog"><strong>{{ stats.catalog_entries }}</strong><span>Catalog entries</span></a>
+  <span class="admin-stat"><strong>{{ stats.articles }}</strong><span>Articles</span></span>
+  <span class="admin-stat"><strong>{{ stats.active_jobs }}</strong><span>Active jobs</span></span>
+</div>
+<section class="panel admin-overview-actions">
+  <h2>Quick administration</h2>
+  <div class="row-actions">
+    <a class="btn" href="/admin/catalog">Edit feed magazine</a>
+    <a class="btn" href="/admin/feeds">Inspect shared feeds</a>
+    <a class="btn" href="/admin/users">Manage user roles</a>
+    <a class="btn" href="/admin/costs">View AI costs</a>
+  </div>
+</section>
+{% endblock %}

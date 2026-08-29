@@ -248,6 +248,8 @@ Feeds (SHARED)
          http_status?, redirect_url?, extraction_settings jsonb,  -- shared mode/selector policy
          respect_robots_txt, extraction_delay_ms?, created_at, updated_at)
   feed_error_log (id, feed_id→feeds CASCADE, ts, error_type, error_message, http_status?, details jsonb, resolved)
+  feed_catalog_entries (id, feed_id→feeds UNIQUE, title, description?, category, country, language,
+                        featured, sort_order, published, created_at, updated_at)
   domain_extraction_state (domain UNIQUE, last_extracted_at, failure_count, rate_limit_count, crawl_delay_ms?, last_error?)
 
 Articles (SHARED)
@@ -301,6 +303,7 @@ System / Ops
 
 ### 6.2 Indexing highlights
 - `feeds(url)` unique; `feeds(health_status)`, `feeds(last_fetched)`.
+- `feed_catalog_entries(feed_id)` unique; published facet/order indexes on category, country, language, featured, and sort order.
 - `articles(url)` unique; `articles(feed_id, published_at DESC)`, `articles(guid)`, `articles(content_hash)`, `articles(published_at DESC)`.
 - `article_embeddings`: **HNSW** on the `vector` column (`vector_cosine_ops`); dimension fixed to the instance's active model.
 - `user_feeds(user_id)`, `user_feeds(feed_id)`, GIN on `user_feeds(tags)`.
@@ -319,12 +322,13 @@ For keyword search and the keyword component of saved searches, add a Postgres *
 This section operationalizes PRD §6.
 
 ### 7.1 Storage: shared vs. personal (enforced by schema)
-- **Shared, one row:** `feeds`, `articles`, `article_embeddings`, article `summary/key_points/topics`, `feed_error_log`, `domain_extraction_state`.
+- **Shared, one row:** `feeds`, editorial `feed_catalog_entries`, `articles`, `article_embeddings`, article `summary/key_points/topics`, `feed_error_log`, `domain_extraction_state`.
 - **Personal:** `user_feeds`, `user_categories`, `read_articles`, `seen_articles`, `bookmarks`, `article_feedback`, `user_patterns`, `saved_searches(+matches)`, `user_preferences`, `user_notifications`.
 - **Derived/personal cache (not persisted authoritatively):** per-user relevance scores.
 
 ### 7.2 Write-path dedup (idempotent upserts)
 - **Feed creation:** normalize URL → `INSERT ... ON CONFLICT (url) DO NOTHING RETURNING id` (or select existing). Subscription is a separate `user_feeds` upsert. A feed shared by N users has exactly one `feeds` row.
+- **Catalog selection:** an admin can attach one editorial catalog entry to a shared feed; users may subscribe to many published catalog feeds in one transaction. The catalog never substitutes for arbitrary user URL creation.
 - **Article ingest:** dedup order = **GUID (feed-scoped) → URL (global unique) → content_hash (feed-scoped)**. Insert via `ON CONFLICT (url) DO UPDATE` only when `should_update` (content hash/title/published changed). One row per article regardless of subscriber count.
 
 ### 7.3 Compute-path dedup (claim + idempotency, O(1) per content version)

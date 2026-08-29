@@ -31,6 +31,7 @@ struct SearchesTemplate {
     user_email: String,
     csrf_token: String,
     ui: prefs::Preferences,
+    is_admin: bool,
     searches: Vec<SearchRow>,
     error: Option<String>,
 }
@@ -51,6 +52,7 @@ struct ResultsTemplate {
     user_email: String,
     csrf_token: String,
     ui: prefs::Preferences,
+    is_admin: bool,
     name: String,
     query: String,
     results: Vec<ResultRow>,
@@ -63,6 +65,7 @@ struct NotificationsTemplate {
     user_email: String,
     csrf_token: String,
     ui: prefs::Preferences,
+    is_admin: bool,
     notifications: Vec<NotificationRow>,
 }
 
@@ -97,6 +100,7 @@ async fn searches_page(
     state: &AppState,
     user_id: Uuid,
     user_email: String,
+    is_admin: bool,
     jar: CookieJar,
     error: Option<String>,
 ) -> Result<Response, AppError> {
@@ -117,6 +121,7 @@ async fn searches_page(
         user_email,
         csrf_token,
         ui,
+        is_admin,
         searches,
         error,
     })?;
@@ -129,7 +134,8 @@ pub async fn page(
     AuthUser(user): AuthUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
-    searches_page(&state, user.id, user.email, jar, None).await
+    let is_admin = user.role == "admin";
+    searches_page(&state, user.id, user.email, is_admin, jar, None).await
 }
 
 /// `POST /searches` — create a saved search and kick off an immediate match.
@@ -142,6 +148,7 @@ pub async fn create(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    let is_admin = user.role == "admin";
     let name = form.name.trim();
     let query = form.query.trim();
     if name.is_empty() || query.is_empty() {
@@ -149,6 +156,7 @@ pub async fn create(
             &state,
             user.id,
             user.email,
+            is_admin,
             jar,
             Some("Name and query are required.".into()),
         )
@@ -249,12 +257,14 @@ pub async fn results(
         })
         .collect();
     let ui = prefs::load(&state.db, user.id).await;
+    let is_admin = user.role == "admin";
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = render(&ResultsTemplate {
         theme: ui.theme.clone(),
         user_email: user.email,
         csrf_token,
         ui,
+        is_admin,
         name: ss.name,
         query: ss.query,
         results,
@@ -279,12 +289,14 @@ pub async fn notifications_page(
         })
         .collect();
     let ui = prefs::load(&state.db, user.id).await;
+    let is_admin = user.role == "admin";
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = render(&NotificationsTemplate {
         theme: ui.theme.clone(),
         user_email: user.email,
         csrf_token,
         ui,
+        is_admin,
         notifications: items,
     })?;
     Ok((jar, body).into_response())

@@ -45,18 +45,18 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 
 **Core (v1 — feature parity):**
 - RSS 2.0/1.0, Atom, and JSON Feed parsing; conditional GET; smart dedup (GUID → URL → content hash)
-- Content extraction (Readability + headless Chromium) with per-domain rate limiting, robots.txt, and SSRF protection
+- RSS fallback or opt-in anonymous public-page extraction with per-domain rate limiting, robots.txt, SSRF protection, and safe rich-content rendering
 - Semantic search + "related articles" (pgvector, HNSW); optional recency-weighted ranking
 - Per-user personalization (TF keyword patterns, sigmoid relevance scoring, time-decay)
 - Saved searches with a boolean+semantic DSL (`AND`/`OR`/`NOT`/phrases/groups) and match notifications
 - LLM summaries (summary + key points + topics) with a provider cascade and cost tracking
-- Feeds & subscriptions: personal categories (nestable/collapsible), tags, bulk operations, OPML import/export
-- Feed health tracking (healthy/warning/error/disabled, auto-disable, error log)
-- Three reading modes (side panel / inline / standalone), 14 themes, deep typography & display preferences
-- In-app notifications; admin dashboard (stats, jobs, storage, providers, users)
+- Feed magazine: country/category/language filters, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
+- Feed health tracking (healthy/warning/error/disabled, auto-disable)
+- Three reading modes (side panel / inline / standalone), themes, deep typography/display preferences, and configurable keyboard shortcuts
+- Admin dashboard: instance stats, users/roles, shared feed inventory, feed magazine editing, and AI costs
 - OAuth (Google/GitHub/Generic) **and** local accounts (Argon2id)
 
-**Planned (v1.1+ / v2):** bookmarks/favorites + smarter retention, "seen" state, news **clustering + LLM digests**, configurable keyboard shortcuts, i18n, ADHD-friendly reading formatting, media/YouTube embeds, storage/log admin tooling. Full list in **[docs/PRD.md §8](docs/PRD.md)**.
+**Planned (v1.1+ / v2):** smarter retention, OPML import/export, news **clustering + LLM digests**, i18n, ADHD-friendly reading formatting, media/YouTube embeds, richer feed health/history, storage/log admin tooling, and a GReader-compatible API. Full list in **[docs/PRD.md §8](docs/PRD.md)**.
 
 ---
 
@@ -94,9 +94,9 @@ docker compose --env-file .env -f docker/compose.yaml up -d
 curl http://localhost:8080/api/health
 ```
 
-> **Status:** early development — the app boots, migrates its database, and serves
-> `/api/health` + `/metrics` today; the reading UI is under construction. The
-> commands below describe the developer workflow.
+> **Status:** early development — the app boots, migrates its database, serves
+> `/api/health` + `/metrics`, and includes the reading UI, feed magazine, and
+> administration surfaces. The commands below describe the developer workflow.
 
 ### Run it (Docker Compose — recommended)
 
@@ -108,7 +108,7 @@ docker compose --env-file .env -f docker/compose.yaml up -d  # full stack
 open http://localhost:8080
 ```
 
-The first account you register becomes the **admin**. New users are auto-subscribed to a curated set of default feeds.
+The first account you register becomes the **admin**. New users can choose any mix of curated magazine sources or add their own feed URL.
 
 ### Develop locally
 

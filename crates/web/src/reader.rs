@@ -54,6 +54,7 @@ struct ArticlesTemplate {
     user_email: String,
     csrf_token: String,
     ui: prefs::Preferences,
+    is_admin: bool,
     articles: Vec<ArticleView>,
     feeds: Vec<FeedNav>,
     unread_only: bool,
@@ -74,6 +75,7 @@ struct ArticleTemplate {
     user_email: String,
     csrf_token: String,
     ui: prefs::Preferences,
+    is_admin: bool,
     id: String,
     title: String,
     feed_name: String,
@@ -186,6 +188,7 @@ pub async fn list(
     Query(q): Query<ArticlesQuery>,
 ) -> Result<Response, AppError> {
     let prefs = prefs::load(&state.db, user.id).await;
+    let is_admin = user.role == "admin";
     let per_page = prefs.articles_per_page.clamp(5, 100) as i64;
     let unread_param = q.unread.as_deref() == Some("1");
     let unread_only = unread_param || !prefs.show_read_articles;
@@ -233,6 +236,7 @@ pub async fn list(
         user_email: user.email,
         csrf_token,
         ui: prefs.clone(),
+        is_admin,
         articles: article_views,
         feeds,
         unread_only,
@@ -537,6 +541,7 @@ pub async fn read(
     Path(id): Path<Uuid>,
 ) -> Result<Response, AppError> {
     let prefs = prefs::load(&state.db, user.id).await;
+    let is_admin = user.role == "admin";
     let article = reader_view(&state, user.id, id, prefs.auto_mark_read).await?;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = ArticleTemplate {
@@ -544,6 +549,7 @@ pub async fn read(
         user_email: user.email,
         csrf_token,
         ui: prefs,
+        is_admin,
         id: article.id,
         title: article.title,
         feed_name: article.feed_name,

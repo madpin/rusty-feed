@@ -13,13 +13,16 @@
         <p class="eyebrow">Your library</p>
         <h1>{% if unread_only %}Unread articles{% else if sort == "relevance" %}For you{% else %}All articles{% endif %}</h1>
       </div>
-      {% if !articles.is_empty() %}
-      <form method="post" action="/articles/read-all" class="js-action" data-action="mark-all-read" data-success-message="All articles marked read.">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <input type="hidden" name="next" value="{{ back_url }}" />
-        <button type="submit">Mark all read</button>
-      </form>
-      {% endif %}
+      <div class="header-actions">
+        <a href="/settings/preferences#keyboard-shortcuts" class="button-quiet">Keyboard shortcuts</a>
+        {% if !articles.is_empty() %}
+        <form method="post" action="/articles/read-all" class="js-action" data-action="mark-all-read" data-success-message="All articles marked read.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="next" value="{{ back_url }}" />
+          <button type="submit">Mark all read</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
 
     <details class="mobile-library-context">

@@ -8,7 +8,7 @@
   <p class="sidebar-label">Feeds</p>
   <div class="feed-nav-list">
     {% for f in feeds %}
-    <a href="/articles?feed={{ f.id }}"{% if f.active %} class="nav-link active"{% else %} class="nav-link"{% endif %}>{{ f.name }}</a>
+    <a href="/articles?feed={{ f.id }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %}>{{ f.name }}</a>
     {% else %}
     <p class="sidebar-empty">No feeds yet.</p>
     {% endfor %}

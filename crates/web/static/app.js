@@ -364,12 +364,14 @@
         reportReadingWithin(panel);
         panel.hidden = true;
         link.setAttribute("aria-expanded", "false");
+        link.closest(".article-card").classList.remove("selected");
         return;
       }
       Array.prototype.forEach.call(list.querySelectorAll(".article-inline"), function (other) {
         if (other !== panel) {
           reportReadingWithin(other);
           other.hidden = true;
+          other.closest(".article-card").classList.remove("selected");
         }
       });
       panel.hidden = false;
@@ -411,5 +413,158 @@
       announce("Could not copy the token. Select it manually.", true);
     }
     selection.removeAllRanges();
+  });
+
+  function shortcutFromEvent(event) {
+    if (event.ctrlKey || event.altKey || event.metaKey || event.getModifierState("AltGraph")) return null;
+    var key = event.key;
+    if (key.length === 1) key = key.toLowerCase();
+    else if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "PageDown", "PageUp", "Home", "End"].indexOf(key) === -1) return null;
+    if (["Control", "Alt", "Shift", "Meta"].indexOf(key) !== -1) return null;
+    return event.shiftKey ? "Shift+" + key : key;
+  }
+
+  function shortcutInputs() {
+    return Array.prototype.slice.call(document.querySelectorAll("[data-shortcut-input]"));
+  }
+
+  function validateShortcutInputs() {
+    var seen = {};
+    shortcutInputs().forEach(function (input) {
+      input.setCustomValidity("");
+      var value = input.value.trim();
+      if (!value) return;
+      if (seen[value]) {
+        input.setCustomValidity("Each shortcut must be unique.");
+        seen[value].setCustomValidity("Each shortcut must be unique.");
+      } else {
+        seen[value] = input;
+      }
+    });
+  }
+
+  function currentArticleCard() {
+    var focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".article-card") : null;
+    return focused || document.querySelector(".article-card.selected");
+  }
+
+  function openAdjacentArticle(direction) {
+    var cards = Array.prototype.slice.call(document.querySelectorAll(".article-card"));
+    if (!cards.length) return false;
+    var focused = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".article-card") : null;
+    var current = focused || document.querySelector(".article-card.selected");
+    var index = cards.indexOf(current);
+    if (index >= 0 && (index + direction < 0 || index + direction >= cards.length)) {
+      announce(direction > 0 ? "Last article in this list." : "First article in this list.", false);
+      return true;
+    }
+    var target = cards[index < 0 ? (direction > 0 ? 0 : cards.length - 1) : index + direction];
+    var link = target.querySelector(".article-link");
+    if (!link) return false;
+    link.focus();
+    link.click();
+    return true;
+  }
+
+  function submitCurrentAction(name) {
+    var scope = currentArticleCard() || document.querySelector("[data-panel-article], [data-current-article]");
+    if (!scope) return false;
+    var form = scope.querySelector("[data-action='" + name + "']");
+    if (!form) return false;
+    var path = new URL(form.action, window.location.href).pathname;
+    if (name === "read-toggle" && /\/read$/.test(path)) {
+      announce("This article is already unread.", false);
+      return true;
+    }
+    if (name === "bookmark-toggle" && /\/unbookmark$/.test(path)) {
+      announce("This article is already saved.", false);
+      return true;
+    }
+    var button = form.querySelector("button");
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  }
+
+  function changeFeed(direction) {
+    var seen = {};
+    var links = Array.prototype.slice.call(document.querySelectorAll("[data-feed-nav]")).filter(function (link) {
+      if (!link.getClientRects().length || seen[link.href]) return false;
+      seen[link.href] = true;
+      return true;
+    });
+    if (!links.length) return false;
+    var active = links.findIndex(function (link) { return link.classList.contains("active"); });
+    if (active >= 0 && (active + direction < 0 || active + direction >= links.length)) {
+      announce(direction > 0 ? "Last feed in this list." : "First feed in this list.", false);
+      return true;
+    }
+    var next = active < 0 ? (direction > 0 ? 0 : links.length - 1) : active + direction;
+    window.location.assign(links[next].href);
+    return true;
+  }
+
+  document.addEventListener("keydown", function (event) {
+    var input = event.target.closest ? event.target.closest("[data-shortcut-input]") : null;
+    if (input) {
+      if (event.key === "Escape") {
+        input.blur();
+        announce("Shortcut recording cancelled.", false);
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        input.value = "";
+        validateShortcutInputs();
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "Tab") return;
+      var captured = shortcutFromEvent(event);
+      if (captured) {
+        input.value = captured;
+        validateShortcutInputs();
+        announce(captured + " recorded. Save preferences to keep it.", false);
+      } else {
+        announce("Use one printable key, an arrow, Page Up/Down, Home, or End; Ctrl, Alt, and Command are reserved.", true);
+      }
+      event.preventDefault();
+      return;
+    }
+    if (event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229) return;
+    if (document.querySelector(".account-menu[open], dialog[open]")) return;
+    if (event.target.closest && event.target.closest("input, textarea, select, button, summary, [contenteditable], [role='textbox'], [role='combobox'], audio, video")) return;
+    var root = document.documentElement;
+    if (root.getAttribute("data-shortcuts-enabled") !== "true") return;
+    var shortcut = shortcutFromEvent(event);
+    if (!shortcut) return;
+    var handled = false;
+    if (shortcut === root.getAttribute("data-shortcut-next-article")) handled = openAdjacentArticle(1);
+    else if (shortcut === root.getAttribute("data-shortcut-previous-article")) handled = openAdjacentArticle(-1);
+    else if (shortcut === root.getAttribute("data-shortcut-save-article")) handled = submitCurrentAction("bookmark-toggle");
+    else if (shortcut === root.getAttribute("data-shortcut-mark-unread")) handled = submitCurrentAction("read-toggle");
+    else if (shortcut === root.getAttribute("data-shortcut-next-feed")) handled = changeFeed(1);
+    else if (shortcut === root.getAttribute("data-shortcut-previous-feed")) handled = changeFeed(-1);
+    if (handled) event.preventDefault();
+  });
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-reset-shortcuts]") : null;
+    if (!button) return;
+    var defaults = {
+      shortcut_next_article: "j",
+      shortcut_previous_article: "k",
+      shortcut_save_article: "s",
+      shortcut_mark_unread: "u",
+      shortcut_next_feed: "]",
+      shortcut_previous_feed: "[",
+    };
+    shortcutInputs().forEach(function (input) {
+      input.value = defaults[input.name] || "";
+    });
+    var enabled = document.querySelector("input[name='shortcuts_enabled']");
+    if (enabled) enabled.checked = true;
+    validateShortcutInputs();
+    announce("Shortcut defaults restored. Save preferences to keep them.", false);
   });
 })();

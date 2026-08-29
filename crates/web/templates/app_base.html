@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ theme }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" style="--sidebar-width: {{ ui.sidebar_width }}rem; --reader-panel-width: {{ ui.reader_panel_width }}%;">
+<html lang="en" data-theme="{{ theme }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" data-shortcuts-enabled="{{ ui.shortcuts.enabled }}" data-shortcut-next-article="{{ ui.shortcuts.next_article }}" data-shortcut-previous-article="{{ ui.shortcuts.previous_article }}" data-shortcut-save-article="{{ ui.shortcuts.save_article }}" data-shortcut-mark-unread="{{ ui.shortcuts.mark_unread }}" data-shortcut-next-feed="{{ ui.shortcuts.next_feed }}" data-shortcut-previous-feed="{{ ui.shortcuts.previous_feed }}" style="--sidebar-width: {{ ui.sidebar_width }}rem; --reader-panel-width: {{ ui.reader_panel_width }}%;">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -18,6 +18,7 @@
         <a href="/search" class="topbar-link nav-search">Search</a>
         <a href="/searches" class="topbar-link nav-saved">Saved</a>
         <a href="/notifications" class="topbar-link nav-alerts">Alerts</a>
+        <a href="/catalog" class="topbar-link nav-catalog">Discover</a>
         <a href="/feeds" class="topbar-link nav-feeds">Feeds</a>
       </nav>
       <span class="spacer"></span>
@@ -27,6 +28,7 @@
           <span class="account-email">{{ user_email }}</span>
           <a href="/settings/preferences" class="account-link nav-settings">Preferences</a>
           <a href="/settings/tokens" class="account-link nav-tokens">API tokens</a>
+          {% if is_admin %}<a href="/admin" class="account-link nav-admin">Administration</a>{% endif %}
           <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <button type="submit" class="button-quiet">Log out</button>

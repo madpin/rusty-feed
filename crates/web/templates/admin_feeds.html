@@ -1,0 +1,36 @@
+{% extends "app_base.html" %}
+{% block title %}Shared feeds{% endblock %}
+{% block body_class %}page-admin page-admin-feeds{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Shared feeds</h1>
+    <p class="muted">One feed row and acquisition policy is shared by every subscriber. Catalog entries can be edited separately in the feed magazine.</p>
+  </div>
+  <a class="btn" href="/admin/catalog">Edit catalog</a>
+</div>
+{% if feeds.is_empty() %}
+<div class="empty-state"><p><strong>No shared feeds yet.</strong></p></div>
+{% else %}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Feed</th><th>Content</th><th>Health</th><th>Subscribers</th><th>Posts</th><th>Last post</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for feed in feeds %}
+      <tr>
+        <td><strong>{{ feed.name }}</strong><br><span class="muted">{{ feed.url }}</span></td>
+        <td>{{ feed.content_mode }}</td>
+        <td><span class="badge health-{{ feed.health }}">{{ feed.health }}</span></td>
+        <td>{{ feed.subscriber_count }}</td>
+        <td>{{ feed.article_count }}</td>
+        <td>{{ feed.last_post }}</td>
+        <td><a href="/feeds/{{ feed.id }}/settings">Source policy</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
