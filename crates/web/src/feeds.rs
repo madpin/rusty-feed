@@ -201,6 +201,15 @@ fn parse_delay(value: &str) -> Result<Option<i32>, String> {
         .map_err(|_| "Extraction delay must be a whole number of milliseconds.".to_string())
 }
 
+fn parse_robots_policy(value: Option<&str>, current: bool) -> Result<bool, String> {
+    match value {
+        None => Ok(current),
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(_) => Err("Choose whether this shared feed should respect robots.txt.".to_string()),
+    }
+}
+
 /// `GET /feeds`.
 pub async fn page(
     State(state): State<AppState>,
@@ -436,6 +445,22 @@ pub async fn update_settings(
             .await;
         }
     };
+    let respect_robots_txt =
+        match parse_robots_policy(form.respect_robots_txt.as_deref(), feed.respect_robots_txt) {
+            Ok(value) => value,
+            Err(error) => {
+                return render_settings_page(
+                    &state,
+                    user.id,
+                    user.email,
+                    jar,
+                    &feed,
+                    None,
+                    Some(error),
+                )
+                .await;
+            }
+        };
     let selector = (!form.selector.trim().is_empty()).then(|| form.selector.trim().to_string());
     let settings = FeedContentSettings {
         mode,
@@ -449,7 +474,7 @@ pub async fn update_settings(
         state.db.pool(),
         id,
         &settings.to_json(),
-        form.respect_robots_txt.is_some(),
+        respect_robots_txt,
         if mode.fetches_article_pages() {
             extraction_delay_ms
         } else {

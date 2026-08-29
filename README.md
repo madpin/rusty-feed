@@ -113,7 +113,7 @@ The first account you register becomes the **admin**. New users can choose any m
 ### Develop locally
 
 ```bash
-# Prereqs: Rust (stable), Docker, Tailwind standalone CLI
+# Prereqs: Rust (stable) and Docker. Node 20 is needed only for browser E2E tests.
 cp .env.example .env
 docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 
@@ -127,13 +127,24 @@ cargo test                                     # unit + integration tests
 cargo clippy -D warnings && cargo fmt --check  # lint & format
 ```
 
+### Browser E2E tests
+
+```bash
+npm ci
+PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
+  PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
+  npm run test:e2e
+```
+
+Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises the real browser flows for catalog selection, shortcut capture/conflict handling, preference persistence, and normal-user admin denial. CI installs Chromium and runs this suite after Rust tests.
+
 ### Configuration (essentials)
 
 ```bash
 DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
 REDIS_URL=redis://localhost:6379
 SESSION_SECRET=<32+ random bytes>
-ENCRYPTION_SECRET=<32+ random bytes>         # encrypts API keys & feed cookies
+ENCRYPTION_SECRET=<32+ random bytes>         # encrypts stored API credentials
 
 # Auth (pick at least one; local accounts work with none)
 GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...

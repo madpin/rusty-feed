@@ -491,10 +491,11 @@ async fn reader_view(
             .and_then(|feed| feed.extraction_settings.as_ref()),
     )
     .mode;
-    let content_notice = match (content_mode, article.content_source.as_str(), article.extraction_status.as_str()) {
-        (FeedContentMode::Paywalled, _, _) => Some(
-            "This feed is configured for paywalled/RSS fallback. RustSS shows the feed-provided content and does not attempt to bypass publisher access controls.".to_string(),
-        ),
+    let content_notice = match (
+        content_mode,
+        article.content_source.as_str(),
+        article.extraction_status.as_str(),
+    ) {
         (FeedContentMode::ArticlePage, "feed", "none") => Some(
             "Full article content is queued for this source. Showing feed-provided content until extraction finishes.".to_string(),
         ),

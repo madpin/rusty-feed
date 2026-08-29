@@ -7,7 +7,6 @@ pub enum FeedContentMode {
     #[default]
     Rss,
     ArticlePage,
-    Paywalled,
 }
 
 impl FeedContentMode {
@@ -15,7 +14,6 @@ impl FeedContentMode {
         match value {
             "rss" => Some(Self::Rss),
             "article_page" => Some(Self::ArticlePage),
-            "paywalled" => Some(Self::Paywalled),
             _ => None,
         }
     }
@@ -24,7 +22,6 @@ impl FeedContentMode {
         match self {
             Self::Rss => "rss",
             Self::ArticlePage => "article_page",
-            Self::Paywalled => "paywalled",
         }
     }
 
@@ -32,7 +29,6 @@ impl FeedContentMode {
         match self {
             Self::Rss => "RSS content",
             Self::ArticlePage => "Public article pages",
-            Self::Paywalled => "Paywalled / RSS fallback",
         }
     }
 
@@ -62,6 +58,7 @@ impl FeedContentSettings {
             return Self::default();
         };
         let mode = match value.get("mode").and_then(Value::as_str) {
+            Some("paywalled") => FeedContentMode::Rss,
             Some(mode) => FeedContentMode::parse(mode).unwrap_or_default(),
             None => value
                 .get("enabled")
@@ -114,6 +111,13 @@ mod tests {
     fn keeps_legacy_enabled_feeds_extracting() {
         let settings = FeedContentSettings::from_json(Some(&json!({ "enabled": true })));
         assert_eq!(settings.mode, FeedContentMode::ArticlePage);
+    }
+
+    #[test]
+    fn treats_legacy_paywalled_mode_as_rss() {
+        let settings = FeedContentSettings::from_json(Some(&json!({ "mode": "paywalled" })));
+        assert_eq!(settings.mode, FeedContentMode::Rss);
+        assert_eq!(FeedContentMode::parse("paywalled"), None);
     }
 
     #[test]

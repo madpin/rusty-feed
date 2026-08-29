@@ -236,7 +236,72 @@ async fn fetch_feed_enqueues_extraction_when_enabled() {
 }
 
 #[tokio::test]
-async fn rss_and_paywalled_modes_do_not_fetch_article_pages() {
+async fn ignored_robots_policy_skips_the_robots_request() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/robots.txt"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("User-agent: *\nDisallow: /article"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/article"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ARTICLE_HTML))
+        .mount(&server)
+        .await;
+
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("{}/feed.xml?{}", server.uri(), uuid::Uuid::now_v7()),
+        "F",
+        None,
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE feeds SET extraction_settings = '{\"mode\": \"article_page\"}'::jsonb, \
+         respect_robots_txt = false WHERE id = $1",
+    )
+    .bind(feed.id)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    let (article, _) = articles::upsert(
+        db.pool(),
+        &rustss_db::models::NewArticle {
+            feed_id: feed.id,
+            url: format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7()),
+            guid: None,
+            title: "Item".into(),
+            author: None,
+            content: "RSS fallback".into(),
+            excerpt: None,
+            image_url: None,
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    let output = fast_extract_agent()
+        .run(&ctx(db.clone()), json!({ "article_id": article.id }))
+        .await
+        .unwrap();
+    assert_eq!(output["status"], "success");
+    assert!(server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .all(|request| request.url.path() != "/robots.txt"));
+}
+
+#[tokio::test]
+async fn rss_and_legacy_paywalled_modes_do_not_fetch_article_pages() {
     let Some(db) = connect().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -280,6 +345,15 @@ async fn rss_and_paywalled_modes_do_not_fetch_article_pages() {
             .await
             .unwrap();
         assert_eq!(out["skipped"], "feed uses RSS content");
+        if mode == "paywalled" {
+            sqlx::query(
+                "UPDATE feeds SET extraction_settings = '{\"mode\": \"rss\"}'::jsonb WHERE id = $1",
+            )
+            .bind(feed.id)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
     }
     assert!(server.received_requests().await.unwrap().is_empty());
 }

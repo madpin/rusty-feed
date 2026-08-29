@@ -553,7 +553,7 @@ Effective value = first present of **feed → category → user prefs → system
   2. **Chromium** (`chromiumoxide`, pooled): future option for public JS-rendered pages; `networkidle` and optional wait-selector, then Readability on rendered DOM. No cookie injection or authenticated/paywall extraction; falls back to Readability if unavailable.
 - **Per-domain rate limiting:** shared `domain_extraction_state`; base delay default **3000 ms**, overridable per feed; honor robots.txt `Crawl-delay` (cached 24h/1h-on-error); adaptive `429` backoff **10s→30s→60s→120s** honoring `Retry-After`. Extraction runs **only for new articles** and **once per shared article** (§7.3).
 - **Sanitization:** all extracted/stored HTML is cleaned with **`ammonia`** (allow-list of tags/attrs, safe links, no scripts) before persistence and again defensively at render.
-- **Publisher access:** public anonymous page requests only. Known paywalled feeds remain on RSS fallback; RustSS does not store feed cookies or bypass publisher controls.
+- **Publisher access:** public anonymous page requests only. Publisher access restrictions fall back to RSS content; RustSS does not store feed cookies or bypass publisher controls. Each shared feed can explicitly respect or ignore robots.txt for public-page extraction.
 
 ---
 
@@ -639,9 +639,10 @@ Effective value = first present of **feed → category → user prefs → system
 - **Unit:** pure algorithms (content hash & dedup ordering, TF keyword extraction, pattern update/decay/prune, sigmoid scoring, similarity/recency math, saved-search DSL parser & scorer, settings cascade). These have exact expected values from §11 for regression against the reference.
 - **Integration:** repositories & agents against **ephemeral Postgres+pgvector** (testcontainers/`sqlx::test`); verify dedup guarantees (N-subscriber feed ⇒ 1 fetch/embed/summary), conditional GET (304 handling), and cascade resolution.
 - **HTTP:** router/handler tests (auth, CSRF, envelopes, status codes) with a test app; **`wiremock`** for feed/LLM/HTTP fakes.
+- **Browser E2E:** Playwright with Chromium starts the actual Rust server on an isolated port and exercises catalog selection, shortcut capture/conflict handling, preference persistence, and authorization boundaries.
 - **Property tests** (`proptest`) for the query parser and dedup invariants.
 - **Load/bench** (`criterion` for hot functions; a small harness for search/list p95 and refresh throughput) to guard PRD §7 targets.
-- **CI gates:** `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, migration check, and a smoke `docker compose --env-file .env -f docker/compose.yaml up` health probe.
+- **CI gates:** `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, locked Playwright/Chromium browser E2E, migration check, and a smoke `docker compose --env-file .env -f docker/compose.yaml up` health probe.
 
 ---
 

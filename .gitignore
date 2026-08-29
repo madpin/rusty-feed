@@ -33,5 +33,11 @@ target
 /models/
 /data/
 
+# Browser-test artifacts
+/node_modules/
+/playwright-report/
+/test-results/
+/blob-report/
+
 # Editor/OS noise
 .DS_Store

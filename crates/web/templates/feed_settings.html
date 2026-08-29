@@ -27,11 +27,7 @@
       </label>
       <label class="radio-row">
         <input type="radio" name="content_mode" value="article_page"{% if feed.content_mode == "article_page" %} checked{% endif %} />
-        <span><strong>Fetch public article pages</strong><small>RustSS anonymously fetches and extracts publicly available page content, respecting robots.txt and the configured delay. RSS content remains the fallback.</small></span>
-      </label>
-      <label class="radio-row">
-        <input type="radio" name="content_mode" value="paywalled"{% if feed.content_mode == "paywalled" %} checked{% endif %} />
-        <span><strong>Paywalled / RSS fallback</strong><small>Do not fetch article pages. RustSS keeps feed-provided content and links to the publisher for readers with access.</small></span>
+        <span><strong>Fetch public article pages</strong><small>RustSS anonymously fetches and extracts publicly available page content. RSS content remains the fallback when extraction cannot run or fails.</small></span>
       </label>
     </fieldset>
 
@@ -48,9 +44,14 @@
           <input type="number" name="extraction_delay_ms" min="250" max="120000"{% if let Some(delay) = feed.extraction_delay_ms %} value="{{ delay }}"{% endif %} placeholder="Use instance default" />
         </label>
       </div>
-      <label class="check-row">
-        <input type="checkbox" name="respect_robots_txt" value="true"{% if feed.respect_robots_txt %} checked{% endif %} />
-        <span>Respect robots.txt for public page extraction</span>
+      <p class="muted">Robots policy applies only when public-page extraction is selected. It is shared by every subscriber.</p>
+      <label class="radio-row">
+        <input type="radio" name="respect_robots_txt" value="true"{% if feed.respect_robots_txt %} checked{% endif %} />
+        <span><strong>Respect robots.txt</strong><small>Use publisher crawl rules and any declared crawl delay.</small></span>
+      </label>
+      <label class="radio-row">
+        <input type="radio" name="respect_robots_txt" value="false"{% if !feed.respect_robots_txt %} checked{% endif %} />
+        <span><strong>Ignore robots.txt for this feed</strong><small>Skip publisher crawl rules while retaining the configured delay and adaptive backoff.</small></span>
       </label>
     </fieldset>
     <div class="form-actions"><button type="submit" class="primary">Save source policy and queue processing</button></div>

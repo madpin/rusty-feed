@@ -262,7 +262,9 @@ async fn admin_can_set_shared_article_page_policy() {
     let csrf = find(&set_cookies(&response), "rustss_csrf")
         .unwrap()
         .to_string();
-    assert!(body_string(response).await.contains("Content source"));
+    let body = body_string(response).await;
+    assert!(body.contains("Content source"));
+    assert!(body.contains("Ignore robots.txt for this feed"));
 
     let response = app
         .oneshot(
@@ -270,7 +272,7 @@ async fn admin_can_set_shared_article_page_policy() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "csrf_token={csrf}&content_mode=article_page&selector=article&respect_robots_txt=true&extraction_delay_ms=500&fetch_interval_minutes=30"
+                    "csrf_token={csrf}&content_mode=article_page&selector=article&respect_robots_txt=false&extraction_delay_ms=500&fetch_interval_minutes=30"
                 )))
                 .unwrap(),
         )
@@ -288,7 +290,7 @@ async fn admin_can_set_shared_article_page_policy() {
     let settings = saved.extraction_settings.unwrap();
     assert_eq!(settings["mode"], "article_page");
     assert_eq!(settings["selector"], "article");
-    assert!(saved.respect_robots_txt);
+    assert!(!saved.respect_robots_txt);
     assert_eq!(saved.extraction_delay_ms, Some(500));
     assert_eq!(saved.fetch_interval_minutes, 30);
     assert_eq!(

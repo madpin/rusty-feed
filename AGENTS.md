@@ -77,6 +77,12 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test                      # workspace unit + integration tests
 cargo test -p <crate>           # a single crate
 
+# Browser E2E (dev-only Node dependency; starts RustSS on :8088 with worker off)
+npm ci
+PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
+  PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
+  npm run test:e2e
+
 # Dependencies (local dev)
 docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 
@@ -122,6 +128,7 @@ docker compose --env-file .env -f docker/compose.yaml up -d # app + postgres + r
 - [ ] `cargo fmt --all --check` clean
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings` clean
 - [ ] `cargo test` green (including the dedup invariant tests)
+- [ ] `npm run test:e2e` green for browser-facing changes
 - [ ] New env/config in `.env.example` + `docs/ARCHITECTURE.md` §16
 - [ ] DB integration tests pass with `TEST_DATABASE_URL` set (dedup invariants stay green)
 - [ ] New smells/risks/bugs recorded in `docs/FINDINGS.md` (reference the `FND-*` id in the commit)

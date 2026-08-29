@@ -135,7 +135,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-EXTRACT-1 (P0):** Full-text extraction via a **Readability** strategy; **headless-Chromium** strategy for JS-rendered pages (full infra), selected per-feed with a fallback chain.
 - **FR-EXTRACT-2 (P0):** Extraction happens **only for new (deduped) articles** and **once per shared article** (never per user).
 - **FR-EXTRACT-3 (P0):** Per-**domain** rate limiting with configurable base delay (default 3s), robots.txt `Crawl-delay` support, and adaptive `429` backoff (10s→30s→60s→120s honoring `Retry-After`).
-- **FR-EXTRACT-4 (P0):** Shared per-feed content source policy: RSS-only, anonymous public article-page extraction (optional CSS selector, robots/delay/refresh controls), or explicit paywalled/RSS fallback. RustSS does not store publisher credentials, send custom authentication headers, or bypass access controls.
+- **FR-EXTRACT-4 (P0):** Shared per-feed content source policy: RSS-only, or anonymous public article-page extraction with RSS fallback on failure (optional CSS selector, robots policy, delay, and refresh controls). RustSS does not store publisher credentials, send custom authentication headers, or bypass access controls. A feed administrator can explicitly choose whether public extraction respects robots.txt.
 - **FR-EXTRACT-5 (P0):** **SSRF protection on all extraction and robots.txt fetches** (fixes a known reference gap — see §9). HTML output is sanitized before storage/render.
 - **FR-EXTRACT-6 (P2):** Rewrite bare-text URLs into links; embed YouTube; media enrichment (backlog).
 

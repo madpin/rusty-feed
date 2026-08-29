@@ -68,5 +68,23 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features
 
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install browser test dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E
+        env:
+          PLAYWRIGHT_DATABASE_URL: postgres://rustss:rustss@localhost:5432/rustss
+          PLAYWRIGHT_REDIS_URL: redis://localhost:6379
+        run: npm run test:e2e
+
       - name: Build (release)
         run: cargo build --release --workspace
