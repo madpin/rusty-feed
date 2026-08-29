@@ -41,24 +41,40 @@ pub struct Scored {
     pub explanations: Vec<(String, f64)>,
 }
 
+struct FeedbackInput<'a> {
+    feedback_type: &'a str,
+    value: f64,
+    previous_value: f64,
+    times: Option<(i32, i32)>,
+}
+
 /// Record explicit 👍/👎 feedback and update patterns.
 pub async fn record_explicit(
     db: &Db,
     cache: &Cache,
     user_id: Uuid,
     article: &Article,
-    feedback: ExplicitFeedback,
+    rating: ExplicitFeedback,
 ) -> Result<()> {
+    let value = explicit_value(rating);
+    let previous = feedback::get(db.pool(), user_id, article.id)
+        .await?
+        .map(|record| record.feedback_value)
+        .unwrap_or_default();
     apply(
         db,
         cache,
         user_id,
         article,
-        "explicit",
-        explicit_value(feedback),
-        None,
+        FeedbackInput {
+            feedback_type: "explicit",
+            value,
+            previous_value: previous,
+            times: None,
+        },
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Record implicit reading feedback (completion/bounce). Returns whether a
@@ -73,9 +89,10 @@ pub async fn record_implicit(
     bounce_threshold: f64,
 ) -> Result<bool> {
     // Explicit feedback is never overwritten by implicit signals.
-    if feedback::existing_type(db.pool(), user_id, article.id)
-        .await?
-        .as_deref()
+    let previous = feedback::get(db.pool(), user_id, article.id).await?;
+    if previous
+        .as_ref()
+        .map(|record| record.feedback_type.as_str())
         == Some("explicit")
     {
         return Ok(false);
@@ -88,12 +105,16 @@ pub async fn record_implicit(
         cache,
         user_id,
         article,
-        "implicit",
-        value,
-        Some((time_spent as i32, estimated as i32)),
+        FeedbackInput {
+            feedback_type: "implicit",
+            value,
+            previous_value: previous
+                .map(|record| record.feedback_value)
+                .unwrap_or_default(),
+            times: Some((time_spent as i32, estimated as i32)),
+        },
     )
-    .await?;
-    Ok(true)
+    .await
 }
 
 async fn apply(
@@ -101,11 +122,13 @@ async fn apply(
     cache: &Cache,
     user_id: Uuid,
     article: &Article,
-    feedback_type: &str,
-    value: f64,
-    times: Option<(i32, i32)>,
-) -> Result<()> {
-    let (time_spent, estimated) = match times {
+    input: FeedbackInput<'_>,
+) -> Result<bool> {
+    let delta_value = input.value - input.previous_value;
+    if delta_value.abs() < f64::EPSILON {
+        return Ok(false);
+    }
+    let (time_spent, estimated) = match input.times {
         Some((t, e)) => (Some(t), Some(e)),
         None => (None, None),
     };
@@ -113,8 +136,8 @@ async fn apply(
         db.pool(),
         user_id,
         article.id,
-        feedback_type,
-        value,
+        input.feedback_type,
+        input.value,
         time_spent,
         estimated,
     )
@@ -125,14 +148,14 @@ async fn apply(
             db.pool(),
             user_id,
             &kw.term,
-            pattern_delta(value, kw.relevance),
+            pattern_delta(delta_value, kw.relevance),
         )
         .await?;
     }
 
     // The learned model changed → drop the cached score.
     cache.delete(&score_key(user_id, article.id)).await;
-    Ok(())
+    Ok(true)
 }
 
 /// Score an article for a user (cached 1h). Returns 0.5 (neutral) when no

@@ -1,16 +1,13 @@
 {% extends "app_base.html" %}
 {% block title %}Notifications{% endblock %}
-{% block sidebar %}
-<h2>Reading</h2>
-<ul>
-  <li><a href="/articles">All articles</a></li>
-  <li><a href="/searches">Saved searches</a></li>
-  <li><a href="/notifications">Notifications</a></li>
-</ul>
-{% endblock %}
+{% block body_class %}page-notifications{% endblock %}
 {% block content %}
-<div class="content-header">
-  <h1>Notifications</h1>
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Library</p>
+    <h1>Notifications</h1>
+    <p class="muted">Strong matches from your saved searches appear here.</p>
+  </div>
   {% if !notifications.is_empty() %}
   <form method="post" action="/notifications/read">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
@@ -20,7 +17,7 @@
 </div>
 
 {% if notifications.is_empty() %}
-<p class="muted">No notifications.</p>
+<div class="empty-state"><p><strong>No notifications.</strong></p><p>Save a search and enable notifications to receive high-confidence matches.</p></div>
 {% else %}
 <ul class="article-list">
   {% for n in notifications %}

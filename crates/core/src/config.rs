@@ -20,7 +20,7 @@ pub enum RegistrationMode {
     /// Anyone may register.
     #[default]
     Open,
-    /// Registration requires an invite.
+    /// Reserved for invitation-based registration; currently behaves as closed.
     Invite,
     /// Registration is disabled.
     Closed,
@@ -30,7 +30,7 @@ pub enum RegistrationMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingProvider {
-    /// Local ONNX model via fastembed (default; free, downloaded on first run).
+    /// Deterministic local hashing embedder (default; on-device model pending).
     #[default]
     Local,
     /// OpenAI-compatible embeddings API.
@@ -231,7 +231,7 @@ mod defaults {
         true
     }
     pub fn embedding_model() -> String {
-        "bge-small-en-v1.5".to_string()
+        "hash-placeholder-v1".to_string()
     }
     pub fn embedding_batch_size() -> usize {
         10
@@ -286,7 +286,7 @@ mod tests {
     fn loads_with_defaults() {
         let cfg = AppConfig::from_figment(base()).expect("should load");
         assert_eq!(cfg.bind_addr, "0.0.0.0:8080");
-        assert_eq!(cfg.embedding_model, "bge-small-en-v1.5");
+        assert_eq!(cfg.embedding_model, "hash-placeholder-v1");
         assert_eq!(cfg.embedding_batch_size, 10);
         assert!(cfg.cache_enabled);
         assert_eq!(cfg.registration_mode, RegistrationMode::Open);

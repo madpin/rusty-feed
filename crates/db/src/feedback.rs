@@ -7,14 +7,26 @@ use uuid::Uuid;
 
 use crate::error::Result;
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FeedbackRecord {
+    pub feedback_type: String,
+    pub feedback_value: f64,
+}
+
 /// The current feedback type for (user, article), if any.
 pub async fn existing_type(
     pool: &PgPool,
     user_id: Uuid,
     article_id: Uuid,
 ) -> Result<Option<String>> {
-    Ok(sqlx::query_scalar(
-        "SELECT feedback_type FROM article_feedback WHERE user_id = $1 AND article_id = $2",
+    Ok(get(pool, user_id, article_id)
+        .await?
+        .map(|record| record.feedback_type))
+}
+
+pub async fn get(pool: &PgPool, user_id: Uuid, article_id: Uuid) -> Result<Option<FeedbackRecord>> {
+    Ok(sqlx::query_as(
+        "SELECT feedback_type, feedback_value FROM article_feedback WHERE user_id = $1 AND article_id = $2",
     )
     .bind(user_id)
     .bind(article_id)

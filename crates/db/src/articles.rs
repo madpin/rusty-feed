@@ -336,6 +336,7 @@ pub struct ArticleListItem {
     pub feed_name: String,
     pub is_read: bool,
     pub is_bookmarked: bool,
+    pub feedback_value: Option<f64>,
 }
 
 /// List a user's reading feed: articles from their subscribed feeds, newest
@@ -353,12 +354,14 @@ pub async fn list_for_user(
         "SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
                 f.name AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
-                (b.article_id IS NOT NULL) AS is_bookmarked \
+                (b.article_id IS NOT NULL) AS is_bookmarked, \
+                af.feedback_value \
          FROM articles a \
          JOIN feeds f ON f.id = a.feed_id \
          JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
          LEFT JOIN read_articles r ON r.article_id = a.id AND r.user_id = $1 \
          LEFT JOIN bookmarks b ON b.article_id = a.id AND b.user_id = $1 \
+         LEFT JOIN article_feedback af ON af.article_id = a.id AND af.user_id = $1 \
          WHERE ($2::uuid IS NULL OR a.feed_id = $2) {read_filter} \
          ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
          LIMIT $3 OFFSET $4",

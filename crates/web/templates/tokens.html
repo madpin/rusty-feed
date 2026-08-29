@@ -1,37 +1,75 @@
-{% extends "base.html" %}
-{% block title %}API tokens — RustSS{% endblock %}
+{% extends "app_base.html" %}
+{% block title %}API tokens{% endblock %}
+{% block body_class %}page-tokens{% endblock %}
+{% block sidebar %}
+<div class="sidebar-context">
+  <div class="sidebar-group">
+    <p class="sidebar-label">Security</p>
+    <a href="/settings/preferences" class="nav-link">Preferences</a>
+    <a href="/settings/tokens" class="nav-link active">API tokens</a>
+  </div>
+</div>
+{% endblock %}
 {% block content %}
-<h1>API tokens</h1>
-<p class="muted">Use these to connect RSS clients (e.g. a Google Reader-compatible app) or scripts.</p>
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Account security</p>
+    <h1>API tokens</h1>
+    <p class="muted">Create a token for an RSS client or a personal script. Each token is shown only once.</p>
+  </div>
+</div>
+
+{% if let Some(msg) = notice %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
+{% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
 
 {% if let Some(raw) = new_token %}
-<p class="alert">Copy your new token now — it won't be shown again:</p>
-<pre style="white-space: pre-wrap; word-break: break-all;">{{ raw }}</pre>
+<section class="panel" aria-labelledby="new-token-heading">
+  <h2 id="new-token-heading">Copy this token now</h2>
+  <p class="alert" role="alert">It will not be shown again. Store it in your password manager before leaving this page.</p>
+  <div class="token-secret"><code id="new-token-value">{{ raw }}</code></div>
+  <button type="button" data-copy-token="new-token-value">Copy token</button>
+</section>
 {% endif %}
 
-<form method="post" action="/settings/tokens">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-  <label>Token name
-    <input type="text" name="name" placeholder="e.g. Reeder on my phone" required />
-  </label>
-  <button type="submit">Create token</button>
-</form>
+<section class="panel">
+  <h2>Create a token</h2>
+  <form method="post" action="/settings/tokens" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Token name
+      <input type="text" name="name" placeholder="Reeder on my phone" autocomplete="off" required />
+    </label>
+    <div class="form-actions"><button type="submit" class="primary">Create token</button></div>
+  </form>
+</section>
 
-<h2>Your tokens</h2>
-<ul>
-{% for t in tokens %}
-  <li>
-    <strong>{{ t.name }}</strong> — created {{ t.created }}{% if t.revoked %} <em>(revoked)</em>{% endif %}
-    {% if !t.revoked %}
-    <form method="post" action="/settings/tokens/{{ t.id }}/revoke" style="display:inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-      <button type="submit">Revoke</button>
-    </form>
-    {% endif %}
-  </li>
-{% else %}
-  <li class="muted">No tokens yet.</li>
-{% endfor %}
-</ul>
-<p class="muted"><a href="/">← Back</a></p>
+<section class="panel">
+  <h2>Your tokens</h2>
+  {% if tokens.is_empty() %}
+  <div class="empty-state">
+    <p><strong>No tokens yet.</strong></p>
+    <p>Create one when you connect an external RSS client or script.</p>
+  </div>
+  {% else %}
+  <ul class="token-list">
+  {% for t in tokens %}
+    <li class="token-row">
+      <div>
+        <strong>{{ t.name }}</strong>
+        {% if t.revoked %}<span class="token-status">Revoked</span>{% endif %}
+        <div class="meta">Created {{ t.created }}{% if let Some(last_used) = t.last_used %} · Last used {{ last_used }}{% endif %}</div>
+      </div>
+      {% if !t.revoked %}
+      <div class="row-actions">
+        <form method="post" action="/settings/tokens/{{ t.id }}/revoke"
+              onsubmit="return confirm('Revoke this token? Connected clients using it will stop working.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="danger">Revoke token</button>
+        </form>
+      </div>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+</section>
 {% endblock %}

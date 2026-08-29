@@ -1,30 +1,41 @@
 {% extends "app_base.html" %}
 {% block title %}Costs — Admin{% endblock %}
+{% block body_class %}page-admin{% endblock %}
 {% block sidebar %}
-<h2>Admin</h2>
-<ul>
-  <li><a href="/admin/costs">Costs</a></li>
-</ul>
+<div class="sidebar-context">
+  <div class="sidebar-group">
+    <p class="sidebar-label">Administration</p>
+    <a href="/admin/costs" class="nav-link active">Usage and costs</a>
+  </div>
+</div>
 {% endblock %}
 {% block content %}
-<h1>LLM &amp; embedding costs</h1>
-<p>Total: <strong>{{ total_usd }}</strong></p>
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>LLM and embedding costs</h1>
+    <p class="muted">Durable usage accounting across the instance.</p>
+  </div>
+  <div class="panel"><strong>{{ total_usd }}</strong><span class="muted"> total</span></div>
+</div>
 {% if rows.is_empty() %}
-<p class="muted">No billable calls recorded yet.</p>
+<div class="empty-state"><p><strong>No billable calls recorded yet.</strong></p></div>
 {% else %}
-<table>
-  <thead>
-    <tr><th>Provider</th><th>Model</th><th>Kind</th><th>Calls</th><th>Input</th><th>Output</th><th>Cost</th></tr>
-  </thead>
-  <tbody>
-  {% for r in rows %}
-    <tr>
-      <td>{{ r.provider }}</td><td>{{ r.model }}</td><td>{{ r.kind }}</td>
-      <td>{{ r.calls }}</td><td>{{ r.input_tokens }}</td><td>{{ r.output_tokens }}</td>
-      <td>{{ r.cost_usd }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Provider</th><th>Model</th><th>Kind</th><th>Calls</th><th>Input</th><th>Output</th><th>Cost</th></tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.provider }}</td><td>{{ r.model }}</td><td>{{ r.kind }}</td>
+        <td>{{ r.calls }}</td><td>{{ r.input_tokens }}</td><td>{{ r.output_tokens }}</td>
+        <td>{{ r.cost_usd }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 {% endblock %}

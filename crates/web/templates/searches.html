@@ -1,56 +1,57 @@
 {% extends "app_base.html" %}
 {% block title %}Saved searches{% endblock %}
-{% block sidebar %}
-<h2>Reading</h2>
-<ul>
-  <li><a href="/articles">All articles</a></li>
-  <li><a href="/search">Search</a></li>
-  <li><a href="/searches">Saved searches</a></li>
-  <li><a href="/notifications">Notifications</a></li>
-</ul>
-{% endblock %}
+{% block body_class %}page-searches{% endblock %}
 {% block content %}
-<h1>Saved searches</h1>
-<p class="muted">Persistent queries that match new articles automatically.
-  Syntax: <code>ai, ml</code> (OR), <code>+ethics</code> (required),
-  <code>-crypto</code> (exclude), <code>"machine learning"</code> (phrase),
-  <code>(ai, ml) +ethics</code> (group).</p>
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Discover</p>
+    <h1>Saved searches</h1>
+    <p class="muted">Persistent queries that match new articles automatically.</p>
+  </div>
+</div>
 
-{% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
-
-<form method="post" action="/searches" class="stack">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-  <label>Name <input type="text" name="name" required /></label>
-  <label>Query <input type="text" name="query" placeholder="rust, async +tokio -javascript" required /></label>
-  <label><input type="checkbox" name="notify" value="true" /> Notify me on strong matches</label>
-  <button type="submit" class="primary">Create</button>
-</form>
-
-<h2>Your searches</h2>
-{% if searches.is_empty() %}
-<p class="muted">No saved searches yet.</p>
-{% else %}
-<ul class="feed-list">
-  {% for s in searches %}
-  <li class="feed-row">
-    <div>
-      <strong><a href="/searches/{{ s.id }}">{{ s.name }}</a></strong>
-      {% if s.notify %}<span class="badge">🔔</span>{% endif %}
-      <div class="meta"><code>{{ s.query }}</code></div>
+<section class="panel">
+  <h2>Create a saved search</h2>
+  <p class="muted">Use <code>ai, ml</code> for OR, <code>+ethics</code> for required terms, <code>-crypto</code> to exclude, <code>"machine learning"</code> for a phrase, and <code>(ai, ml) +ethics</code> for a group.</p>
+  {% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
+  <form method="post" action="/searches" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="form-grid">
+      <label>Name <input type="text" name="name" required /></label>
+      <label>Query <input type="text" name="query" placeholder="rust, async +tokio -javascript" required /></label>
     </div>
-    <div class="feed-actions">
-      <form method="post" action="/searches/{{ s.id }}/run">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <button type="submit">Run now</button>
-      </form>
-      <form method="post" action="/searches/{{ s.id }}/delete"
-            onsubmit="return confirm('Delete this saved search?');">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <button type="submit">Delete</button>
-      </form>
-    </div>
-  </li>
-  {% endfor %}
-</ul>
-{% endif %}
+    <label class="check-row"><input type="checkbox" name="notify" value="true" /><span>Notify me on strong matches</span></label>
+    <div class="form-actions"><button type="submit" class="primary">Create search</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Your searches</h2>
+  {% if searches.is_empty() %}
+  <div class="empty-state"><p><strong>No saved searches yet.</strong></p><p>Create one to turn a topic into an ongoing alert.</p></div>
+  {% else %}
+  <ul class="feed-list">
+    {% for s in searches %}
+    <li class="feed-row">
+      <div>
+        <strong><a href="/searches/{{ s.id }}">{{ s.name }}</a></strong>
+        {% if s.notify %}<span class="badge">Notifications on</span>{% endif %}
+        <div class="meta"><code>{{ s.query }}</code></div>
+      </div>
+      <div class="feed-actions">
+        <form method="post" action="/searches/{{ s.id }}/run">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit">Run now</button>
+        </form>
+        <form method="post" action="/searches/{{ s.id }}/delete"
+              onsubmit="return confirm('Delete this saved search?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
 {% endblock %}

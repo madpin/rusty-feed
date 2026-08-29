@@ -95,7 +95,10 @@ async fn articles_shows_empty_state() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert!(body_string(resp).await.contains("No articles yet"));
+    let body = body_string(resp).await;
+    assert!(body.contains("No articles yet"));
+    assert!(body.contains("reading-pane"));
+    assert!(body.contains("reading-workspace"));
 }
 
 #[tokio::test]
@@ -137,21 +140,25 @@ async fn preferences_save_roundtrip() {
         .unwrap()
         .to_string();
 
-    // Save: dark theme, 30/page, hide read (checkbox omitted).
+    // Save a visual configuration, 30/page, and hide read (checkbox omitted).
     let resp = app
         .oneshot(
             Request::post("/settings/preferences")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "theme=dark&reading_mode=inline&articles_per_page=30&csrf_token={csrf}"
+                    "theme=ocean&reading_mode=side-panel&articles_per_page=30&article_density=compact&reader_font_size=large&reader_line_height=airy&sidebar_width=19&reader_panel_width=61&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert!(body_string(resp).await.contains("Preferences saved"));
+    let body = body_string(resp).await;
+    assert!(body.contains("Preferences saved"));
+    assert!(body.contains("data-theme=\"ocean\""));
+    assert!(body.contains("--sidebar-width: 19rem"));
+    assert!(body.contains("--reader-panel-width: 61%"));
 
     // Persisted correctly.
     let user = users::find_by_email(state.db.pool(), &email)
@@ -162,9 +169,14 @@ async fn preferences_save_roundtrip() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored["theme"], "dark");
-    assert_eq!(stored["reading_mode"], "inline");
+    assert_eq!(stored["theme"], "ocean");
+    assert_eq!(stored["reading_mode"], "side-panel");
     assert_eq!(stored["articles_per_page"], 30);
+    assert_eq!(stored["article_density"], "compact");
+    assert_eq!(stored["reader_font_size"], "large");
+    assert_eq!(stored["reader_line_height"], "airy");
+    assert_eq!(stored["sidebar_width"], 19);
+    assert_eq!(stored["reader_panel_width"], 61);
     assert_eq!(stored["show_read_articles"], false);
     assert_eq!(stored["auto_mark_read"], false);
 }
@@ -243,6 +255,21 @@ async fn reading_actions_and_detail_work() {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert!(read_articles::is_read(pool, user.id, aid).await.unwrap());
 
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{aid}/unread"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(!read_articles::is_read(pool, user.id, aid).await.unwrap());
+
     // Bookmark it (plain post → redirect).
     let resp = app
         .clone()
@@ -258,8 +285,39 @@ async fn reading_actions_and_detail_work() {
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     assert!(bookmarks::is_bookmarked(pool, user.id, aid).await.unwrap());
 
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{aid}/unbookmark"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(!bookmarks::is_bookmarked(pool, user.id, aid).await.unwrap());
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/articles/read-all")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(read_articles::is_read(pool, user.id, aid).await.unwrap());
+
     // Detail page renders sanitized content (the <script> is stripped).
     let resp = app
+        .clone()
         .oneshot(
             Request::get(format!("/articles/{aid}"))
                 .header("cookie", format!("rustss_sid={sid}"))
@@ -276,6 +334,22 @@ async fn reading_actions_and_detail_work() {
         !body.contains("<script>alert(1)"),
         "content must be sanitized"
     );
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{aid}/panel"))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let panel = body_string(resp).await;
+    assert!(panel.contains("data-panel-article"));
+    assert!(panel.contains("data-panel-read=\"true\""));
+    assert!(panel.contains("Hello World Article"));
 }
 
 #[tokio::test]
@@ -452,6 +526,7 @@ async fn static_css_is_served() {
     let app = router(state);
 
     let resp = app
+        .clone()
         .oneshot(Request::get("/static/app.css").body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -461,4 +536,13 @@ async fn static_css_is_served() {
         "text/css; charset=utf-8"
     );
     assert!(body_string(resp).await.contains("--accent"));
+
+    let resp = app
+        .oneshot(Request::get("/static/app.js").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let js = body_string(resp).await;
+    assert!(js.contains("new URLSearchParams()"));
+    assert!(!js.contains("arguments.callee"));
 }

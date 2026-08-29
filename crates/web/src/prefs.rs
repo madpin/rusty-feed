@@ -44,10 +44,15 @@ pub struct Preferences {
     pub theme: String,
     pub articles_per_page: u32,
     pub show_read_articles: bool,
-    /// `standalone` (open a full page) or `inline` (expand in the list).
+    /// `side-panel`, `standalone`, or `inline`.
     pub reading_mode: String,
     /// Mark an article read automatically when opened.
     pub auto_mark_read: bool,
+    pub article_density: String,
+    pub reader_font_size: String,
+    pub reader_line_height: String,
+    pub sidebar_width: u8,
+    pub reader_panel_width: u8,
 }
 
 impl Default for Preferences {
@@ -56,21 +61,49 @@ impl Default for Preferences {
             theme: "system".to_string(),
             articles_per_page: 20,
             show_read_articles: true,
-            reading_mode: "standalone".to_string(),
+            reading_mode: "side-panel".to_string(),
             auto_mark_read: true,
+            article_density: "comfortable".to_string(),
+            reader_font_size: "medium".to_string(),
+            reader_line_height: "relaxed".to_string(),
+            sidebar_width: 17,
+            reader_panel_width: 56,
         }
     }
 }
 
 impl Preferences {
     fn sanitized(mut self) -> Self {
-        if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
+        if !matches!(
+            self.theme.as_str(),
+            "system" | "light" | "dark" | "ocean" | "forest" | "plum" | "sunset"
+        ) {
             self.theme = "system".to_string();
         }
-        if !matches!(self.reading_mode.as_str(), "standalone" | "inline") {
-            self.reading_mode = "standalone".to_string();
+        if !matches!(
+            self.reading_mode.as_str(),
+            "side-panel" | "standalone" | "inline"
+        ) {
+            self.reading_mode = "side-panel".to_string();
+        }
+        if !matches!(
+            self.article_density.as_str(),
+            "compact" | "comfortable" | "spacious"
+        ) {
+            self.article_density = "comfortable".to_string();
+        }
+        if !matches!(self.reader_font_size.as_str(), "small" | "medium" | "large") {
+            self.reader_font_size = "medium".to_string();
+        }
+        if !matches!(
+            self.reader_line_height.as_str(),
+            "compact" | "relaxed" | "airy"
+        ) {
+            self.reader_line_height = "relaxed".to_string();
         }
         self.articles_per_page = self.articles_per_page.clamp(5, 100);
+        self.sidebar_width = self.sidebar_width.clamp(13, 24);
+        self.reader_panel_width = self.reader_panel_width.clamp(38, 68);
         self
     }
 }
@@ -90,11 +123,17 @@ struct PreferencesTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: Preferences,
     prefs_theme: String,
     prefs_per_page: u32,
     prefs_show_read: bool,
     prefs_reading_mode: String,
     prefs_auto_mark_read: bool,
+    prefs_density: String,
+    prefs_reader_font_size: String,
+    prefs_reader_line_height: String,
+    prefs_sidebar_width: u8,
+    prefs_reader_panel_width: u8,
     saved: bool,
 }
 
@@ -108,6 +147,16 @@ pub struct PrefsForm {
     show_read_articles: Option<String>,
     #[serde(default)]
     auto_mark_read: Option<String>,
+    #[serde(default)]
+    article_density: Option<String>,
+    #[serde(default)]
+    reader_font_size: Option<String>,
+    #[serde(default)]
+    reader_line_height: Option<String>,
+    #[serde(default)]
+    sidebar_width: Option<u8>,
+    #[serde(default)]
+    reader_panel_width: Option<u8>,
 }
 
 fn render(tpl: &PreferencesTemplate) -> Result<Html<String>, AppError> {
@@ -128,11 +177,17 @@ pub async fn page(
         theme: prefs.theme.clone(),
         user_email: user.email,
         csrf_token,
+        ui: prefs.clone(),
         prefs_theme: prefs.theme,
         prefs_per_page: prefs.articles_per_page,
         prefs_show_read: prefs.show_read_articles,
         prefs_reading_mode: prefs.reading_mode,
         prefs_auto_mark_read: prefs.auto_mark_read,
+        prefs_density: prefs.article_density,
+        prefs_reader_font_size: prefs.reader_font_size,
+        prefs_reader_line_height: prefs.reader_line_height,
+        prefs_sidebar_width: prefs.sidebar_width,
+        prefs_reader_panel_width: prefs.reader_panel_width,
         saved: false,
     })?;
     Ok((jar, body).into_response())
@@ -148,12 +203,22 @@ pub async fn save(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    let current = load(&state.db, user.id).await;
     let prefs = Preferences {
         theme: form.theme,
         articles_per_page: form.articles_per_page,
         show_read_articles: form.show_read_articles.is_some(),
         reading_mode: form.reading_mode,
         auto_mark_read: form.auto_mark_read.is_some(),
+        article_density: form.article_density.unwrap_or(current.article_density),
+        reader_font_size: form.reader_font_size.unwrap_or(current.reader_font_size),
+        reader_line_height: form
+            .reader_line_height
+            .unwrap_or(current.reader_line_height),
+        sidebar_width: form.sidebar_width.unwrap_or(current.sidebar_width),
+        reader_panel_width: form
+            .reader_panel_width
+            .unwrap_or(current.reader_panel_width),
     }
     .sanitized();
 
@@ -166,11 +231,17 @@ pub async fn save(
         theme: prefs.theme.clone(),
         user_email: user.email,
         csrf_token,
+        ui: prefs.clone(),
         prefs_theme: prefs.theme,
         prefs_per_page: prefs.articles_per_page,
         prefs_show_read: prefs.show_read_articles,
         prefs_reading_mode: prefs.reading_mode,
         prefs_auto_mark_read: prefs.auto_mark_read,
+        prefs_density: prefs.article_density,
+        prefs_reader_font_size: prefs.reader_font_size,
+        prefs_reader_line_height: prefs.reader_line_height,
+        prefs_sidebar_width: prefs.sidebar_width,
+        prefs_reader_panel_width: prefs.reader_panel_width,
         saved: true,
     })?;
     Ok((jar, body).into_response())

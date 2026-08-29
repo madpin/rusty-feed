@@ -1,42 +1,57 @@
 {% extends "app_base.html" %}
 {% block title %}{{ title }}{% endblock %}
+{% block body_class %}page-article{% endblock %}
 {% block sidebar %}
-<h2>Reading</h2>
-<ul>
-  <li><a href="/articles">← Back to articles</a></li>
-  <li><a href="/articles?unread=1">Unread only</a></li>
-</ul>
+<div class="sidebar-context">
+  <div class="sidebar-group">
+    <p class="sidebar-label">Current article</p>
+    <a href="/articles" class="nav-link">Back to library</a>
+    <a href="/articles?unread=1" class="nav-link">Unread only</a>
+  </div>
+</div>
 {% endblock %}
 {% block content %}
-<article class="reader">
+<article class="reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" id="article-{{ id }}">
+  <p class="eyebrow">{{ feed_name }}</p>
   <h1>{{ title }}</h1>
-  <div class="meta">
-    {{ feed_name }}{% if let Some(when) = published %} · {{ when }}{% endif %}
-    · <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original ↗</a>
+  <div class="reader-meta">
+    {% if let Some(when) = published %}{{ when }} · {% endif %}
+    <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
   </div>
-  <div class="actions">
-    <form method="post"
-          action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}">
+  <div class="actions" aria-label="Article actions">
+    <form method="post" class="js-action" data-action="bookmark-toggle"
+          action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
+          data-target="#article-{{ id }}" data-toggle-class="bookmarked"
+          data-alt-action="/articles/{{ id }}/{% if is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
+          data-alt-label="{% if is_bookmarked %}Save{% else %}Saved{% endif %}"
+          data-success-message="Saved state updated.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit">{% if is_bookmarked %}★ Saved{% else %}☆ Save{% endif %}</button>
+      <button type="submit">{% if is_bookmarked %}Saved{% else %}Save{% endif %}</button>
     </form>
-    <form method="post" action="/articles/{{ id }}/{% if is_read %}unread{% else %}read{% endif %}">
+    <form method="post" class="js-action" data-action="read-toggle"
+          action="/articles/{{ id }}/{% if is_read %}unread{% else %}read{% endif %}"
+          data-target="#article-{{ id }}" data-toggle-class="read"
+          data-alt-action="/articles/{{ id }}/{% if is_read %}read{% else %}unread{% endif %}"
+          data-alt-label="{% if is_read %}Mark read{% else %}Mark unread{% endif %}"
+          data-success-message="Reading status updated.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
       <button type="submit">{% if is_read %}Mark unread{% else %}Mark read{% endif %}</button>
     </form>
-    <form method="post" action="/articles/{{ id }}/feedback" style="display:inline">
+    <form method="post" class="js-action" action="/articles/{{ id }}/feedback"
+          data-target="#article-{{ id }}" data-feedback-value="up" data-success-message="RustSS will show you more articles like this.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="up" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" title="More like this">👍</button>
+      <button type="submit" class="feedback-button" data-feedback-button="up" aria-pressed="{% if is_liked %}true{% else %}false{% endif %}">More like this</button>
     </form>
-    <form method="post" action="/articles/{{ id }}/feedback" style="display:inline">
+    <form method="post" class="js-action" action="/articles/{{ id }}/feedback"
+          data-target="#article-{{ id }}" data-feedback-value="down" data-success-message="RustSS will show you fewer articles like this.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="down" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" title="Less like this">👎</button>
+      <button type="submit" class="feedback-button" data-feedback-button="down" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">Less like this</button>
     </form>
   </div>
 
@@ -52,10 +67,11 @@
     {% endif %}
   </div>
   {% else if can_summarize %}
-  <form method="post" action="/articles/{{ id }}/summarize">
+  <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-success-message="Summary queued. Refresh this article shortly.">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <button type="submit">✨ Summarize</button>
-    <span class="muted">Queued in the background — refresh in a moment.</span>
+    <input type="hidden" name="next" value="/articles/{{ id }}" />
+    <button type="submit" class="primary">Summarize</button>
+    <span class="muted">The summary is prepared in the background.</span>
   </form>
   {% endif %}
 

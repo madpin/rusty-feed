@@ -155,7 +155,7 @@ impl Embedder for OpenAiEmbedder {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        let url = format!("{}/v1/embeddings", self.base_url.trim_end_matches('/'));
+        let url = api_url(&self.base_url, "embeddings");
         let body = serde_json::json!({
             "model": self.model,
             "input": texts,
@@ -200,6 +200,12 @@ fn l2_normalize(v: &mut [f32]) {
     }
 }
 
+fn api_url(base_url: &str, endpoint: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    let base = base.strip_suffix("/v1").unwrap_or(base);
+    format!("{base}/v1/{endpoint}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +244,17 @@ mod tests {
     async fn prepare_text_layout() {
         let t = prepare_text("Title", Some("Excerpt"), "Body");
         assert_eq!(t, "Title\n\nExcerpt\n\nBody");
+    }
+
+    #[test]
+    fn accepts_openai_base_url_with_or_without_v1() {
+        assert_eq!(
+            api_url("https://api.openai.com", "embeddings"),
+            "https://api.openai.com/v1/embeddings"
+        );
+        assert_eq!(
+            api_url("https://api.openai.com/v1/", "embeddings"),
+            "https://api.openai.com/v1/embeddings"
+        );
     }
 }

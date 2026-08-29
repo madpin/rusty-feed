@@ -85,8 +85,8 @@ docker compose --env-file .env -f docker/compose.yaml up -d
 
 The **first** run builds the app and downloads images, so it can take several
 minutes. Later starts are fast. `--env-file .env` is required because the
-Compose file lives under `docker/`; it makes Compose load the root `.env` used
-by the setup steps above.
+Compose file lives under `docker/`; it supplies root `.env` values for Compose
+interpolation, and the app service also reads that file at runtime.
 
 > **Port already in use?** If you see an error about port `5432`, `6379`, `9222`,
 > or `8080` being allocated, something else on your machine uses it. Set an
@@ -287,16 +287,16 @@ full list). The ones you're most likely to touch:
 
 | Variable | What it does | Default |
 |---|---|---|
-| `SESSION_SECRET` | Signs login sessions (**required**, 32+ chars) | — |
-| `ENCRYPTION_SECRET` | Encrypts stored API keys/cookies (**required**, 32+ chars) | — |
+| `SESSION_SECRET` | Required instance secret (reserved for session-key rotation; current sessions are opaque DB-backed tokens) | — |
+| `ENCRYPTION_SECRET` | Required master secret for encrypted stored-secret paths | — |
 | `DATABASE_URL` | PostgreSQL connection string | set by compose |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `POSTGRES_PORT` | PostgreSQL port published on the host | `5432` |
 | `REDIS_PORT` | Redis port published on the host | `6379` |
 | `CHROMIUM_PORT` | Chromium CDP port published on the host | `9222` |
 | `BASE_URL` | Public URL of your instance (for correct links) | `http://<bind_addr>` |
-| `REGISTRATION_MODE` | `open` / `invite` / `closed` | `open` |
-| `EMBEDDING_PROVIDER` | `local` (free, on-device) or `openai` | `local` |
+| `REGISTRATION_MODE` | `open` / `closed` (`invite` is reserved) | `open` |
+| `EMBEDDING_PROVIDER` | `local` (deterministic development placeholder) or `openai` | `local` |
 | `OPENAI_API_KEY` | Needed only if using OpenAI for AI features | — |
 | `LOG_LEVEL` | Log verbosity (`info`, `debug`, …) | `info` |
 

@@ -1,0 +1,63 @@
+<article class="panel-reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" data-panel-article="{{ id }}" data-panel-read="{% if is_read %}true{% else %}false{% endif %}" data-panel-bookmarked="{% if is_bookmarked %}true{% else %}false{% endif %}" data-panel-feedback="{% if is_liked %}up{% else if is_disliked %}down{% endif %}">
+  <header>
+    <p class="eyebrow">{{ feed_name }}</p>
+    <h2>{{ title }}</h2>
+    <p class="reader-meta">
+      {% if let Some(when) = published %}{{ when }} · {% endif %}
+      <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
+    </p>
+  </header>
+  <div class="reader-actions" aria-label="Article actions">
+    <form method="post" class="js-action" data-action="bookmark-toggle" data-target="#card-{{ id }}" data-toggle-class="bookmarked" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel"
+          action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
+          data-alt-action="/articles/{{ id }}/{% if is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
+          data-alt-label="{% if is_bookmarked %}Save{% else %}Saved{% endif %}" data-success-message="Saved state updated.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="/articles/{{ id }}" />
+      <button type="submit">{% if is_bookmarked %}Saved{% else %}Save{% endif %}</button>
+    </form>
+    <form method="post" class="js-action" data-action="read-toggle" data-target="#card-{{ id }}" data-toggle-class="read" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel"
+          action="/articles/{{ id }}/{% if is_read %}unread{% else %}read{% endif %}"
+          data-alt-action="/articles/{{ id }}/{% if is_read %}read{% else %}unread{% endif %}"
+          data-alt-label="{% if is_read %}Mark read{% else %}Mark unread{% endif %}" data-success-message="Reading status updated.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="/articles/{{ id }}" />
+      <button type="submit">{% if is_read %}Mark unread{% else %}Mark read{% endif %}</button>
+    </form>
+    <form method="post" class="js-action" data-target="#card-{{ id }}" data-feedback-value="up" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" action="/articles/{{ id }}/feedback" data-success-message="RustSS will show you more articles like this.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="value" value="up" />
+      <input type="hidden" name="next" value="/articles/{{ id }}" />
+      <button type="submit" class="feedback-button" data-feedback-button="up" aria-pressed="{% if is_liked %}true{% else %}false{% endif %}">More like this</button>
+    </form>
+    <form method="post" class="js-action" data-target="#card-{{ id }}" data-feedback-value="down" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" action="/articles/{{ id }}/feedback" data-success-message="RustSS will show you fewer articles like this.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="value" value="down" />
+      <input type="hidden" name="next" value="/articles/{{ id }}" />
+      <button type="submit" class="feedback-button" data-feedback-button="down" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">Less like this</button>
+    </form>
+  </div>
+
+  {% if let Some(text) = summary %}
+  <div class="summary-box">
+    <h3>AI summary</h3>
+    <p>{{ text }}</p>
+    {% if !key_points.is_empty() %}
+    <ul>{% for p in key_points %}<li>{{ p }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if !topics.is_empty() %}
+    <p class="muted">Topics: {% for t in topics %}<span class="badge">{{ t }}</span> {% endfor %}</p>
+    {% endif %}
+  </div>
+  {% else if can_summarize %}
+  <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" data-success-message="Summary queued. Refresh this article shortly.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="next" value="/articles/{{ id }}" />
+    <button type="submit">Summarize</button>
+  </form>
+  {% endif %}
+
+  <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}">
+    {{ content|safe }}
+  </div>
+</article>

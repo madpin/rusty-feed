@@ -56,6 +56,7 @@ pub fn router(state: AppState) -> Router {
         .route("/articles", get(reader::list))
         .route("/articles/read-all", post(reader::mark_all_read))
         .route("/articles/{id}", get(reader::read))
+        .route("/articles/{id}/panel", get(reader::side_panel))
         .route("/articles/{id}/content", get(reader::content_fragment))
         .route("/articles/{id}/read", post(reader::mark_read))
         .route("/articles/{id}/unread", post(reader::mark_unread))

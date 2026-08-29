@@ -1,21 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}RustSS{% endblock %}</title>
-    <style>
-      /* Minimal styling; the full Tailwind design system arrives in M5. */
-      body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; }
-      h1 { font-size: 1.5rem; }
-      label { display: block; margin: 0.75rem 0; }
-      input { width: 100%; padding: 0.5rem; box-sizing: border-box; }
-      button { padding: 0.5rem 1rem; cursor: pointer; }
-      .alert { color: #b00020; background: #fdecef; padding: 0.5rem 0.75rem; border-radius: 4px; }
-      .muted { color: #666; }
-    </style>
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/app.js" defer></script>
   </head>
-  <body>
-    <main>{% block content %}{% endblock %}</main>
+  <body class="auth-page">
+    <main class="auth-card">
+      <a class="auth-brand" href="/"><span class="brand-mark">R</span><span>RustSS</span></a>
+      {% block content %}{% endblock %}
+    </main>
   </body>
 </html>

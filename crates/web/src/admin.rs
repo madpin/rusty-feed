@@ -29,6 +29,7 @@ struct CostsTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: prefs::Preferences,
     rows: Vec<CostRow>,
     total_usd: String,
 }
@@ -58,12 +59,13 @@ pub async fn costs(
         .collect();
     let total_usd = micro_to_usd(cost_ledger::total_micro_usd(state.db.pool()).await?);
 
-    let theme = prefs::load(&state.db, user.id).await.theme;
+    let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = CostsTemplate {
-        theme,
+        theme: ui.theme.clone(),
         user_email: user.email,
         csrf_token,
+        ui,
         rows,
         total_usd,
     }

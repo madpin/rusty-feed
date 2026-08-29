@@ -98,10 +98,7 @@ impl LlmClient for OpenAiCompatClient {
         user: &str,
         max_tokens: u32,
     ) -> anyhow::Result<Completion> {
-        let url = format!(
-            "{}/v1/chat/completions",
-            self.base_url.trim_end_matches('/')
-        );
+        let url = api_url(&self.base_url, "chat/completions");
         let body = serde_json::json!({
             "model": self.model,
             "messages": [
@@ -261,6 +258,12 @@ pub async fn summarize_article(
     Ok(written)
 }
 
+fn api_url(base_url: &str, endpoint: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    let base = base.strip_suffix("/v1").unwrap_or(base);
+    format!("{base}/v1/{endpoint}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,5 +287,17 @@ mod tests {
         let s = parse_summary("just a plain summary");
         assert_eq!(s.summary, "just a plain summary");
         assert!(s.key_points.is_empty());
+    }
+
+    #[test]
+    fn accepts_openai_base_url_with_or_without_v1() {
+        assert_eq!(
+            api_url("https://api.openai.com", "chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            api_url("https://api.openai.com/v1/", "chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
     }
 }

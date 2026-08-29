@@ -1,96 +1,118 @@
 {% extends "app_base.html" %}
 {% block title %}Articles{% endblock %}
+{% block body_class %}page-articles{% endblock %}
 {% block sidebar %}
-<h2>Reading</h2>
-<ul>
-  <li><a href="/articles">All articles</a></li>
-  <li><a href="/articles?unread=1">Unread only</a></li>
-</ul>
-<h2>Sort</h2>
-<ul>
-  <li><a href="/articles"{% if sort == "recent" %} class="active"{% endif %}>Most recent</a></li>
-  <li><a href="/articles?sort=relevance"{% if sort == "relevance" %} class="active"{% endif %}>For you</a></li>
-</ul>
-<h2>Feeds</h2>
-<ul>
-  {% for f in feeds %}
-  <li><a href="/articles?feed={{ f.id }}"{% if f.active %} class="active"{% endif %}>{{ f.name }}</a></li>
-  {% else %}
-  <li class="muted">No feeds yet.</li>
-  {% endfor %}
-</ul>
-<p><a href="/feeds">Manage feeds →</a></p>
+<div class="sidebar-context">
+  <div class="sidebar-group">
+    <p class="sidebar-label">View</p>
+    <a href="/articles"{% if !unread_only && sort == "recent" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Most recent</a>
+    <a href="/articles?unread=1"{% if unread_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Unread only</a>
+    <a href="/articles?sort=relevance"{% if sort == "relevance" %} class="nav-link active"{% else %} class="nav-link"{% endif %}>Personalized</a>
+  </div>
+  <div class="sidebar-group">
+    <p class="sidebar-label">Feeds</p>
+    <div class="feed-nav-list">
+      {% for f in feeds %}
+      <a href="/articles?feed={{ f.id }}"{% if f.active %} class="nav-link active"{% else %} class="nav-link"{% endif %}>{{ f.name }}</a>
+      {% else %}
+      <p class="sidebar-empty">No feeds yet.</p>
+      {% endfor %}
+    </div>
+    <a href="/feeds" class="sidebar-link">Manage feeds</a>
+  </div>
+</div>
 {% endblock %}
 {% block content %}
-<div class="content-header">
-  <h1>{% if unread_only %}Unread{% else %}All articles{% endif %}</h1>
-  {% if !articles.is_empty() %}
-  <form method="post" action="/articles/read-all" class="js-action" data-toggle-class="noop">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <input type="hidden" name="next" value="{{ back_url }}" />
-    <button type="submit">Mark all read</button>
-  </form>
+<div{% if reading_mode == "side-panel" %} class="reading-workspace"{% endif %}>
+  <section class="article-column">
+    <div class="content-header">
+      <div>
+        <p class="eyebrow">Your library</p>
+        <h1>{% if unread_only %}Unread articles{% else if sort == "relevance" %}For you{% else %}All articles{% endif %}</h1>
+      </div>
+      {% if !articles.is_empty() %}
+      <form method="post" action="/articles/read-all" class="js-action" data-action="mark-all-read" data-success-message="All articles marked read.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <input type="hidden" name="next" value="{{ back_url }}" />
+        <button type="submit">Mark all read</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if articles.is_empty() %}
+    <div class="empty-state">
+      <p><strong>No articles yet.</strong></p>
+      <p>Add feeds and refresh them, and your reading list will appear here.</p>
+      <p><a class="btn primary" href="/feeds">Manage feeds</a></p>
+    </div>
+    {% else %}
+    <ul class="article-list" data-reading-mode="{{ reading_mode }}"{% if reading_mode == "side-panel" %} data-reading-panel="#reading-pane"{% endif %}>
+      {% for a in articles %}
+      <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}">
+        <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if reading_mode == "side-panel" %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
+        <div class="meta">
+          {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
+          {% if let Some(pct) = a.score %} · <span class="badge">{{ pct }}% for you</span>{% endif %}
+        </div>
+        {% if let Some(excerpt) = a.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
+        <div class="article-inline" id="inline-{{ a.id }}" hidden></div>
+        <div class="actions" aria-label="Article actions">
+          <form class="js-action" method="post" data-action="read-toggle"
+                action="/articles/{{ a.id }}/{% if a.is_read %}unread{% else %}read{% endif %}"
+                data-target="#card-{{ a.id }}" data-toggle-class="read"
+                data-alt-action="/articles/{{ a.id }}/{% if a.is_read %}read{% else %}unread{% endif %}"
+                data-alt-label="{% if a.is_read %}Mark read{% else %}Mark unread{% endif %}"
+                data-success-message="Reading status updated.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="next" value="{{ back_url }}" />
+            <button type="submit">{% if a.is_read %}Mark unread{% else %}Mark read{% endif %}</button>
+          </form>
+          <form class="js-action" method="post" data-action="bookmark-toggle"
+                action="/articles/{{ a.id }}/{% if a.is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
+                data-target="#card-{{ a.id }}" data-toggle-class="bookmarked"
+                data-alt-action="/articles/{{ a.id }}/{% if a.is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
+                data-alt-label="{% if a.is_bookmarked %}Save{% else %}Saved{% endif %}"
+                data-success-message="Saved state updated.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="next" value="{{ back_url }}" />
+            <button type="submit">{% if a.is_bookmarked %}Saved{% else %}Save{% endif %}</button>
+          </form>
+          <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
+                data-target="#card-{{ a.id }}" data-feedback-value="up" data-success-message="RustSS will show you more articles like this.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="value" value="up" />
+            <input type="hidden" name="next" value="{{ back_url }}" />
+            <button type="submit" class="feedback-button" data-feedback-button="up" aria-pressed="{% if a.is_liked %}true{% else %}false{% endif %}">More like this</button>
+          </form>
+          <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
+                data-target="#card-{{ a.id }}" data-feedback-value="down" data-success-message="RustSS will show you fewer articles like this.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="value" value="down" />
+            <input type="hidden" name="next" value="{{ back_url }}" />
+            <button type="submit" class="feedback-button" data-feedback-button="down" aria-pressed="{% if a.is_disliked %}true{% else %}false{% endif %}">Less like this</button>
+          </form>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <nav class="pager" aria-label="Article pagination">
+      {% if has_prev %}<a href="{{ prev_url }}">Newer</a>{% endif %}
+      {% if has_next %}<a href="{{ next_url }}" class="pager-next">Older</a>{% endif %}
+    </nav>
+    {% endif %}
+  </section>
+
+  {% if reading_mode == "side-panel" %}
+  <div class="panel-resizer" role="separator" aria-orientation="vertical" aria-label="Resize reading panel" aria-valuemin="38" aria-valuemax="68" aria-valuenow="{{ ui.reader_panel_width }}" tabindex="0"></div>
+  <aside class="reading-pane" id="reading-pane" aria-label="Selected article" tabindex="-1">
+    <div class="reading-pane-empty">
+      <div>
+        <strong>Select an article to start reading.</strong>
+        <p>The list stays visible while the article opens here.</p>
+      </div>
+    </div>
+  </aside>
   {% endif %}
 </div>
-
-{% if articles.is_empty() %}
-<div class="empty-state">
-  <p><strong>No articles yet.</strong></p>
-  <p>Add feeds and refresh them, and your reading list will appear here.</p>
-  <p><a class="btn" href="/feeds">Manage feeds</a></p>
-</div>
-{% else %}
-<ul class="article-list" data-reading-mode="{{ reading_mode }}">
-  {% for a in articles %}
-  <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}" id="card-{{ a.id }}">
-    <h3><a href="/articles/{{ a.id }}" class="article-link" data-id="{{ a.id }}">{{ a.title }}</a></h3>
-    <div class="meta">
-      {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
-      {% if let Some(pct) = a.score %} · <span class="badge">{{ pct }}% for you</span>{% endif %}
-    </div>
-    {% if let Some(excerpt) = a.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
-    <div class="article-inline" hidden></div>
-    <div class="actions">
-      <form class="js-action" method="post"
-            action="/articles/{{ a.id }}/{% if a.is_read %}unread{% else %}read{% endif %}"
-            data-target="#card-{{ a.id }}" data-toggle-class="read"
-            data-alt-action="/articles/{{ a.id }}/{% if a.is_read %}read{% else %}unread{% endif %}"
-            data-alt-label="{% if a.is_read %}Mark read{% else %}Mark unread{% endif %}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <input type="hidden" name="next" value="{{ back_url }}" />
-        <button type="submit">{% if a.is_read %}Mark unread{% else %}Mark read{% endif %}</button>
-      </form>
-      <form class="js-action" method="post"
-            action="/articles/{{ a.id }}/{% if a.is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
-            data-target="#card-{{ a.id }}" data-toggle-class="bookmarked"
-            data-alt-action="/articles/{{ a.id }}/{% if a.is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
-            data-alt-label="{% if a.is_bookmarked %}☆ Save{% else %}★ Saved{% endif %}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <input type="hidden" name="next" value="{{ back_url }}" />
-        <button type="submit">{% if a.is_bookmarked %}★ Saved{% else %}☆ Save{% endif %}</button>
-      </form>
-      <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
-            data-target="#card-{{ a.id }}" data-toggle-class="rated">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <input type="hidden" name="value" value="up" />
-        <input type="hidden" name="next" value="{{ back_url }}" />
-        <button type="submit" title="More like this">👍</button>
-      </form>
-      <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
-            data-target="#card-{{ a.id }}" data-toggle-class="rated">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <input type="hidden" name="value" value="down" />
-        <input type="hidden" name="next" value="{{ back_url }}" />
-        <button type="submit" title="Less like this">👎</button>
-      </form>
-    </div>
-  </li>
-  {% endfor %}
-</ul>
-
-<nav class="pager">
-  {% if has_prev %}<a href="{{ prev_url }}">← Newer</a>{% endif %}
-  {% if has_next %}<a href="{{ next_url }}" class="pager-next">Older →</a>{% endif %}
-</nav>
-{% endif %}
 {% endblock %}

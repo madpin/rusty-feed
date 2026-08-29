@@ -333,9 +333,11 @@ async fn api_token_create_list_revoke() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers().get("cache-control").unwrap(), "no-store");
     let body = body_string(resp).await;
     assert!(body.contains("Reeder"));
-    assert!(body.contains("won't be shown again"));
+    assert!(body.contains("Copy this token now"));
+    assert!(body.contains("RustSS"));
 
     // The token exists in the database.
     let email_local = email.replace("%40", "@");
@@ -363,7 +365,8 @@ async fn api_token_create_list_revoke() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(body_string(resp).await.contains("Token revoked."));
     let toks = rustss_db::api_tokens::list_for_user(state.db.pool(), user.id)
         .await
         .unwrap();

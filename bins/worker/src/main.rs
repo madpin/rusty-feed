@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
         llm,
         WorkerConfig {
             concurrency: config.feed_refresh_concurrency,
+            scheduler_enabled: config.enable_cron_jobs,
             embed_on_ingest: config.embedding_auto_generate,
             ..WorkerConfig::default()
         },

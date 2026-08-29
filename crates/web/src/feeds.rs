@@ -30,6 +30,7 @@ struct FeedsTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: crate::prefs::Preferences,
     feeds: Vec<FeedRow>,
     message: Option<String>,
     error: Option<String>,
@@ -54,7 +55,7 @@ async fn render_page(
     message: Option<String>,
     error: Option<String>,
 ) -> Result<Response, AppError> {
-    let theme = crate::prefs::load(&state.db, user_id).await.theme;
+    let ui = crate::prefs::load(&state.db, user_id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let feeds = feeds::list_for_user(state.db.pool(), user_id)
         .await?
@@ -67,9 +68,10 @@ async fn render_page(
         })
         .collect();
     let body = FeedsTemplate {
-        theme,
+        theme: ui.theme.clone(),
         user_email,
         csrf_token,
+        ui,
         feeds,
         message,
         error,

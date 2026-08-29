@@ -176,3 +176,49 @@ async fn reset_learning_clears_everything() {
         .unwrap()
         .is_none());
 }
+
+#[tokio::test]
+async fn replacing_explicit_feedback_is_idempotent() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let cache = Cache::in_memory().await;
+    let user = make_user(&db).await;
+    let article = make_article(&db, "Rust", "rust concurrency runtime").await;
+    let terms = vec!["rust".to_string()];
+
+    personalize::record_explicit(&db, &cache, user, &article, ExplicitFeedback::Up)
+        .await
+        .unwrap();
+    let initial = patterns::weights_for(db.pool(), user, &terms)
+        .await
+        .unwrap()[0]
+        .1;
+
+    personalize::record_explicit(&db, &cache, user, &article, ExplicitFeedback::Up)
+        .await
+        .unwrap();
+    let repeated = patterns::weights_for(db.pool(), user, &terms)
+        .await
+        .unwrap()[0]
+        .1;
+    assert!((initial - repeated).abs() < f64::EPSILON);
+
+    personalize::record_explicit(&db, &cache, user, &article, ExplicitFeedback::Down)
+        .await
+        .unwrap();
+    let replaced = patterns::weights_for(db.pool(), user, &terms)
+        .await
+        .unwrap()[0]
+        .1;
+    assert!((initial + replaced).abs() < 1e-12);
+    assert_eq!(
+        feedback::get(db.pool(), user, article.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .feedback_value,
+        -1.0
+    );
+}

@@ -1,19 +1,28 @@
 {% extends "app_base.html" %}
 {% block title %}{{ name }}{% endblock %}
+{% block body_class %}page-searches{% endblock %}
 {% block sidebar %}
-<h2>Saved searches</h2>
-<ul>
-  <li><a href="/searches">← All saved searches</a></li>
-</ul>
+<div class="sidebar-context">
+  <div class="sidebar-group">
+    <p class="sidebar-label">Saved search</p>
+    <a href="/searches" class="nav-link">All saved searches</a>
+  </div>
+</div>
 {% endblock %}
 {% block content %}
-<h1>{{ name }}</h1>
-<p class="muted"><code>{{ query }}</code></p>
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Saved search</p>
+    <h1>{{ name }}</h1>
+    <p class="muted"><code>{{ query }}</code></p>
+  </div>
+  <a href="/searches" class="btn">Back to searches</a>
+</div>
 
 {% if results.is_empty() %}
 <div class="empty-state">
   <p><strong>No matches yet.</strong></p>
-  <p class="muted">Matches appear as new articles arrive (or use "Run now").</p>
+  <p class="muted">Matches appear as new articles arrive, or use Run now from the saved-search list.</p>
 </div>
 {% else %}
 <ul class="article-list">

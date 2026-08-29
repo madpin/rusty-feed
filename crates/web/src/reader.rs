@@ -1,5 +1,5 @@
 //! The reading experience: article list, per-article actions (read/bookmark),
-//! and article reading (standalone page + inline fragment).
+//! and article reading (side panel, standalone page, and inline fragment).
 
 use askama::Template;
 use axum::extract::{Path, Query, State};
@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{articles, bookmarks, feeds, jobs, patterns, read_articles};
+use rustss_db::{articles, bookmarks, feedback, feeds, jobs, patterns, read_articles};
 use rustss_search::personalize;
 use rustss_search::{extract_keywords, relevance_score, ExplicitFeedback};
 
@@ -33,6 +33,8 @@ struct ArticleView {
     published: Option<String>,
     is_read: bool,
     is_bookmarked: bool,
+    is_liked: bool,
+    is_disliked: bool,
     score: Option<i64>,
 }
 
@@ -48,6 +50,7 @@ struct ArticlesTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: prefs::Preferences,
     articles: Vec<ArticleView>,
     feeds: Vec<FeedNav>,
     unread_only: bool,
@@ -66,6 +69,7 @@ struct ArticleTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: prefs::Preferences,
     id: String,
     title: String,
     feed_name: String,
@@ -74,6 +78,45 @@ struct ArticleTemplate {
     content: String, // sanitized HTML
     is_read: bool,
     is_bookmarked: bool,
+    is_liked: bool,
+    is_disliked: bool,
+    summary: Option<String>,
+    key_points: Vec<String>,
+    topics: Vec<String>,
+    can_summarize: bool,
+}
+
+#[derive(Template)]
+#[template(path = "article_panel.html")]
+struct ArticlePanelTemplate {
+    csrf_token: String,
+    id: String,
+    title: String,
+    feed_name: String,
+    url: String,
+    published: Option<String>,
+    content: String,
+    is_read: bool,
+    is_bookmarked: bool,
+    is_liked: bool,
+    is_disliked: bool,
+    summary: Option<String>,
+    key_points: Vec<String>,
+    topics: Vec<String>,
+    can_summarize: bool,
+}
+
+struct ReaderView {
+    id: String,
+    title: String,
+    feed_name: String,
+    url: String,
+    published: Option<String>,
+    content: String,
+    is_read: bool,
+    is_bookmarked: bool,
+    is_liked: bool,
+    is_disliked: bool,
     summary: Option<String>,
     key_points: Vec<String>,
     topics: Vec<String>,
@@ -169,9 +212,10 @@ pub async fn list(
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
 
     let body = ArticlesTemplate {
-        theme: prefs.theme,
+        theme: prefs.theme.clone(),
         user_email: user.email,
         csrf_token,
+        ui: prefs.clone(),
         articles: article_views,
         feeds,
         unread_only,
@@ -220,6 +264,8 @@ async fn recency_page(
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
             is_bookmarked: a.is_bookmarked,
+            is_liked: a.feedback_value.is_some_and(|value| value > 0.0),
+            is_disliked: a.feedback_value.is_some_and(|value| value < 0.0),
             score: None,
         })
         .collect();
@@ -298,6 +344,8 @@ async fn relevance_page(
             published: a.published_at.map(|d| d.date().to_string()),
             is_read: a.is_read,
             is_bookmarked: a.is_bookmarked,
+            is_liked: a.feedback_value.is_some_and(|value| value > 0.0),
+            is_disliked: a.feedback_value.is_some_and(|value| value < 0.0),
             score: Some((score.clamp(0.0, 1.0) * 100.0).round() as i64),
         })
         .collect();
@@ -371,6 +419,7 @@ fn estimate_reading_seconds(content: &str) -> f64 {
 pub async fn summarize(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
+    Ajax(is_ajax): Ajax,
     jar: CookieJar,
     Path(id): Path<Uuid>,
     Form(form): Form<ActionForm>,
@@ -389,7 +438,55 @@ pub async fn summarize(
         3,
     )
     .await?;
-    Ok((jar, Redirect::to(&format!("/articles/{id}"))).into_response())
+    Ok(action_response(is_ajax, form.next))
+}
+
+async fn reader_view(
+    state: &AppState,
+    user_id: Uuid,
+    id: Uuid,
+    auto_mark_read: bool,
+) -> Result<ReaderView, AppError> {
+    if !articles::user_can_access(state.db.pool(), user_id, id).await? {
+        return Err(AppError::NotFound);
+    }
+    let article = articles::find_by_id(state.db.pool(), id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if auto_mark_read {
+        read_articles::mark_read(state.db.pool(), user_id, id).await?;
+    }
+
+    let feed_name = feeds::find_by_id(state.db.pool(), article.feed_id)
+        .await?
+        .map(|f| f.name)
+        .unwrap_or_default();
+    let stored_summary = articles::get_summary(state.db.pool(), id).await?;
+    let can_summarize = state.settings.summarization_enabled && stored_summary.is_none();
+    let (summary, key_points, topics) = match stored_summary {
+        Some(s) => (Some(s.summary), s.key_points, s.topics),
+        None => (None, Vec::new(), Vec::new()),
+    };
+    let feedback_value = feedback::get(state.db.pool(), user_id, id)
+        .await?
+        .map(|record| record.feedback_value);
+
+    Ok(ReaderView {
+        id: id.to_string(),
+        title: article.title,
+        feed_name,
+        url: article.url,
+        published: article.published_at.map(|d| d.date().to_string()),
+        content: ammonia::clean(&article.content),
+        is_read: read_articles::is_read(state.db.pool(), user_id, id).await?,
+        is_bookmarked: bookmarks::is_bookmarked(state.db.pool(), user_id, id).await?,
+        is_liked: feedback_value.is_some_and(|value| value > 0.0),
+        is_disliked: feedback_value.is_some_and(|value| value < 0.0),
+        summary,
+        key_points,
+        topics,
+        can_summarize,
+    })
 }
 
 /// `GET /articles/{id}` — standalone reading view.
@@ -399,48 +496,60 @@ pub async fn read(
     jar: CookieJar,
     Path(id): Path<Uuid>,
 ) -> Result<Response, AppError> {
-    if !articles::user_can_access(state.db.pool(), user.id, id).await? {
-        return Err(AppError::NotFound);
-    }
-    let article = articles::find_by_id(state.db.pool(), id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-
     let prefs = prefs::load(&state.db, user.id).await;
-    if prefs.auto_mark_read {
-        read_articles::mark_read(state.db.pool(), user.id, id).await?;
-    }
-
-    let feed_name = feeds::find_by_id(state.db.pool(), article.feed_id)
-        .await?
-        .map(|f| f.name)
-        .unwrap_or_default();
-    let is_bookmarked = bookmarks::is_bookmarked(state.db.pool(), user.id, id).await?;
-    let stored_summary = articles::get_summary(state.db.pool(), id).await?;
-    let can_summarize = state.settings.summarization_enabled && stored_summary.is_none();
-    let (summary, key_points, topics) = match stored_summary {
-        Some(s) => (Some(s.summary), s.key_points, s.topics),
-        None => (None, Vec::new(), Vec::new()),
-    };
-
+    let article = reader_view(&state, user.id, id, prefs.auto_mark_read).await?;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = ArticleTemplate {
-        theme: prefs.theme,
+        theme: prefs.theme.clone(),
         user_email: user.email,
         csrf_token,
-        id: id.to_string(),
+        ui: prefs,
+        id: article.id,
         title: article.title,
-        feed_name,
+        feed_name: article.feed_name,
         url: article.url,
-        published: article.published_at.map(|d| d.date().to_string()),
-        content: ammonia::clean(&article.content),
-        is_read: prefs.auto_mark_read
-            || read_articles::is_read(state.db.pool(), user.id, id).await?,
-        is_bookmarked,
-        summary,
-        key_points,
-        topics,
-        can_summarize,
+        published: article.published,
+        content: article.content,
+        is_read: article.is_read,
+        is_bookmarked: article.is_bookmarked,
+        is_liked: article.is_liked,
+        is_disliked: article.is_disliked,
+        summary: article.summary,
+        key_points: article.key_points,
+        topics: article.topics,
+        can_summarize: article.can_summarize,
+    }
+    .render()
+    .map(Html)
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("template render failed: {e}")))?;
+    Ok((jar, body).into_response())
+}
+
+pub async fn side_panel(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    let prefs = prefs::load(&state.db, user.id).await;
+    let article = reader_view(&state, user.id, id, prefs.auto_mark_read).await?;
+    let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
+    let body = ArticlePanelTemplate {
+        csrf_token,
+        id: article.id,
+        title: article.title,
+        feed_name: article.feed_name,
+        url: article.url,
+        published: article.published,
+        content: article.content,
+        is_read: article.is_read,
+        is_bookmarked: article.is_bookmarked,
+        is_liked: article.is_liked,
+        is_disliked: article.is_disliked,
+        summary: article.summary,
+        key_points: article.key_points,
+        topics: article.topics,
+        can_summarize: article.can_summarize,
     }
     .render()
     .map(Html)

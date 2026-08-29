@@ -30,6 +30,7 @@ struct SearchesTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: prefs::Preferences,
     searches: Vec<SearchRow>,
     error: Option<String>,
 }
@@ -49,6 +50,7 @@ struct ResultsTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: prefs::Preferences,
     name: String,
     query: String,
     results: Vec<ResultRow>,
@@ -60,6 +62,7 @@ struct NotificationsTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: prefs::Preferences,
     notifications: Vec<NotificationRow>,
 }
 
@@ -97,7 +100,7 @@ async fn searches_page(
     jar: CookieJar,
     error: Option<String>,
 ) -> Result<Response, AppError> {
-    let theme = prefs::load(&state.db, user_id).await.theme;
+    let ui = prefs::load(&state.db, user_id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let searches = saved_searches::list_for_user(state.db.pool(), user_id)
         .await?
@@ -110,9 +113,10 @@ async fn searches_page(
         })
         .collect();
     let body = render(&SearchesTemplate {
-        theme,
+        theme: ui.theme.clone(),
         user_email,
         csrf_token,
+        ui,
         searches,
         error,
     })?;
@@ -244,12 +248,13 @@ pub async fn results(
             score: (m.relevance_score.clamp(0.0, 1.0) * 100.0).round() as i64,
         })
         .collect();
-    let theme = prefs::load(&state.db, user.id).await.theme;
+    let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = render(&ResultsTemplate {
-        theme,
+        theme: ui.theme.clone(),
         user_email: user.email,
         csrf_token,
+        ui,
         name: ss.name,
         query: ss.query,
         results,
@@ -273,12 +278,13 @@ pub async fn notifications_page(
             read: n.read,
         })
         .collect();
-    let theme = prefs::load(&state.db, user.id).await.theme;
+    let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = render(&NotificationsTemplate {
-        theme,
+        theme: ui.theme.clone(),
         user_email: user.email,
         csrf_token,
+        ui,
         notifications: items,
     })?;
     Ok((jar, body).into_response())

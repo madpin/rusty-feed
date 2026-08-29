@@ -73,6 +73,7 @@ pub struct WorkerConfig {
     pub concurrency: usize,
     pub poll_interval: Duration,
     pub scheduler_interval: Duration,
+    pub scheduler_enabled: bool,
     /// Enqueue embedding jobs for new/extracted articles.
     pub embed_on_ingest: bool,
 }
@@ -84,6 +85,7 @@ impl Default for WorkerConfig {
             concurrency: 4,
             poll_interval: Duration::from_secs(2),
             scheduler_interval: Duration::from_secs(60),
+            scheduler_enabled: true,
             embed_on_ingest: false,
         }
     }
@@ -147,7 +149,7 @@ impl Worker {
         }
 
         // Scheduler: periodically enqueue a deduped feed_refresh job.
-        {
+        if self.config.scheduler_enabled {
             let ctx = self.ctx.clone();
             let interval = self.config.scheduler_interval;
             let mut sd = shutdown.clone();

@@ -30,6 +30,7 @@ struct SearchTemplate {
     theme: String,
     user_email: String,
     csrf_token: String,
+    ui: prefs::Preferences,
     query: String,
     searched: bool,
     hits: Vec<Hit>,
@@ -84,9 +85,10 @@ pub async fn page(
 
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = SearchTemplate {
-        theme: prefs.theme,
+        theme: prefs.theme.clone(),
         user_email: user.email,
         csrf_token,
+        ui: prefs,
         query: q,
         searched,
         hits,

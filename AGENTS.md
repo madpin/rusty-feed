@@ -30,7 +30,7 @@ Read these before coding (in order):
 - **DB:** PostgreSQL 16 + pgvector via **SQLx** (compile-time-checked SQL). **Cache:** moka (L1) + Redis/`fred` (L2).
 - **Background work (AGENTS):** apalis over a Postgres queue; advisory-lock singletons; outbox events.
 - **Feeds/extract:** `feed-rs`, `reqwest` (rustls), `article_scraper`, `chromiumoxide`, `ammonia`.
-- **AI:** `fastembed` (local ONNX, one model per instance, downloaded on first run) + `async-openai`.
+- **AI:** deterministic local hash embeddings (one model space per instance; fastembed ONNX is pending) + OpenAI-compatible HTTP clients.
 - **Auth:** local accounts (`argon2`) + custom DB-backed sessions (opaque token cookie, hash in `sessions`) + double-submit CSRF + per-IP rate limiting; OAuth (Google/GitHub/generic OIDC) via direct `reqwest` (PKCE + state). **Crypto:** XChaCha20-Poly1305 + HKDF-SHA256.
 - **Errors:** `thiserror` (libs) + `anyhow` (bins). **Config:** `figment`. **Obs:** `tracing` + `metrics`.
 
@@ -47,7 +47,7 @@ crates/
   cache/   moka L1 + redis L2
   feeds/   SafeFetchClient + feed-rs parse + dedup
   extract/ readability + chromium + rate limiter + robots + sanitize
-  embed/   local ONNX + OpenAI embedders (single active space)
+  embed/   deterministic local + OpenAI embedders (single active space)
   llm/     OpenAI/Ollama clients + summarization + cost meter
   search/  semantic search, saved-search DSL/matcher, scoring, patterns
   agents/  AGENTS framework + concrete agents

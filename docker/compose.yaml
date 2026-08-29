@@ -52,6 +52,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    env_file:
+      - ../.env
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,8 +67,8 @@ services:
       REDIS_URL: redis://redis:6379
       CHROMIUM_CDP_URL: http://chromium:9222
       MODEL_CACHE_DIR: /var/lib/rustss/models
-      RUN_EMBEDDED_WORKER: "true"
-      AUTO_MIGRATE: "true"
+      RUN_EMBEDDED_WORKER: ${RUN_EMBEDDED_WORKER:-true}
+      AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
       # Secrets — set real values in a `.env` file (see docs/GETTING_STARTED.md).
       # The defaults below are INSECURE and for local trial only; never use them
       # in production. They are >=32 chars so the app boots, and are long enough
