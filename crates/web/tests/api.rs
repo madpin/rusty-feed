@@ -20,6 +20,81 @@ async fn state() -> Option<AppState> {
     ))
 }
 
+/// State with a finite saved-search quota (for the 409 test).
+async fn state_with_saved_search_cap(cap: u32) -> Option<AppState> {
+    let url = std::env::var("TEST_DATABASE_URL").ok()?;
+    let db = Db::connect(&url).await.ok()?;
+    db.migrate().await.ok()?;
+    let settings = AppSettings {
+        quotas: rustss_core::quotas::Quotas {
+            max_saved_searches: cap,
+            ..rustss_core::quotas::Quotas::default()
+        },
+        ..AppSettings::default()
+    };
+    Some(AppState::new(
+        db,
+        Cache::in_memory().await,
+        settings,
+        String::new,
+    ))
+}
+
+#[tokio::test]
+async fn per_user_quota_returns_409_past_the_cap() {
+    let Some(state) = state_with_saved_search_cap(1).await else {
+        return;
+    };
+    let user = users::create(
+        state.db.pool(),
+        &format!("quota-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let raw = format!("quota-token-{}", uuid::Uuid::now_v7());
+    api_tokens::create(
+        state.db.pool(),
+        user.id,
+        "test",
+        &rustss_web::auth::token::hash(&raw),
+        &[],
+    )
+    .await
+    .unwrap();
+    let app = router(state.clone());
+
+    // First saved search is within the cap.
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/saved-searches")
+                .header("authorization", format!("Bearer {raw}"))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"name":"one","query":"rust"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    // Second exceeds the cap → 409 Conflict (QuotaExceeded).
+    let second = app
+        .oneshot(
+            Request::post("/api/v1/saved-searches")
+                .header("authorization", format!("Bearer {raw}"))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"name":"two","query":"go"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::CONFLICT);
+}
+
 #[tokio::test]
 async fn bearer_resources_are_tenant_scoped_and_state_is_mutable() {
     let Some(state) = state().await else { return };

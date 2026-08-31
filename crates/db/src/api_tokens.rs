@@ -7,6 +7,16 @@ use uuid::Uuid;
 use crate::error::Result;
 use crate::models::{ApiToken, API_TOKEN_COLUMNS};
 
+/// How many active API tokens this user has (for quota enforcement, FND-188).
+pub async fn count_for_user(pool: &PgPool, user_id: Uuid) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM api_tokens WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Create an API token for a user.
 pub async fn create(
     pool: &PgPool,

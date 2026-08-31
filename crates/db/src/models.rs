@@ -23,6 +23,10 @@ pub struct User {
     pub updated_at: OffsetDateTime,
     /// Last authenticated request time, updated (throttled) on session use.
     pub last_seen_at: Option<OffsetDateTime>,
+    /// Consecutive failed local logins (reset on success); drives lockout.
+    pub failed_login_count: i32,
+    /// When set and in the future, local logins are temporarily locked.
+    pub locked_until: Option<OffsetDateTime>,
 }
 
 /// A shared feed (one row per normalized URL, regardless of subscribers).

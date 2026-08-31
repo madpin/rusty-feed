@@ -207,6 +207,12 @@ pub async fn create(
     if !articles::user_can_access(state.db.pool(), user.id, article_id).await? {
         return Err(AppError::NotFound);
     }
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::PublicShares,
+    )
+    .await?;
     let article = articles::find_by_id(state.db.pool(), article_id)
         .await?
         .ok_or(AppError::NotFound)?;

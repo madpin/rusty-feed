@@ -48,6 +48,16 @@ pub struct IntegrationDelivery {
 const PROFILE_COLUMNS: &str = "id, user_id, name, provider, endpoint_url, credential_ciphertext, credential_kind, payload_template, tags, event_types, max_attempts, rate_limit_per_minute, is_default, enabled, paused_at, created_at, updated_at";
 const DELIVERY_COLUMNS: &str = "id, profile_id, user_id, article_id, event_type, payload_version, status, attempt_count, response_status, error_summary, next_attempt_at, created_at, finished_at";
 
+/// How many integration profiles this user has (for quota enforcement, FND-188).
+pub async fn count_for_user(pool: &PgPool, user_id: Uuid) -> Result<i64> {
+    Ok(
+        sqlx::query_scalar("SELECT count(*) FROM integration_profiles WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn create_profile(
     pool: &PgPool,

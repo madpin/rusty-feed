@@ -359,6 +359,13 @@ pub async fn import(
     if !state.opml_limiter.check(&user.id.to_string()).await {
         return Err(AppError::RateLimited);
     }
+    crate::verify::require_verified(&state, &user)?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::Subscriptions,
+    )
+    .await?;
     let form = match parse_import_form(values) {
         Ok(form) => form,
         Err(AppError::Validation(error)) => {

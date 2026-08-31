@@ -1412,6 +1412,7 @@ pub async fn summarize(
     if !state.summarize_limiter.check(&user.id.to_string()).await {
         return Err(AppError::RateLimited);
     }
+    crate::verify::require_verified(&state, &user)?;
     // Enforce the AI budget/quota *before* enqueuing so a stranger cannot fan
     // out thousands of paid jobs (FND-187). BYO-key users are exempt from the
     // instance USD budget; the daily call cap applies to everyone.

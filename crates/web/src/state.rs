@@ -11,6 +11,7 @@ use rustss_cache::Cache;
 use rustss_core::ai_budget::AiBudget;
 use rustss_core::config::{RegistrationMode, SearchMode, SearchTextConfig};
 use rustss_core::crypto::Cryptor;
+use rustss_core::quotas::Quotas;
 use rustss_core::tracking_pixel::TrackingPixelPolicy;
 use rustss_core::tracking_url::TrackingUrlPolicy;
 use rustss_core::youtube::YouTubePolicy;
@@ -75,6 +76,17 @@ impl Default for RateLimitSettings {
             media_per_min: 1_800,
         }
     }
+}
+
+/// Server-side CAPTCHA configuration (registration anti-abuse, FND-191).
+#[derive(Debug, Clone)]
+pub struct CaptchaSettings {
+    /// `turnstile` (Cloudflare) or `hcaptcha`.
+    pub provider: String,
+    /// Public site key rendered into the page.
+    pub site_key: String,
+    /// Secret used only for server-side verification (never rendered).
+    pub secret: String,
 }
 
 /// How a provider's userinfo response is shaped.
@@ -193,6 +205,18 @@ pub struct AppSettings {
     pub ai_budget: AiBudget,
     /// Per-key request rate limits (FND-190).
     pub rate_limits: RateLimitSettings,
+    /// Immutable per-user resource quotas (FND-188).
+    pub quotas: Quotas,
+    /// Require local accounts to verify their email before privileged actions.
+    pub email_verification_required: bool,
+    /// Minimum accepted length for new/changed passwords.
+    pub min_password_length: usize,
+    /// Failed local logins before a temporary account lock (`0` disables).
+    pub login_max_failures: u32,
+    /// How long an account stays locked after too many failures (seconds).
+    pub login_lockout_seconds: u64,
+    /// Registration CAPTCHA, if configured.
+    pub captcha: Option<CaptchaSettings>,
 }
 
 impl Default for AppSettings {
@@ -242,6 +266,12 @@ impl Default for AppSettings {
             trusted_proxy_cidrs: vec!["127.0.0.1/32".parse().expect("static CIDR")],
             ai_budget: AiBudget::default(),
             rate_limits: RateLimitSettings::default(),
+            quotas: Quotas::default(),
+            email_verification_required: false,
+            min_password_length: 10,
+            login_max_failures: 10,
+            login_lockout_seconds: 900,
+            captcha: None,
         }
     }
 }
@@ -270,8 +300,11 @@ pub struct AppState {
     pub opml_limiter: RateLimiter,
     /// Per-user limiter for the media proxy.
     pub media_limiter: RateLimiter,
+    /// Outbound transactional mail (email verification); Noop when SMTP is off.
+    pub mailer: crate::mailer::Mailer,
     pub(crate) live_view_tokens: Cryptor,
     pub(crate) public_share_tokens: Cryptor,
+    pub(crate) email_verification_tokens: Cryptor,
     pub(crate) llm_credentials: Cryptor,
     pub(crate) integration_credentials: Cryptor,
     pub(crate) acquisition_credentials: Cryptor,
@@ -321,10 +354,15 @@ impl AppState {
             summarize_limiter: RateLimiter::per_minute(limits.summarize_per_min),
             opml_limiter: RateLimiter::per_minute(limits.opml_per_min),
             media_limiter: RateLimiter::per_minute(limits.media_per_min),
+            mailer: crate::mailer::Mailer::Noop,
             live_view_tokens: Cryptor::new(&live_view_key),
             public_share_tokens: Cryptor::new_with_context(
                 &live_view_key,
                 b"rustss/public-share-tokens/v1",
+            ),
+            email_verification_tokens: Cryptor::new_with_context(
+                &live_view_key,
+                b"rustss/email-verification/v1",
             ),
             llm_credentials: Cryptor::new_with_context(
                 &live_view_key,
@@ -367,6 +405,14 @@ impl AppState {
     pub fn with_public_share_secret(mut self, secret: &[u8]) -> Self {
         self.public_share_tokens =
             Cryptor::new_with_context(secret, b"rustss/public-share-tokens/v1");
+        self.email_verification_tokens =
+            Cryptor::new_with_context(secret, b"rustss/email-verification/v1");
+        self
+    }
+
+    /// Configure the outbound mailer used for email verification.
+    pub fn with_mailer(mut self, mailer: crate::mailer::Mailer) -> Self {
+        self.mailer = mailer;
         self
     }
 

@@ -248,6 +248,12 @@ pub async fn create(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::Integrations,
+    )
+    .await?;
     let name = form.name.trim();
     if name.is_empty() || name.chars().count() > 80 {
         return render_page(

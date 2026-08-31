@@ -334,6 +334,43 @@ The rate limiter is in-process (per replica). For more than one app replica
 behind a balancer, either accept per-replica limits or move counters to Redis
 (`docs/PUBLIC_LAUNCH_PLAN.md` §4.4, §10.2).
 
+## Public launch: per-user quotas
+
+Counts of **per-user** rows only (shared content is never affected). `0` means
+unlimited (`docs/PUBLIC_LAUNCH_PLAN.md` §4.2). Exceeding a cap returns HTTP 409.
+
+| Variable | Default | Suggested (public) |
+|---|---:|---:|
+| `QUOTA_MAX_SUBSCRIPTIONS` | `0` | 250 |
+| `QUOTA_MAX_SAVED_SEARCHES` | `0` | 25 |
+| `QUOTA_MAX_CATEGORIES` | `0` | 100 |
+| `QUOTA_MAX_API_TOKENS` | `0` | 10 |
+| `QUOTA_MAX_INTEGRATIONS` | `0` | 10 |
+| `QUOTA_MAX_PUBLIC_SHARES` | `0` | 100 |
+
+## Public launch: signup anti-abuse
+
+Turns open registration from "a small group I trust" into something defensible
+against the internet (`docs/PUBLIC_LAUNCH_PLAN.md` §4.5). All default to the
+lenient single-tenant behavior.
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `EMAIL_VERIFICATION_REQUIRED` | `false` | Gate feed-add / AI until a local account confirms its email (requires SMTP). OAuth accounts are trusted. |
+| `SMTP_URL` | — | Transport URL, e.g. `smtps://user:pass@host:465` (implicit TLS) or `smtp://host:587` (STARTTLS). Required when verification is on. |
+| `SMTP_FROM` | — | `From` header, e.g. `RustSS <no-reply@example.com>`. |
+| `MIN_PASSWORD_LENGTH` | `10` | Minimum length for new/changed passwords (4–1024); a small breached-password denylist is always enforced. |
+| `LOGIN_MAX_FAILURES` | `10` | Failed local logins per account before a temporary lock (`0` disables). |
+| `LOGIN_LOCKOUT_SECONDS` | `900` | Lock duration after too many failures. |
+| `CAPTCHA_PROVIDER` | — | `turnstile` (Cloudflare) or `hcaptcha`; empty disables the registration CAPTCHA. |
+| `CAPTCHA_SITE_KEY` | — | Public site key rendered on the register page. |
+| `CAPTCHA_SECRET` | — | Secret key for server-side verification (never rendered). |
+
+An SMTP outage never breaks signup — the mailer degrades to a no-op and the user
+can resend the verification email from Preferences. When CAPTCHA is enabled, the
+Cloudflare/hCaptcha origins are added to the CSP `script-src`/`frame-src` only
+for that purpose; the strict no-inline policy is otherwise unchanged.
+
 ## Docker Compose-only variables
 
 These values configure containers or port publishing and are not fields in

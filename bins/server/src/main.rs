@@ -12,7 +12,8 @@ use rustss_cache::{Cache, CacheConfig};
 use rustss_core::AppConfig;
 use rustss_db::Db;
 use rustss_web::{
-    AppSettings, AppState, OAuthProvider, ProviderKind, RateLimitSettings, ReverseProxyAuthSettings,
+    AppSettings, AppState, CaptchaSettings, OAuthProvider, ProviderKind, RateLimitSettings,
+    ReverseProxyAuthSettings,
 };
 
 #[path = "../../systemd.rs"]
@@ -195,6 +196,22 @@ async fn main() -> anyhow::Result<()> {
             opml_per_min: config.rate_limit_opml_per_min,
             media_per_min: config.rate_limit_media_per_min,
         },
+        quotas: config.quotas(),
+        email_verification_required: config.email_verification_required,
+        min_password_length: config.min_password_length,
+        login_max_failures: config.login_max_failures,
+        login_lockout_seconds: config.login_lockout_seconds,
+        captcha: config
+            .active_captcha_provider()
+            .map(|provider| CaptchaSettings {
+                provider,
+                site_key: config.captcha_site_key.clone().unwrap_or_default(),
+                secret: config
+                    .captcha_secret
+                    .as_ref()
+                    .map(|secret| secret.expose().to_string())
+                    .unwrap_or_default(),
+            }),
     };
 
     // SSRF-safe fetch client (opt into private/loopback for trusted intranet
@@ -210,6 +227,25 @@ async fn main() -> anyhow::Result<()> {
     })
     .context("failed to build HTTP client")?;
 
+    // Outbound mailer for email verification. A missing/broken SMTP config
+    // degrades to a Noop mailer so signup never breaks (FND-191).
+    let mailer = match config.smtp_url.as_ref() {
+        Some(url) => {
+            let from = config
+                .smtp_from
+                .clone()
+                .unwrap_or_else(|| "RustSS <no-reply@localhost>".to_string());
+            match rustss_web::mailer::Mailer::from_smtp_url(url.expose(), &from) {
+                Ok(mailer) => mailer,
+                Err(error) => {
+                    tracing::error!(%error, "invalid SMTP configuration; email verification disabled");
+                    rustss_web::mailer::Mailer::Noop
+                }
+            }
+        }
+        None => rustss_web::mailer::Mailer::Noop,
+    };
+
     let state = AppState::new(db, cache, settings, move || metrics.render())
         .with_embedder(embedder.clone())
         .with_live_view_secret(config.session_secret.expose().as_bytes())
@@ -217,6 +253,7 @@ async fn main() -> anyhow::Result<()> {
         .with_llm_secret(config.encryption_secret.expose().as_bytes())
         .with_integration_secret(config.encryption_secret.expose().as_bytes())
         .with_acquisition_secret(config.encryption_secret.expose().as_bytes())
+        .with_mailer(mailer)
         .with_fetch(fetch);
 
     // Embedded AGENTS worker (default): refreshes feeds in the background.

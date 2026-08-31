@@ -328,6 +328,15 @@ pub async fn subscription_edit(
         .ok_or_else(|| GReaderError::BadRequest("missing subscription stream".to_string()))?;
     match action {
         "subscribe" => {
+            // Per-user subscription quota (FND-188).
+            let quotas = &state.settings.quotas;
+            let kind = rustss_core::quotas::QuotaKind::Subscriptions;
+            if quotas.limit(kind) > 0 {
+                let count = subscriptions::count_for_user(state.db.pool(), user.id).await?;
+                if !quotas.allows(kind, count) {
+                    return Err(GReaderError::BadRequest(quotas.exceeded_message(kind)));
+                }
+            }
             let source = stream
                 .strip_prefix("feed/")
                 .ok_or_else(|| GReaderError::BadRequest("invalid feed URL stream".to_string()))?;

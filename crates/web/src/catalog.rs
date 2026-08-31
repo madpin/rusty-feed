@@ -544,6 +544,13 @@ pub async fn subscribe(
     if !csrf::verify(&jar, &csrf_token) {
         return Err(AppError::Forbidden);
     }
+    crate::verify::require_verified(&state, &user)?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::Subscriptions,
+    )
+    .await?;
     let result = match catalog::subscribe_published_many(state.db.pool(), user.id, &feed_ids).await
     {
         Ok(result) => result,

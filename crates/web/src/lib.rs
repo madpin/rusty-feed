@@ -13,6 +13,7 @@ mod admin;
 mod ai_settings;
 mod api;
 pub mod auth;
+mod captcha;
 mod catalog;
 mod catalog_view;
 mod customization;
@@ -23,12 +24,14 @@ mod fever;
 mod greader;
 mod integrations;
 mod live_view;
+pub mod mailer;
 mod media_proxy;
 pub mod oauth;
 mod opml;
 mod passkeys;
 mod prefs;
 mod public_shares;
+mod quota;
 pub mod ratelimit;
 mod reader;
 mod saved;
@@ -36,11 +39,12 @@ mod search;
 mod sessions;
 mod state;
 mod tokens;
+mod verify;
 
 pub use error::{AppError, Result};
 pub use state::{
-    AppSettings, AppState, EnvLlmProvider, OAuthProvider, ProviderKind, RateLimitSettings,
-    ReverseProxyAuthSettings,
+    AppSettings, AppState, CaptchaSettings, EnvLlmProvider, OAuthProvider, ProviderKind,
+    RateLimitSettings, ReverseProxyAuthSettings,
 };
 
 use std::time::Instant;
@@ -63,7 +67,10 @@ struct Assets;
 
 /// Build the application router with all current routes.
 pub fn router(state: AppState) -> Router {
-    let content_security_policy = reader_content_security_policy(&state.settings.youtube_policy);
+    let content_security_policy = reader_content_security_policy(
+        &state.settings.youtube_policy,
+        state.settings.captcha.is_some(),
+    );
     let api_policy_state = state.clone();
     Router::new()
         .route("/", get(auth::handlers::home))
@@ -76,6 +83,8 @@ pub fn router(state: AppState) -> Router {
             get(auth::handlers::register_page).post(auth::handlers::register_submit),
         )
         .route("/logout", post(auth::handlers::logout_submit))
+        .route("/verify", get(verify::verify))
+        .route("/verify/resend", post(verify::resend))
         .route("/auth/passkey/start", post(passkeys::authentication_start))
         .route(
             "/auth/passkey/finish",
@@ -407,16 +416,38 @@ async fn observe_request(request: Request, next: Next) -> Response {
 
 /// Keep the reader's current URL private from every downstream navigation or
 /// subresource request, including responses produced by errors and fallbacks.
-fn reader_content_security_policy(policy: &rustss_core::youtube::YouTubePolicy) -> HeaderValue {
-    const DEFAULT: &str = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: https:; media-src 'self' data: https:; font-src 'self'; frame-src 'self' https://www.youtube-nocookie.com; worker-src 'self'; manifest-src 'self'";
-    let Some(origin) = policy.alternative_origin() else {
-        return HeaderValue::from_static(DEFAULT);
-    };
-    let value = DEFAULT.replace(
-        "https://www.youtube-nocookie.com;",
-        &format!("https://www.youtube-nocookie.com {origin};"),
+///
+/// When `captcha_enabled`, the Cloudflare Turnstile / hCaptcha origins are added
+/// to `script-src`/`frame-src`/`connect-src` so the challenge widget loads
+/// without weakening the strict no-inline policy (FND-161, FND-191).
+fn reader_content_security_policy(
+    policy: &rustss_core::youtube::YouTubePolicy,
+    captcha_enabled: bool,
+) -> HeaderValue {
+    const CAPTCHA_ORIGINS: &str =
+        "https://challenges.cloudflare.com https://hcaptcha.com https://*.hcaptcha.com";
+    let mut script_src = String::from("'self'");
+    let mut frame_src = String::from("'self' https://www.youtube-nocookie.com");
+    let mut connect_src = String::from("'self'");
+    if let Some(origin) = policy.alternative_origin() {
+        frame_src.push(' ');
+        frame_src.push_str(&origin);
+    }
+    if captcha_enabled {
+        script_src.push(' ');
+        script_src.push_str(CAPTCHA_ORIGINS);
+        frame_src.push(' ');
+        frame_src.push_str(CAPTCHA_ORIGINS);
+        connect_src.push(' ');
+        connect_src.push_str(CAPTCHA_ORIGINS);
+    }
+    let value = format!(
+        "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; \
+         form-action 'self'; script-src {script_src}; style-src 'self'; connect-src {connect_src}; \
+         img-src 'self' data: https:; media-src 'self' data: https:; font-src 'self'; \
+         frame-src {frame_src}; worker-src 'self'; manifest-src 'self'"
     );
-    HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static(DEFAULT))
+    HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("default-src 'self'"))
 }
 
 async fn enforce_security_headers(
@@ -759,12 +790,26 @@ mod tests {
             "https://video.example.org/private",
         )
         .unwrap();
-        let header = reader_content_security_policy(&policy);
+        let header = reader_content_security_policy(&policy, false);
         let csp = header.to_str().unwrap();
         assert!(csp.contains(
             "frame-src 'self' https://www.youtube-nocookie.com https://video.example.org;"
         ));
         assert!(!csp.contains("frame-src *"));
+    }
+
+    #[test]
+    fn captcha_origins_added_only_when_enabled() {
+        let policy = rustss_core::youtube::YouTubePolicy::default();
+        let disabled = reader_content_security_policy(&policy, false);
+        assert!(!disabled
+            .to_str()
+            .unwrap()
+            .contains("challenges.cloudflare.com"));
+        let enabled = reader_content_security_policy(&policy, true);
+        let csp = enabled.to_str().unwrap();
+        assert!(csp.contains("script-src 'self' https://challenges.cloudflare.com"));
+        assert!(csp.contains("https://challenges.cloudflare.com"));
     }
 
     #[test]

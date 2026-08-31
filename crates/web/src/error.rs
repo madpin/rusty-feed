@@ -37,6 +37,10 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(String),
 
+    /// 409 — a per-user quota was exceeded. Message is safe to show the client.
+    #[error("{0}")]
+    QuotaExceeded(String),
+
     /// 429 — too many requests.
     #[error("too many requests")]
     RateLimited,
@@ -54,6 +58,7 @@ impl AppError {
             AppError::Forbidden => StatusCode::FORBIDDEN,
             AppError::Validation(_) => StatusCode::BAD_REQUEST,
             AppError::Conflict(_) => StatusCode::CONFLICT,
+            AppError::QuotaExceeded(_) => StatusCode::CONFLICT,
             AppError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -100,6 +105,10 @@ mod tests {
         );
         assert_eq!(
             AppError::Conflict("x".into()).status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            AppError::QuotaExceeded("x".into()).status(),
             StatusCode::CONFLICT
         );
         assert_eq!(

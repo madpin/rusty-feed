@@ -171,6 +171,12 @@ pub async fn create(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::SavedSearches,
+    )
+    .await?;
     let is_admin = user.role == "admin";
     let name = form.name.trim();
     let query = form.query.trim();

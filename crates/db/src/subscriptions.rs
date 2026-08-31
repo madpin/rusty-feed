@@ -13,6 +13,16 @@ use uuid::Uuid;
 use crate::error::{DbError, Result};
 use crate::models::{UserFeed, USER_FEED_COLUMNS};
 
+/// How many feeds this user is subscribed to (for quota enforcement, FND-188).
+pub async fn count_for_user(pool: &PgPool, user_id: Uuid) -> Result<i64> {
+    Ok(
+        sqlx::query_scalar("SELECT count(*) FROM user_feeds WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
 /// Subscribe a user to a feed (idempotent). Returns the subscription and whether
 /// it was newly created.
 pub async fn subscribe(

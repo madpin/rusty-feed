@@ -479,6 +479,51 @@ pub struct AppConfig {
     pub rate_limit_opml_per_min: u32,
     #[serde(default = "defaults::rate_limit_media_per_min")]
     pub rate_limit_media_per_min: u32,
+
+    // ── Public launch: per-user quotas (FND-188; 0 == unlimited) ──
+    #[serde(default)]
+    pub quota_max_subscriptions: u32,
+    #[serde(default)]
+    pub quota_max_saved_searches: u32,
+    #[serde(default)]
+    pub quota_max_categories: u32,
+    #[serde(default)]
+    pub quota_max_api_tokens: u32,
+    #[serde(default)]
+    pub quota_max_integrations: u32,
+    #[serde(default)]
+    pub quota_max_public_shares: u32,
+
+    // ── Public launch: signup anti-abuse (FND-191) ──
+    /// Require local accounts to verify their email before privileged actions.
+    /// Requires SMTP. OAuth accounts with a provider-verified email are trusted.
+    #[serde(default)]
+    pub email_verification_required: bool,
+    /// SMTP transport URL, e.g. `smtps://user:pass@smtp.example.com:465`.
+    #[serde(default)]
+    pub smtp_url: Option<Secret>,
+    /// From header for outbound mail, e.g. `RustSS <no-reply@example.com>`.
+    #[serde(default)]
+    pub smtp_from: Option<String>,
+    /// Minimum accepted password length for new/changed local passwords.
+    #[serde(default = "defaults::min_password_length")]
+    pub min_password_length: usize,
+    /// Failed local logins per account before a temporary lock (`0` disables).
+    #[serde(default = "defaults::login_max_failures")]
+    pub login_max_failures: u32,
+    /// How long an account stays locked after too many failures, in seconds.
+    #[serde(default = "defaults::login_lockout_seconds")]
+    pub login_lockout_seconds: u64,
+    /// CAPTCHA provider on registration: `turnstile` (Cloudflare) or `hcaptcha`.
+    /// Empty disables the CAPTCHA.
+    #[serde(default)]
+    pub captcha_provider: Option<String>,
+    /// Public CAPTCHA site key (rendered in the page).
+    #[serde(default)]
+    pub captcha_site_key: Option<String>,
+    /// Secret CAPTCHA key (server-side verification only; never rendered).
+    #[serde(default)]
+    pub captcha_secret: Option<Secret>,
 }
 
 impl AppConfig {
@@ -746,6 +791,31 @@ impl AppConfig {
                 ))
             })?;
         }
+        if !(4..=1024).contains(&self.min_password_length) {
+            return Err(ConfigError::Invalid(
+                "MIN_PASSWORD_LENGTH must be between 4 and 1024".into(),
+            ));
+        }
+        if self.email_verification_required && self.smtp_url.is_none() {
+            return Err(ConfigError::Invalid(
+                "EMAIL_VERIFICATION_REQUIRED=true requires SMTP_URL to be set".into(),
+            ));
+        }
+        if let Some(provider) = self.captcha_provider.as_deref() {
+            let provider = provider.trim();
+            if !provider.is_empty() {
+                if !matches!(provider, "turnstile" | "hcaptcha") {
+                    return Err(ConfigError::Invalid(
+                        "CAPTCHA_PROVIDER must be 'turnstile' or 'hcaptcha'".into(),
+                    ));
+                }
+                if self.captcha_site_key.is_none() || self.captcha_secret.is_none() {
+                    return Err(ConfigError::Invalid(
+                        "CAPTCHA_SITE_KEY and CAPTCHA_SECRET are required when CAPTCHA_PROVIDER is set".into(),
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -765,6 +835,27 @@ impl AppConfig {
             &self.tracking_pixel_blocked_hosts,
             &self.tracking_pixel_allowed_hosts,
         )
+    }
+
+    /// Build the immutable per-user quota policy (FND-188).
+    pub fn quotas(&self) -> crate::quotas::Quotas {
+        crate::quotas::Quotas {
+            max_subscriptions: self.quota_max_subscriptions,
+            max_saved_searches: self.quota_max_saved_searches,
+            max_categories: self.quota_max_categories,
+            max_api_tokens: self.quota_max_api_tokens,
+            max_integrations: self.quota_max_integrations,
+            max_public_shares: self.quota_max_public_shares,
+        }
+    }
+
+    /// The normalized CAPTCHA provider name, if a CAPTCHA is configured.
+    pub fn active_captcha_provider(&self) -> Option<String> {
+        self.captcha_provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
     }
 
     /// Build the immutable AI budget policy (FND-187).
@@ -1151,6 +1242,15 @@ mod defaults {
     }
     pub fn rate_limit_media_per_min() -> u32 {
         1_800
+    }
+    pub fn min_password_length() -> usize {
+        10
+    }
+    pub fn login_max_failures() -> u32 {
+        10
+    }
+    pub fn login_lockout_seconds() -> u64 {
+        900
     }
 }
 

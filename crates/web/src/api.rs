@@ -133,6 +133,13 @@ pub async fn feed_create(
     Json(input): Json<CreateFeed>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let user = authenticate(&state, &headers, true, "feeds.subscribe").await?;
+    crate::verify::require_verified(&state, &user)?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::Subscriptions,
+    )
+    .await?;
     let url = normalize_url(input.url.trim())
         .map_err(|_| AppError::Validation("feed URL is invalid".into()))?;
     state
@@ -212,6 +219,8 @@ pub async fn category_create(
     Json(input): Json<CreateCategory>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let user = authenticate(&state, &headers, true, "categories.create").await?;
+    crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::Categories)
+        .await?;
     let name = input.name.trim();
     if name.is_empty() || name.chars().count() > 80 {
         return Err(AppError::Validation(
@@ -382,6 +391,12 @@ pub async fn saved_search_create(
     Json(input): Json<CreateSearch>,
 ) -> Result<Json<Value>, AppError> {
     let user = authenticate(&state, &headers, true, "saved_searches.create").await?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::SavedSearches,
+    )
+    .await?;
     let name = input.name.trim();
     let query = input.query.trim();
     if name.is_empty() || query.is_empty() {

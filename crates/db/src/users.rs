@@ -7,7 +7,8 @@ use crate::error::Result;
 use crate::models::User;
 
 const USER_COLUMNS: &str =
-    "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at, last_seen_at";
+    "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at, \
+     last_seen_at, failed_login_count, locked_until";
 
 /// Create a user. `role` must be one of `admin` | `user` | `guest`.
 pub async fn create(
@@ -175,6 +176,57 @@ pub async fn touch_last_seen(pool: &PgPool, user_id: Uuid) -> Result<()> {
     sqlx::query(
         "UPDATE users SET last_seen_at = now() \
          WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Mark an account's email address as verified (idempotent).
+pub async fn mark_email_verified(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Record a failed local login. When `max_failures > 0` and the running count
+/// reaches it, lock the account for `lockout_seconds` and reset the counter so
+/// the next window starts fresh (FND-191).
+pub async fn record_failed_login(
+    pool: &PgPool,
+    user_id: Uuid,
+    max_failures: i32,
+    lockout_seconds: i64,
+) -> Result<()> {
+    if max_failures <= 0 {
+        return Ok(());
+    }
+    sqlx::query(
+        "UPDATE users SET \
+           failed_login_count = CASE WHEN failed_login_count + 1 >= $2 THEN 0 ELSE failed_login_count + 1 END, \
+           locked_until = CASE WHEN failed_login_count + 1 >= $2 THEN now() + make_interval(secs => $3) ELSE locked_until END, \
+           updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(user_id)
+    .bind(max_failures)
+    .bind(lockout_seconds as f64)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Clear the failure counter and any lock after a successful login.
+pub async fn clear_failed_logins(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = now() \
+         WHERE id = $1 AND (failed_login_count <> 0 OR locked_until IS NOT NULL)",
     )
     .bind(user_id)
     .execute(pool)

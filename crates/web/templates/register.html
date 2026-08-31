@@ -16,9 +16,20 @@
   <label>Email
     <input type="email" name="email" autocomplete="email" required />
   </label>
-  <label>Password (min 8 characters)
-    <input type="password" name="password" autocomplete="new-password" minlength="8" required />
+  <label>Password (min {{ min_password_length }} characters)
+    <input type="password" name="password" autocomplete="new-password" minlength="{{ min_password_length }}" required />
   </label>
+  {% if let Some(provider) = captcha_provider %}
+  {% if let Some(site_key) = captcha_site_key %}
+  {% if provider == "hcaptcha" %}
+  <div class="h-captcha" data-sitekey="{{ site_key }}"></div>
+  <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+  {% else %}
+  <div class="cf-turnstile" data-sitekey="{{ site_key }}"></div>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  {% endif %}
+  {% endif %}
+  {% endif %}
   <button type="submit" class="primary">Create account</button>
 </form>
 {% if !providers.is_empty() %}

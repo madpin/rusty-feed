@@ -28,6 +28,16 @@ pub struct TagWithFeedCount {
     pub feed_count: i64,
 }
 
+/// How many categories this user has (for quota enforcement, FND-188).
+pub async fn count_for_user(pool: &PgPool, user_id: Uuid) -> Result<i64> {
+    Ok(
+        sqlx::query_scalar("SELECT count(*) FROM user_categories WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
 pub async fn create(
     pool: &PgPool,
     user_id: Uuid,

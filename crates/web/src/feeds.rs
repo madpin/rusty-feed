@@ -836,6 +836,13 @@ pub async fn add(
     if !state.feed_add_limiter.check(&user.id.to_string()).await {
         return Err(AppError::RateLimited);
     }
+    crate::verify::require_verified(&state, &user)?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rustss_core::quotas::QuotaKind::Subscriptions,
+    )
+    .await?;
     let is_admin = user.role == "admin";
     let normalized = match normalize_url(&form.url) {
         Ok(url) => url,
@@ -904,6 +911,8 @@ pub async fn create_category(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::Categories)
+        .await?;
     let name = form.name.trim();
     if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
         return render_page(

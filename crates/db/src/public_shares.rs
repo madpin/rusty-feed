@@ -164,6 +164,18 @@ pub async fn active_count(pool: &PgPool) -> Result<i64> {
     .await?)
 }
 
+/// Count one user's active shares (for quota enforcement, FND-188).
+pub async fn count_for_user(pool: &PgPool, user_id: Uuid) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM public_article_shares \
+         WHERE user_id = $1 AND revoked_at IS NULL \
+         AND (expires_at IS NULL OR expires_at > now())",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Return recent token-free policy events for the administration dashboard.
 pub async fn recent_events(pool: &PgPool, limit: i64) -> Result<Vec<AdminShareEvent>> {
     Ok(sqlx::query_as(
