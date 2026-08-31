@@ -313,14 +313,26 @@
     return new Promise(function () {});
   }
 
-  function startSummaryPolling(form) {
+  function startSummaryPolling(form, options) {
+    options = options || {};
     if (form._rustssSummaryPromise) return form._rustssSummaryPromise;
     var statusUrl = form.getAttribute("data-summary-status-url");
     if (!statusUrl) return Promise.resolve();
     var progress = form.querySelector("[data-summary-progress]");
     var deadline = Date.now() + (5 * 60 * 1000);
     var attempts = 0;
-    setPending(form, true);
+    // Resuming on page load stays silent until we confirm a job is actually in
+    // flight, so a freshly opened article never flashes a disabled button or a
+    // redundant idle status line underneath it.
+    var active = !options.resume;
+    if (active) setPending(form, true);
+
+    function activate() {
+      if (!active) {
+        active = true;
+        setPending(form, true);
+      }
+    }
 
     form._rustssSummaryPromise = new Promise(function (resolve) {
       function finish(message, error) {
@@ -347,11 +359,16 @@
             return response.json();
           })
           .then(function (result) {
-            if (progress) {
-              progress.textContent = result.message || "Generating the AI summary…";
-              progress.classList.remove("error");
+            if (result.state === "idle") {
+              if (progress) {
+                progress.textContent = "";
+                progress.classList.remove("error");
+              }
+              resolve();
+              return;
             }
             if (result.state === "ready") {
+              activate();
               announce("AI summary ready.", false);
               finishSummary(form).then(resolve, function () {
                 finish("The summary is ready, but this view could not refresh. Reload the page.", true);
@@ -359,12 +376,15 @@
               return;
             }
             if (result.state === "failed") {
+              activate();
               finish(result.message || "The AI summary could not be generated.", true);
               return;
             }
-            if (result.state === "idle") {
-              resolve();
-              return;
+            // queued / running / retrying: an active job is in flight.
+            activate();
+            if (progress) {
+              progress.textContent = result.message || "Generating the AI summary…";
+              progress.classList.remove("error");
             }
             attempts += 1;
             if (Date.now() >= deadline) {
@@ -374,6 +394,11 @@
             window.setTimeout(poll, Math.min(250 + attempts * 150, 2000));
           })
           .catch(function () {
+            // A quiet resume probe should not surface transient errors.
+            if (!active) {
+              resolve();
+              return;
+            }
             attempts += 1;
             if (Date.now() >= deadline) {
               finish("Live status is unavailable. Reload later or ask an administrator to check the queue.", true);
@@ -385,7 +410,7 @@
       poll();
     }).finally(function () {
       delete form._rustssSummaryPromise;
-      if (form.isConnected) setPending(form, false);
+      if (form.isConnected && active) setPending(form, false);
     });
     return form._rustssSummaryPromise;
   }
@@ -397,7 +422,7 @@
     forms.forEach(function (form) {
       if (form.dataset.summaryInitialized === "true") return;
       form.dataset.summaryInitialized = "true";
-      startSummaryPolling(form).catch(function () {});
+      startSummaryPolling(form, { resume: true }).catch(function () {});
     });
   }
 
@@ -774,23 +799,80 @@
   }
 
   function initializeSidebarQuickTools() {
+    var root = document.documentElement;
     var toggles = document.querySelectorAll("[data-sidebar-quick-toggle]");
     if (!toggles.length) return;
-    var active = false;
+    // Seed from the server-rendered class so the pinned state survives navigation.
+    var active = root.classList.contains("sidebar-quick-tools-active");
     /** @param {boolean} next */
     function apply(next) {
       active = next;
-      document.documentElement.classList.toggle("sidebar-quick-tools-active", active);
+      root.classList.toggle("sidebar-quick-tools-active", active);
       Array.prototype.forEach.call(toggles, function (toggle) {
         toggle.setAttribute("aria-pressed", String(active));
       });
     }
+    apply(active);
     Array.prototype.forEach.call(toggles, function (toggle) {
       toggle.addEventListener("click", function () {
-        apply(!active);
-        announce(active ? "Quick feed tools shown." : "Quick feed tools hidden.", false);
+        var next = !active;
+        apply(next);
+        announce(next ? "Quick feed tools pinned." : "Quick feed tools hidden.", false);
+        var url = root.getAttribute("data-layout-url");
+        var csrf = root.getAttribute("data-csrf-token");
+        if (!url || !csrf) return;
+        var body = new URLSearchParams();
+        body.set("csrf_token", csrf);
+        body.set("quick_tools_visible", String(next));
+        fetch(url, {
+          method: "POST",
+          body: body,
+          headers: { "X-Requested-With": "fetch" },
+          credentials: "same-origin",
+        }).catch(function () {
+          // Non-fatal: the toggle still works for this page load.
+        });
       });
     });
+  }
+
+  function initializeImageLightbox() {
+    var dialog = document.querySelector("[data-image-lightbox]");
+    if (!dialog || typeof dialog.showModal !== "function") return;
+    var img = dialog.querySelector("[data-image-lightbox-img]");
+    var openLink = dialog.querySelector("[data-image-lightbox-open]");
+
+    function open(src, alt) {
+      if (!src) return;
+      if (img) {
+        img.src = src;
+        img.alt = alt || "";
+      }
+      if (openLink) openLink.href = src;
+      if (!dialog.open) dialog.showModal();
+    }
+    function reset() {
+      if (img) img.removeAttribute("src");
+    }
+
+    document.addEventListener("click", function (event) {
+      var trigger = event.target && event.target.closest ? event.target.closest("[data-image-modal]") : null;
+      if (!trigger) return;
+      var src = trigger.getAttribute("data-image-src") || trigger.getAttribute("href");
+      if (!src) return;
+      event.preventDefault();
+      open(src, trigger.getAttribute("data-image-alt") || trigger.getAttribute("alt"));
+    });
+    Array.prototype.forEach.call(dialog.querySelectorAll("[data-image-lightbox-close]"), function (button) {
+      button.addEventListener("click", function () {
+        if (dialog.open) dialog.close();
+      });
+    });
+    // A click on the backdrop (the dialog box padding, outside the image) closes.
+    dialog.addEventListener("click", function (event) {
+      if (event.target === dialog) dialog.close();
+    });
+    dialog.addEventListener("close", reset);
   }
 
   function initializeQuickSettingsDialogs() {
@@ -1341,6 +1423,39 @@
     announce("Source selected. Subscribe to add it to your library.", false);
   });
 
+  function initializeCatalogSelection() {
+    var form = document.querySelector(".catalog-selection");
+    if (!form) return;
+    var toggle = form.querySelector("[data-catalog-select-all]");
+    if (!toggle) return;
+    var label = form.querySelector("[data-catalog-select-all-label]");
+    function boxes() {
+      // Only enabled checkboxes are selectable; disabled ones are already subscribed.
+      // These already reflect the applied category/country/language filters.
+      return Array.prototype.slice.call(form.querySelectorAll("input[name='feed_id']:not([disabled])"));
+    }
+    function sync() {
+      var all = boxes();
+      var checked = all.filter(function (box) { return box.checked; });
+      toggle.checked = all.length > 0 && checked.length === all.length;
+      toggle.indeterminate = checked.length > 0 && checked.length < all.length;
+      toggle.disabled = all.length === 0;
+      if (label) {
+        label.textContent = checked.length > 0 ? "Select all (" + checked.length + " selected)" : "Select all";
+      }
+    }
+    toggle.addEventListener("change", function () {
+      var check = toggle.checked;
+      boxes().forEach(function (box) { box.checked = check; });
+      sync();
+      announce(check ? "Selected all filtered sources." : "Cleared the selection.", false);
+    });
+    form.addEventListener("change", function (event) {
+      if (event.target && event.target.name === "feed_id") sync();
+    });
+    sync();
+  }
+
   function initializeOpmlPreview() {
     var form = document.querySelector("[data-opml-preview]");
     if (!form) return;
@@ -1397,6 +1512,8 @@
   initializeFeedMoveDialog();
   initializeFolderCollapse();
   initializeSidebarQuickTools();
+  initializeImageLightbox();
+  initializeCatalogSelection();
   initializeQuickSettingsDialogs();
   initializeArticleSendDialog();
   initializeAdminQueueRefresh();

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ ui.locale }}" dir="{{ ui.text_direction() }}" class="sidebar-width-{{ ui.sidebar_width }} reader-panel-width-{{ ui.reader_panel_width }}" data-theme="{{ theme }}" data-font-family="{{ ui.font_family }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" data-shortcuts-enabled="{{ ui.shortcuts.enabled }}" data-shortcut-next-article="{{ ui.shortcuts.next_article }}" data-shortcut-previous-article="{{ ui.shortcuts.previous_article }}" data-shortcut-save-article="{{ ui.shortcuts.save_article }}" data-shortcut-mark-unread="{{ ui.shortcuts.mark_unread }}" data-shortcut-next-feed="{{ ui.shortcuts.next_feed }}" data-shortcut-previous-feed="{{ ui.shortcuts.previous_feed }}" data-touch-gestures-enabled="{{ ui.touch_gestures_enabled }}" data-touch-gesture-sensitivity="{{ ui.touch_gesture_sensitivity }}" data-touch-gesture-direction="{{ ui.touch_gesture_direction }}" data-sidebar-collapsed="{{ ui.sidebar_collapsed }}">
+<html lang="{{ ui.locale }}" dir="{{ ui.text_direction() }}" class="sidebar-width-{{ ui.sidebar_width }} reader-panel-width-{{ ui.reader_panel_width }}{% if ui.quick_tools_visible %} sidebar-quick-tools-active{% endif %}" data-theme="{{ theme }}" data-font-family="{{ ui.font_family }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" data-shortcuts-enabled="{{ ui.shortcuts.enabled }}" data-shortcut-next-article="{{ ui.shortcuts.next_article }}" data-shortcut-previous-article="{{ ui.shortcuts.previous_article }}" data-shortcut-save-article="{{ ui.shortcuts.save_article }}" data-shortcut-mark-unread="{{ ui.shortcuts.mark_unread }}" data-shortcut-next-feed="{{ ui.shortcuts.next_feed }}" data-shortcut-previous-feed="{{ ui.shortcuts.previous_feed }}" data-touch-gestures-enabled="{{ ui.touch_gestures_enabled }}" data-touch-gesture-sensitivity="{{ ui.touch_gesture_sensitivity }}" data-touch-gesture-direction="{{ ui.touch_gesture_direction }}" data-sidebar-collapsed="{{ ui.sidebar_collapsed }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -52,5 +52,10 @@
       <main class="content" id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
     </div>
     <div id="action-status" class="action-status" role="status" aria-live="polite"></div>
+    <dialog class="image-lightbox" data-image-lightbox aria-label="Image preview">
+      <button type="button" class="image-lightbox-close" data-image-lightbox-close aria-label="Close image preview">×</button>
+      <img data-image-lightbox-img src="" alt="" referrerpolicy="no-referrer" />
+      <a class="image-lightbox-open" data-image-lightbox-open href="" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open in a new tab</a>
+    </dialog>
   </body>
 </html>

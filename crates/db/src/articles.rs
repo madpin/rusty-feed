@@ -886,6 +886,23 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
         .await?)
 }
 
+/// Count unread articles per subscribed feed for a user. "Unread" means the
+/// article has no matching row in `read_articles`. Feeds with zero unread are
+/// omitted, so the caller should treat a missing feed as `0`.
+pub async fn unread_counts_by_feed(pool: &PgPool, user_id: Uuid) -> Result<Vec<(Uuid, i64)>> {
+    Ok(sqlx::query_as::<_, (Uuid, i64)>(
+        "SELECT a.feed_id, count(*)::bigint \
+         FROM articles a \
+         JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+         LEFT JOIN read_articles r ON r.article_id = a.id AND r.user_id = $1 \
+         WHERE r.article_id IS NULL \
+         GROUP BY a.feed_id",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Count articles with a given URL (0 or 1). Handy for dedup assertions.
 pub async fn count_by_url(pool: &PgPool, url: &str) -> Result<i64> {
     Ok(

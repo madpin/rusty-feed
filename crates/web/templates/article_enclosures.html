@@ -14,7 +14,7 @@
         </div>
         <span class="enclosure-links">
           {% if enclosure.show_direct_link %}<a href="{{ enclosure.open_url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">Download file</a>{% endif %}
-          {% if enclosure.show_publisher_link %}<a href="{{ enclosure.publisher_url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">Publisher file</a>{% endif %}
+          {% if enclosure.show_publisher_link %}<a href="{{ enclosure.publisher_url }}"{% if enclosure.is_image %} data-image-modal data-image-src="{{ enclosure.publisher_url }}" data-image-alt="{{ enclosure.title }}"{% endif %}{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">Publisher file</a>{% endif %}
         </span>
       </div>
       {% if enclosure.can_embed %}
@@ -46,7 +46,7 @@
             <img data-enclosure-player data-src="{{ enclosure.url }}" alt="{{ enclosure.title }}" referrerpolicy="no-referrer" hidden />
           </div>
           {% else %}
-          <img class="enclosure-image" src="{{ enclosure.url }}" alt="{{ enclosure.title }}" loading="lazy" referrerpolicy="no-referrer" />
+          <img class="enclosure-image" src="{{ enclosure.url }}" alt="{{ enclosure.title }}" loading="lazy" referrerpolicy="no-referrer" data-image-modal data-image-src="{{ enclosure.url }}" data-image-alt="{{ enclosure.title }}" />
           {% endif %}
         {% endif %}
         {% if enclosure.load_on_demand %}<noscript><a href="{{ enclosure.url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">Open {{ enclosure.title }}</a></noscript>{% endif %}

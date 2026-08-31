@@ -45,8 +45,11 @@
 <form method="post" action="/catalog/subscribe" class="catalog-selection">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
   <div class="catalog-selection-bar">
-    <div><strong>{{ entries.len() }} sources</strong><span>Choose the ones you want in your library.</span></div>
-    <button type="submit" class="primary">Subscribe to selected</button>
+    <div><strong>{{ entries.len() }} sources</strong><span>Matching your current filters.</span></div>
+    <div class="catalog-selection-actions">
+      <label class="catalog-select-all"><input type="checkbox" data-catalog-select-all /> <span data-catalog-select-all-label>Select all</span></label>
+      <button type="submit" class="primary">Subscribe to selected</button>
+    </div>
   </div>
   <div class="catalog-grid">
     {% for entry in entries %}

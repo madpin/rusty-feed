@@ -210,6 +210,9 @@ pub struct Preferences {
     pub reader_line_height: String,
     pub sidebar_width: u8,
     pub sidebar_collapsed: bool,
+    /// Keep the per-feed quick tools (content/tags shortcuts) pinned open in the
+    /// sidebar across navigation until the user toggles them off again.
+    pub quick_tools_visible: bool,
     pub reader_panel_width: u8,
     /// `clean` (default) or `original` publisher article links.
     pub external_link_mode: String,
@@ -267,6 +270,7 @@ impl Default for Preferences {
             reader_line_height: "relaxed".to_string(),
             sidebar_width: 17,
             sidebar_collapsed: false,
+            quick_tools_visible: false,
             reader_panel_width: 56,
             external_link_mode: "clean".to_string(),
             external_open_mode: "new-tab".to_string(),
@@ -627,6 +631,8 @@ pub struct LayoutForm {
     #[serde(default)]
     sidebar_collapsed: Option<String>,
     #[serde(default)]
+    quick_tools_visible: Option<String>,
+    #[serde(default)]
     reader_panel_width: Option<u8>,
 }
 
@@ -855,6 +861,7 @@ pub async fn save(
             .unwrap_or(current.reader_line_height),
         sidebar_width: form.sidebar_width.unwrap_or(current.sidebar_width),
         sidebar_collapsed: form.sidebar_collapsed.is_some(),
+        quick_tools_visible: current.quick_tools_visible,
         reader_panel_width: form
             .reader_panel_width
             .unwrap_or(current.reader_panel_width),
@@ -965,6 +972,21 @@ pub async fn save_layout(
         patch.insert(
             "sidebar_collapsed".to_string(),
             serde_json::json!(collapsed),
+        );
+    }
+    if let Some(visible) = form.quick_tools_visible.as_deref() {
+        let visible = match visible {
+            "true" => true,
+            "false" => false,
+            _ => {
+                return Err(AppError::Validation(
+                    "Invalid quick tools state.".to_string(),
+                ))
+            }
+        };
+        patch.insert(
+            "quick_tools_visible".to_string(),
+            serde_json::json!(visible),
         );
     }
     if let Some(width) = form.reader_panel_width {

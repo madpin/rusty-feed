@@ -100,6 +100,7 @@ struct FeedNav {
     tags_input: String,
     content_mode: String,
     content_lifetime: String,
+    unread_count: i64,
 }
 
 struct FolderNav {
@@ -689,12 +690,14 @@ pub async fn list(
         .await?
     };
 
-    let (feed_records, category_records, tag_records, organizations) = tokio::try_join!(
+    let (feed_records, category_records, tag_records, organizations, unread_counts) = tokio::try_join!(
         feeds::list_for_user(state.db.pool(), user.id),
         categories::list_with_feed_counts(state.db.pool(), user.id),
         categories::list_tags(state.db.pool(), user.id),
         subscriptions::list_organization(state.db.pool(), user.id),
+        articles::unread_counts_by_feed(state.db.pool(), user.id),
     )?;
+    let unread_by_feed: HashMap<Uuid, i64> = unread_counts.into_iter().collect();
     let category_name = category_id.and_then(|category_id| {
         category_records
             .iter()
@@ -749,6 +752,7 @@ pub async fn list(
                 .unwrap_or_default(),
             content_mode: content_settings.mode.as_str().to_string(),
             content_lifetime: content_settings.lifetime.form_value(),
+            unread_count: unread_by_feed.get(&id).copied().unwrap_or(0),
             name: display_name,
         };
         if let Some(folder_id) = organization.and_then(|organization| organization.category_id) {
