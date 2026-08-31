@@ -125,3 +125,4 @@ SELECT gen_random_uuid(), resolved.id, seed.title, seed.description, seed.catego
 FROM seed
 JOIN resolved_feeds resolved ON resolved.url = seed.url
 ON CONFLICT (feed_id) DO NOTHING;
+

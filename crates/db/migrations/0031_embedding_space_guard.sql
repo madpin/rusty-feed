@@ -6,3 +6,4 @@ CREATE TABLE instance_embedding_space (
     dimensions INT NOT NULL CHECK (dimensions > 0),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
