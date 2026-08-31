@@ -163,6 +163,9 @@ pub async fn preview(
     jar: CookieJar,
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
+    if !state.opml_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
     let mut csrf_token = None;
     let mut opml_url = None;
     let mut file = None;
@@ -353,6 +356,9 @@ pub async fn import(
     jar: CookieJar,
     Form(values): Form<Vec<(String, String)>>,
 ) -> Result<Response, AppError> {
+    if !state.opml_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
     let form = match parse_import_form(values) {
         Ok(form) => form,
         Err(AppError::Validation(error)) => {

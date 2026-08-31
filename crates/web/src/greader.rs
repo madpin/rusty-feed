@@ -32,6 +32,8 @@ pub enum GReaderError {
     BadRequest(String),
     #[error("Not Found")]
     NotFound,
+    #[error("too many requests")]
+    RateLimited,
     #[error("internal server error")]
     Internal(#[from] anyhow::Error),
 }
@@ -51,6 +53,10 @@ impl IntoResponse for GReaderError {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
             Self::NotFound => (StatusCode::NOT_FOUND, "Not Found".to_string()),
+            Self::RateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many requests".to_string(),
+            ),
             Self::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal server error".to_string(),
@@ -131,6 +137,9 @@ async fn authenticate_raw(state: &AppState, raw: &str, write: bool) -> Result<Us
     if !token_allowed(&api_token.scopes, write) {
         return Err(GReaderError::Unauthorized);
     }
+    if !state.api_limiter.check(&api_token.id.to_string()).await {
+        return Err(GReaderError::RateLimited);
+    }
     api_tokens::touch(state.db.pool(), api_token.id).await?;
     users::find_by_id(state.db.pool(), api_token.user_id)
         .await?
@@ -160,7 +169,7 @@ pub async fn client_login(
     RawForm(raw): RawForm,
 ) -> Result<Response> {
     if !state.auth_limiter.check(&ip).await {
-        return Err(GReaderError::Unauthorized);
+        return Err(GReaderError::RateLimited);
     }
     let pairs = decode(&raw);
     let email = first(&pairs, "Email").unwrap_or_default().trim();

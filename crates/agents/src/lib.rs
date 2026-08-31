@@ -36,6 +36,7 @@ pub use youtube_duration::YouTubeDurationAgent;
 
 use async_trait::async_trait;
 
+use rustss_core::ai_budget::AiBudget;
 use rustss_core::crypto::Cryptor;
 use rustss_core::{tracking_pixel::TrackingPixelPolicy, tracking_url::TrackingUrlPolicy};
 use rustss_db::Db;
@@ -64,6 +65,10 @@ pub struct AgentContext {
     pub youtube_duration_enabled: bool,
     pub youtube_duration_daily_budget: u32,
     pub youtube_duration_cache_days: i64,
+    /// Immutable AI budget enforced before background LLM spend (FND-187).
+    pub ai_budget: AiBudget,
+    /// Cap on articles ingested per feed refresh; `0` == unlimited (FND-189).
+    pub feed_max_items_per_refresh: usize,
 }
 
 impl AgentContext {
@@ -84,7 +89,19 @@ impl AgentContext {
             youtube_duration_enabled: false,
             youtube_duration_daily_budget: 100,
             youtube_duration_cache_days: 30,
+            ai_budget: AiBudget::default(),
+            feed_max_items_per_refresh: 0,
         }
+    }
+
+    pub fn with_ai_budget(mut self, budget: AiBudget) -> Self {
+        self.ai_budget = budget;
+        self
+    }
+
+    pub fn with_feed_max_items_per_refresh(mut self, max_items: usize) -> Self {
+        self.feed_max_items_per_refresh = max_items;
+        self
     }
 
     pub fn with_embed_on_ingest(mut self, enabled: bool) -> Self {

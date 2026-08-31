@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rustss_db::{articles, embeddings};
+use rustss_db::{articles, cost_ledger, embeddings};
 use rustss_embed::{prepare_text, Embedder, HashEmbedder};
 
 use crate::{Agent, AgentContext};
@@ -70,6 +70,26 @@ impl Agent for EmbedArticleAgent {
             content_revision,
         )
         .await?;
+
+        // Meter shared article embeddings (user_id = NULL): free of API cost for
+        // the local provider but not of CPU, so budgets/dashboards still see them
+        // (FND-187). A per-user cap is applied to interactive query embeddings.
+        let units = text.split_whitespace().count() as i64;
+        if let Err(error) = cost_ledger::record(
+            pool,
+            None,
+            self.embedder.provider(),
+            self.embedder.model(),
+            "embedding",
+            units,
+            0,
+            0,
+            false,
+        )
+        .await
+        {
+            tracing::warn!(%article_id, error = %error, "failed to record embedding usage");
+        }
 
         Ok(json!({ "status": "embedded", "model": self.embedder.model() }))
     }

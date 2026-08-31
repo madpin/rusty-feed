@@ -111,6 +111,7 @@ impl Agent for FetchFeedAgent {
             &feed,
             &ctx.tracking_url_policy,
             &ctx.tracking_pixel_policy,
+            ctx.feed_max_items_per_refresh,
         )
         .await?;
         let integration_jobs =

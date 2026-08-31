@@ -24,6 +24,10 @@ pub const EMBEDDING_DIM: usize = 384;
 pub trait Embedder: Send + Sync {
     /// Identifier stored alongside each vector (guards against mixing spaces).
     fn model(&self) -> &str;
+    /// Provider label used for cost/usage accounting (e.g. `local`, `openai`).
+    fn provider(&self) -> &str {
+        "local"
+    }
     fn dimensions(&self) -> usize;
     /// Embed a batch of texts (order preserved).
     async fn embed(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>>;
@@ -251,6 +255,9 @@ struct EmbeddingsResponse {
 impl Embedder for OpenAiEmbedder {
     fn model(&self) -> &str {
         &self.model
+    }
+    fn provider(&self) -> &str {
+        "openai"
     }
     fn dimensions(&self) -> usize {
         EMBEDDING_DIM

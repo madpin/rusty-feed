@@ -435,6 +435,50 @@ pub struct AppConfig {
     pub saved_search_concurrency: usize,
     #[serde(default = "defaults::job_lock_timeout_ms")]
     pub job_lock_timeout_ms: u64,
+
+    // ── Public launch: AI budgets (FND-187) ──
+    // `0` / `0.0` means unlimited (historical single-tenant behavior). Public,
+    // open-registration instances set finite values. BYO-key users are exempt
+    // from the USD budgets (docs/PUBLIC_LAUNCH_PLAN.md §4.1, §8.1).
+    #[serde(default)]
+    pub ai_llm_global_daily_usd: f64,
+    #[serde(default)]
+    pub ai_llm_per_user_daily_usd: f64,
+    #[serde(default)]
+    pub ai_llm_per_user_daily_calls: u32,
+    #[serde(default)]
+    pub ai_embed_per_user_daily_calls: u32,
+
+    // ── Public launch: ingest fan-out caps (FND-189; `0` == unlimited) ──
+    /// Maximum articles processed (newest-first) per feed refresh cycle.
+    #[serde(default)]
+    pub feed_max_items_per_refresh: usize,
+    /// Advisory ceiling on live articles per feed (trimmed by retention).
+    #[serde(default)]
+    pub feed_max_articles: usize,
+
+    // ── Public launch: trusted reverse-proxy IPs (FND-190) ──
+    /// Only requests whose socket peer is within one of these CIDRs may set the
+    /// client IP via `X-Forwarded-For`/`X-Real-IP`; otherwise the socket peer is
+    /// used. Prevents header spoofing from defeating IP rate limits.
+    #[serde(default = "defaults::trusted_proxy_cidrs")]
+    pub trusted_proxy_cidrs: String,
+
+    // ── Public launch: rate limits (requests/min per key; `0` == unlimited) ──
+    #[serde(default = "defaults::rate_limit_auth_per_min")]
+    pub rate_limit_auth_per_min: u32,
+    #[serde(default = "defaults::rate_limit_api_per_min")]
+    pub rate_limit_api_per_min: u32,
+    #[serde(default = "defaults::rate_limit_feed_add_per_min")]
+    pub rate_limit_feed_add_per_min: u32,
+    #[serde(default = "defaults::rate_limit_search_per_min")]
+    pub rate_limit_search_per_min: u32,
+    #[serde(default = "defaults::rate_limit_summarize_per_min")]
+    pub rate_limit_summarize_per_min: u32,
+    #[serde(default = "defaults::rate_limit_opml_per_min")]
+    pub rate_limit_opml_per_min: u32,
+    #[serde(default = "defaults::rate_limit_media_per_min")]
+    pub rate_limit_media_per_min: u32,
 }
 
 impl AppConfig {
@@ -685,6 +729,23 @@ impl AppConfig {
         self.tracking_url_policy().map_err(ConfigError::Invalid)?;
         self.tracking_pixel_policy().map_err(ConfigError::Invalid)?;
         self.youtube_policy().map_err(ConfigError::Invalid)?;
+        for (label, value) in [
+            ("AI_LLM_GLOBAL_DAILY_USD", self.ai_llm_global_daily_usd),
+            ("AI_LLM_PER_USER_DAILY_USD", self.ai_llm_per_user_daily_usd),
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(ConfigError::Invalid(format!(
+                    "{label} must be a non-negative amount (0 = unlimited)"
+                )));
+            }
+        }
+        for cidr in comma_values(&self.trusted_proxy_cidrs) {
+            cidr.parse::<ipnet::IpNet>().map_err(|_| {
+                ConfigError::Invalid(format!(
+                    "TRUSTED_PROXY_CIDRS contains an invalid network '{cidr}'"
+                ))
+            })?;
+        }
         Ok(())
     }
 
@@ -703,6 +764,16 @@ impl AppConfig {
             self.tracking_pixel_strictness,
             &self.tracking_pixel_blocked_hosts,
             &self.tracking_pixel_allowed_hosts,
+        )
+    }
+
+    /// Build the immutable AI budget policy (FND-187).
+    pub fn ai_budget(&self) -> crate::ai_budget::AiBudget {
+        crate::ai_budget::AiBudget::from_config(
+            self.ai_llm_global_daily_usd,
+            self.ai_llm_per_user_daily_usd,
+            self.ai_llm_per_user_daily_calls,
+            self.ai_embed_per_user_daily_calls,
         )
     }
 
@@ -1055,6 +1126,31 @@ mod defaults {
     }
     pub fn media_proxy_negative_ttl_seconds() -> u64 {
         5 * 60
+    }
+    // ── Public launch (docs/PUBLIC_LAUNCH_PLAN.md §4.4) ──
+    pub fn trusted_proxy_cidrs() -> String {
+        "127.0.0.1/32,::1/128".to_string()
+    }
+    pub fn rate_limit_auth_per_min() -> u32 {
+        10
+    }
+    pub fn rate_limit_api_per_min() -> u32 {
+        600
+    }
+    pub fn rate_limit_feed_add_per_min() -> u32 {
+        60
+    }
+    pub fn rate_limit_search_per_min() -> u32 {
+        120
+    }
+    pub fn rate_limit_summarize_per_min() -> u32 {
+        20
+    }
+    pub fn rate_limit_opml_per_min() -> u32 {
+        10
+    }
+    pub fn rate_limit_media_per_min() -> u32 {
+        1_800
     }
 }
 

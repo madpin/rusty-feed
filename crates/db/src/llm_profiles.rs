@@ -94,6 +94,19 @@ pub async fn any_enabled(pool: &PgPool) -> Result<bool> {
     .await?)
 }
 
+/// Whether this user has their own enabled personal (BYO-key) provider. Such
+/// users pay with their own key and are exempt from the instance LLM budget
+/// (`docs/PUBLIC_LAUNCH_PLAN.md` §4.1, §8.1).
+pub async fn has_enabled_user_profile(pool: &PgPool, user_id: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM llm_provider_profiles \
+         WHERE enabled AND scope = 'user' AND owner_user_id = $1)",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 pub async fn set_enabled(
     pool: &PgPool,
     id: Uuid,

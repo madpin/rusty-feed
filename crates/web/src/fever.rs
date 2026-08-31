@@ -38,6 +38,9 @@ async fn authenticate(state: &AppState, pairs: &[(String, String)]) -> Result<Us
         .await?
         .filter(|token| token.scopes.iter().any(|scope| scope == "fever"))
         .ok_or(AppError::Unauthorized)?;
+    if !state.api_limiter.check(&credential.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
     api_tokens::touch(state.db.pool(), credential.id).await?;
     users::find_by_id(state.db.pool(), credential.user_id)
         .await?

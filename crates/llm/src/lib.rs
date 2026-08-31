@@ -15,10 +15,28 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use rustss_core::ai_budget::AiBudget;
 use rustss_core::config::LlmProvider;
 use rustss_core::crypto::Cryptor;
 use rustss_core::html::article_html_to_markdown;
 use rustss_db::{articles, cost_ledger, llm_profiles, Article, Db};
+
+/// Why a cascade summarize did not produce a summary.
+#[derive(Debug, thiserror::Error)]
+pub enum SummarizeError {
+    /// Over an AI budget/quota. The message is safe to show the user.
+    #[error("{0}")]
+    Budget(String),
+    /// No AI provider is configured for this instance/user.
+    #[error("no AI summary provider is configured")]
+    NoProvider,
+    /// Every configured provider was attempted and failed.
+    #[error("all configured AI summary providers failed ({0})")]
+    AllFailed(String),
+    /// An unexpected error (DB, decryption, …).
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
 
 /// A chat completion result with token usage.
 #[derive(Debug, Clone)]
@@ -192,44 +210,119 @@ impl ProviderCascade {
         self.environment.is_some()
     }
 
-    async fn clients(&self, user_id: Option<Uuid>) -> anyhow::Result<Vec<Arc<dyn LlmClient>>> {
+    /// Resolved clients paired with whether each is **user-funded** (the user's
+    /// own enabled key). User-funded spend is exempt from the instance budget.
+    async fn clients(
+        &self,
+        user_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<(Arc<dyn LlmClient>, bool)>> {
         let profiles = llm_profiles::resolve(self.db.pool(), user_id).await?;
-        let mut clients: Vec<Arc<dyn LlmClient>> = Vec::with_capacity(profiles.len() + 1);
+        let mut clients: Vec<(Arc<dyn LlmClient>, bool)> = Vec::with_capacity(profiles.len() + 1);
         for profile in profiles {
-            let key = profile
-                .api_key_ciphertext
-                .as_deref()
-                .map(|ciphertext| self.cryptor.decrypt_str(ciphertext))
-                .transpose()
-                .map_err(|_| anyhow::anyhow!("managed AI credential could not be decrypted"))?;
-            clients.push(Arc::new(OpenAiCompatClient::new(
-                &profile.provider,
-                profile.base_url,
-                key,
-                profile.model,
-            )));
+            let user_funded = profile.scope == "user";
+            let key = match profile.api_key_ciphertext.as_deref() {
+                Some(ciphertext) => match self.cryptor.decrypt_str(ciphertext) {
+                    Ok(key) => Some(key),
+                    // A single corrupt/rotated credential must not break every
+                    // provider — skip it and try the next (graceful degradation).
+                    Err(_) => {
+                        tracing::warn!(
+                            profile = %profile.id,
+                            scope = %profile.scope,
+                            "skipping AI provider: credential could not be decrypted"
+                        );
+                        continue;
+                    }
+                },
+                None => None,
+            };
+            clients.push((
+                Arc::new(OpenAiCompatClient::new(
+                    &profile.provider,
+                    profile.base_url,
+                    key,
+                    profile.model,
+                )),
+                user_funded,
+            ));
         }
         if let Some(environment) = &self.environment {
-            clients.push(environment.clone());
+            // The environment key is instance-funded.
+            clients.push((environment.clone(), false));
         }
         Ok(clients)
     }
 }
 
+/// Whether an *instance-funded* summary call is currently within budget for this
+/// user. BYO-key spend is unaffected by these caps (`§4.1`, `§8.1`).
+async fn instance_funding_allowed(
+    db: &Db,
+    budget: &AiBudget,
+    user_id: Option<Uuid>,
+) -> anyhow::Result<bool> {
+    let since = AiBudget::today_start();
+    if budget.has_global_llm_cap() {
+        let spent = cost_ledger::instance_spend_micro_usd_since(db.pool(), since).await?;
+        if spent >= budget.llm_global_daily_micro_usd {
+            return Ok(false);
+        }
+    }
+    if let Some(uid) = user_id {
+        if budget.has_per_user_llm_usd_cap() {
+            let spent = cost_ledger::user_spend_micro_usd_since(db.pool(), uid, since).await?;
+            if spent >= budget.llm_per_user_daily_micro_usd {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+/// Whether this user has hit today's LLM call cap (funding-agnostic: bounds
+/// job/DB abuse even for BYO-key users).
+async fn per_user_call_cap_reached(
+    db: &Db,
+    budget: &AiBudget,
+    user_id: Option<Uuid>,
+) -> anyhow::Result<bool> {
+    let (Some(uid), true) = (user_id, budget.has_per_user_llm_call_cap()) else {
+        return Ok(false);
+    };
+    let since = AiBudget::today_start();
+    let calls = cost_ledger::user_call_count_since(db.pool(), uid, "summary", since).await?;
+    Ok(calls >= i64::from(budget.llm_per_user_daily_calls))
+}
+
 /// Summarize through the configured cascade, stopping on the first successful
-/// provider. A shared summary is still written at most once.
+/// provider. A shared summary is still written at most once. Enforces the AI
+/// budget: BYO-key clients are exempt from the instance USD budget, but the
+/// per-user daily call cap applies to everyone (`docs/PUBLIC_LAUNCH_PLAN.md`
+/// §4.1).
 pub async fn summarize_article_with_cascade(
     cascade: &ProviderCascade,
+    budget: &AiBudget,
     user_id: Option<Uuid>,
     article: &Article,
-) -> anyhow::Result<(bool, String)> {
+) -> Result<(bool, String), SummarizeError> {
+    if per_user_call_cap_reached(&cascade.db, budget, user_id).await? {
+        return Err(SummarizeError::Budget(
+            "You've reached today's AI summary limit. Try again tomorrow, or add your own API key in Settings → AI.".to_string(),
+        ));
+    }
     let clients = cascade.clients(user_id).await?;
     if clients.is_empty() {
-        anyhow::bail!("no AI summary provider is configured");
+        return Err(SummarizeError::NoProvider);
     }
+    let instance_allowed = instance_funding_allowed(&cascade.db, budget, user_id).await?;
     let mut failures = Vec::new();
-    for client in clients {
-        match summarize_article(&cascade.db, client.as_ref(), user_id, article).await {
+    let mut skipped_over_budget = false;
+    for (client, user_funded) in clients {
+        if !user_funded && !instance_allowed {
+            skipped_over_budget = true;
+            continue;
+        }
+        match summarize_article(&cascade.db, client.as_ref(), user_id, article, user_funded).await {
             Ok(written) => return Ok((written, client.model().to_string())),
             Err(error) => {
                 tracing::warn!(
@@ -242,10 +335,12 @@ pub async fn summarize_article_with_cascade(
             }
         }
     }
-    anyhow::bail!(
-        "all configured AI summary providers failed ({})",
-        failures.join(", ")
-    )
+    if failures.is_empty() && skipped_over_budget {
+        return Err(SummarizeError::Budget(
+            "AI summaries are paused: today's shared budget is used up. Add your own API key in Settings → AI to keep summarizing.".to_string(),
+        ));
+    }
+    Err(SummarizeError::AllFailed(failures.join(", ")))
 }
 
 /// A parsed article summary.
@@ -303,6 +398,7 @@ pub async fn summarize_article(
     client: &dyn LlmClient,
     user_id: Option<Uuid>,
     article: &Article,
+    billed_to_user: bool,
 ) -> anyhow::Result<bool> {
     // Skip the (paid) call if it's already summarized.
     if articles::is_summarized(db.pool(), article.id).await? {
@@ -337,6 +433,7 @@ pub async fn summarize_article(
             completion.input_tokens as i64,
             completion.output_tokens as i64,
             cost,
+            billed_to_user,
         )
         .await?;
     }

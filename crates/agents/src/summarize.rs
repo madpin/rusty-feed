@@ -104,8 +104,25 @@ impl Agent for SummarizeArticleAgent {
         }
 
         if let Some(cascade) = &self.cascade {
-            let (written, model) =
-                rustss_llm::summarize_article_with_cascade(cascade, user_id, &article).await?;
+            let (written, model) = match rustss_llm::summarize_article_with_cascade(
+                cascade,
+                &ctx.ai_budget,
+                user_id,
+                &article,
+            )
+            .await
+            {
+                Ok(result) => result,
+                // Over budget/quota is a clean skip, not a retryable failure.
+                Err(rustss_llm::SummarizeError::Budget(reason)) => {
+                    tracing::info!(%article_id, reason, "summary skipped: over AI budget");
+                    return Ok(json!({ "skipped": "over AI budget", "reason": reason }));
+                }
+                Err(rustss_llm::SummarizeError::NoProvider) => {
+                    return Ok(json!({ "skipped": "no LLM configured" }));
+                }
+                Err(other) => return Err(anyhow::Error::new(other)),
+            };
             let integration_jobs = notify_summary_ready(ctx, user_id, article_id, written).await?;
             return Ok(
                 json!({ "written": written, "model": model, "integration_jobs": integration_jobs }),
@@ -115,7 +132,7 @@ impl Agent for SummarizeArticleAgent {
             return Ok(json!({ "skipped": "no LLM configured" }));
         };
         let written =
-            rustss_llm::summarize_article(&ctx.db, llm.as_ref(), user_id, &article).await?;
+            rustss_llm::summarize_article(&ctx.db, llm.as_ref(), user_id, &article, false).await?;
         let integration_jobs = notify_summary_ready(ctx, user_id, article_id, written).await?;
         Ok(
             json!({ "written": written, "model": llm.model(), "integration_jobs": integration_jobs }),

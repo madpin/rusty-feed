@@ -94,6 +94,71 @@ async fn ssrf_blocks_loopback_literal() {
         .is_err());
 }
 
+/// A feed declaring `count` items (a fan-out / storage-bomb vector, FND-189).
+fn rss_many(run: &str, count: usize) -> String {
+    let mut items = String::new();
+    for i in 0..count {
+        items.push_str(&format!(
+            "<item><title>Item {i}</title><link>https://mock.example/{run}/{i}</link>\
+             <guid>{run}-{i}</guid><description>Body {i}</description></item>\n"
+        ));
+    }
+    format!(
+        r#"<?xml version="1.0"?><rss version="2.0"><channel>
+  <title>Mock News</title><link>https://mock.example</link>
+  {items}
+</channel></rss>"#
+    )
+}
+
+#[tokio::test]
+async fn refresh_caps_items_per_refresh() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+
+    let run = uuid::Uuid::now_v7().to_string();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/feed.xml"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(rss_many(&run, 500)))
+        .mount(&server)
+        .await;
+
+    let feed_url = format!("{}/feed.xml?run={}", server.uri(), run);
+    let (feed, _) = rustss_db::feeds::upsert_by_url(db.pool(), &feed_url, "Mock News", None)
+        .await
+        .unwrap();
+
+    let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
+    let cap = 50;
+    let stats = rustss_feeds::refresh_feed_with_policies(
+        &db,
+        &client,
+        &feed,
+        &rustss_core::tracking_url::TrackingUrlPolicy::default(),
+        &rustss_core::tracking_pixel::TrackingPixelPolicy::default(),
+        cap,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        stats.created, cap as u64,
+        "a 500-item feed must create at most {cap} rows this refresh"
+    );
+    let stored = rustss_db::articles::list_for_feed(db.pool(), feed.id, 1000)
+        .await
+        .unwrap();
+    assert!(
+        stored.len() <= cap,
+        "at most {cap} shared rows should exist, found {}",
+        stored.len()
+    );
+}
+
 #[tokio::test]
 async fn refresh_ingests_articles() {
     let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {

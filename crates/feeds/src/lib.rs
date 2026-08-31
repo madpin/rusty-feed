@@ -169,17 +169,23 @@ pub async fn refresh_feed_with_policy(
         feed,
         tracking_url_policy,
         &TrackingPixelPolicy::default(),
+        0,
     )
     .await
 }
 
 /// Refresh one shared feed using immutable URL and tracking-image policies.
+///
+/// `max_items` caps how many articles (newest-first) a single refresh may
+/// ingest; `0` means unlimited. This is a **shared** bound (O(1) regardless of
+/// subscribers) that blunts feed fan-out amplification (FND-189).
 pub async fn refresh_feed_with_policies(
     db: &Db,
     client: &SafeFetchClient,
     feed: &Feed,
     tracking_url_policy: &TrackingUrlPolicy,
     tracking_pixel_policy: &TrackingPixelPolicy,
+    max_items: usize,
 ) -> Result<RefreshStats> {
     let outcome = match fetch_feed(
         client,
@@ -272,7 +278,27 @@ pub async fn refresh_feed_with_policies(
             )
         });
     let mut stats = RefreshStats::default();
-    for (article_index, article) in parsed.articles.iter().enumerate() {
+    // Cap items ingested per refresh (newest-first), dropping the older tail with
+    // a counted, logged skip. Uses the original article index for the per-index
+    // tracking-pixel lookup so alignment is preserved (FND-189).
+    let mut order: Vec<usize> = (0..parsed.articles.len()).collect();
+    if max_items > 0 && order.len() > max_items {
+        order.sort_by(|&a, &b| {
+            parsed.articles[b]
+                .published_at
+                .cmp(&parsed.articles[a].published_at)
+        });
+        let dropped = order.len() - max_items;
+        order.truncate(max_items);
+        tracing::info!(
+            feed_id = %feed.id,
+            dropped,
+            max_items,
+            "capped feed items ingested this refresh (FND-189)"
+        );
+    }
+    for article_index in order {
+        let article = &parsed.articles[article_index];
         match rustss_db::articles::upsert_with_original_url_and_privacy(
             db.pool(),
             article,

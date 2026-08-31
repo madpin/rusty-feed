@@ -7,6 +7,7 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use rustss_core::ai_budget::AiBudget;
 use rustss_db::models::NewArticle;
 use rustss_db::{articles, cost_ledger, feeds, llm_profiles, users, Db};
 use rustss_llm::{
@@ -104,7 +105,7 @@ async fn summarize_article_stores_once_and_records_cost() {
     .id;
     let article = seed_article(&db).await;
 
-    let written = summarize_article(&db, &client, Some(user), &article)
+    let written = summarize_article(&db, &client, Some(user), &article, false)
         .await
         .unwrap();
     assert!(written);
@@ -121,9 +122,11 @@ async fn summarize_article_stores_once_and_records_cost() {
     assert!(cost_ledger::total_micro_usd(db.pool()).await.unwrap() >= 45);
 
     // Second call is a no-op (already summarized).
-    assert!(!summarize_article(&db, &client, Some(user), &article)
-        .await
-        .unwrap());
+    assert!(
+        !summarize_article(&db, &client, Some(user), &article, false)
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -144,7 +147,7 @@ async fn summarize_article_is_first_writer_wins_under_concurrency() {
         let client = client.clone();
         let article = article.clone();
         handles.push(tokio::spawn(async move {
-            summarize_article(&db, client.as_ref(), None, &article)
+            summarize_article(&db, client.as_ref(), None, &article, false)
                 .await
                 .unwrap()
         }));
@@ -229,17 +232,79 @@ async fn managed_provider_cascade_prefers_user_then_falls_back_to_admin() {
     .unwrap();
     let article = seed_article(&db).await;
     let cascade = ProviderCascade::new(db.clone(), secret, None);
-    let (written, model) = summarize_article_with_cascade(&cascade, Some(user.id), &article)
+    let (written, model) =
+        summarize_article_with_cascade(&cascade, &AiBudget::default(), Some(user.id), &article)
+            .await
+            .unwrap();
+    assert!(written);
+    assert_eq!(model, "admin-model");
+}
+
+#[tokio::test]
+async fn per_user_daily_call_cap_blocks_further_summaries() {
+    // A stranger must not be able to summarize thousands of distinct articles:
+    // the per-user daily call cap blocks the second call (FND-187 §4.1).
+    let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&url).await.unwrap();
+    db.migrate().await.unwrap();
+    let user = users::create(
+        db.pool(),
+        &format!("cap-{}@ex.com", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let working = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{ "message": { "content": "{\"summary\":\"ok\",\"key_points\":[],\"topics\":[]}" } }],
+            "usage": { "prompt_tokens": 5, "completion_tokens": 5 }
+        })))
+        .mount(&working)
+        .await;
+    let secret = b"cap-test-encryption-secret";
+    let cryptor = rustss_core::crypto::Cryptor::new_with_context(
+        secret,
+        b"rustss/llm-provider-credentials/v1",
+    );
+    let encrypted = cryptor.encrypt_str("test-key").unwrap();
+    llm_profiles::create(
+        db.pool(),
+        None,
+        "admin",
+        "Instance provider",
+        "openai",
+        "admin-model",
+        &working.uri(),
+        Some(&encrypted),
+        true,
+        10,
+    )
+    .await
+    .unwrap();
+    let cascade = ProviderCascade::new(db.clone(), secret, None);
+    let budget = AiBudget::from_config(0.0, 0.0, 1, 0); // 1 LLM call/user/day.
+
+    let article1 = seed_article(&db).await;
+    let (written, _) = summarize_article_with_cascade(&cascade, &budget, Some(user.id), &article1)
         .await
         .unwrap();
     assert!(written);
-    assert_eq!(model, "admin-model");
-    assert_eq!(
-        articles::get_summary(db.pool(), article.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .summary,
-        "Fallback worked"
+
+    let article2 = seed_article(&db).await;
+    let result = summarize_article_with_cascade(&cascade, &budget, Some(user.id), &article2).await;
+    assert!(
+        matches!(result, Err(rustss_llm::SummarizeError::Budget(_))),
+        "the second summary must be blocked by the per-user daily cap"
     );
+    assert!(!articles::is_summarized(db.pool(), article2.id)
+        .await
+        .unwrap());
 }

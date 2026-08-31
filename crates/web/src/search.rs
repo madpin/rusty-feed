@@ -4,9 +4,11 @@ use askama::Template;
 use axum::extract::{Query, State};
 use axum::response::{Html, IntoResponse, Response};
 use axum_extra::extract::cookie::CookieJar;
+use rustss_core::ai_budget::AiBudget;
 use rustss_core::config::{SearchMode, SearchTextConfig};
-use rustss_db::{embeddings, search as article_search};
+use rustss_db::{cost_ledger, embeddings, search as article_search};
 use serde::Deserialize;
+use uuid::Uuid;
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -55,6 +57,37 @@ fn preferred_mode(preferences: &prefs::Preferences, settings: &AppSettings) -> S
     SearchMode::parse(&preferences.search_mode).unwrap_or(settings.search_mode)
 }
 
+/// Whether this user has hit today's interactive query-embedding cap (FND-187).
+async fn embed_call_cap_reached(state: &AppState, user_id: Uuid) -> Result<bool, AppError> {
+    let budget = &state.settings.ai_budget;
+    if !budget.has_embed_call_cap() {
+        return Ok(false);
+    }
+    let since = AiBudget::today_start();
+    let calls =
+        cost_ledger::user_call_count_since(state.db.pool(), user_id, "embedding", since).await?;
+    Ok(calls >= i64::from(budget.embed_per_user_daily_calls))
+}
+
+/// Record one interactive query embedding (per-user; instance-funded compute).
+async fn record_query_embedding(state: &AppState, user_id: Uuid) {
+    if let Err(error) = cost_ledger::record(
+        state.db.pool(),
+        Some(user_id),
+        state.embedder.provider(),
+        state.embedder.model(),
+        "embedding",
+        0,
+        0,
+        0,
+        false,
+    )
+    .await
+    {
+        tracing::warn!(error = %error, "failed to record query embedding usage");
+    }
+}
+
 fn text_config(preferences: &prefs::Preferences, settings: &AppSettings) -> SearchTextConfig {
     SearchTextConfig::parse(&preferences.search_text_config).unwrap_or(settings.search_text_config)
 }
@@ -83,6 +116,9 @@ pub async fn page(
     jar: CookieJar,
     Query(query): Query<SearchQuery>,
 ) -> Result<Response, AppError> {
+    if !state.search_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
     let preferences = prefs::load(&state.db, user.id).await;
     let is_admin = user.role == "admin";
     let q = query.q.unwrap_or_default();
@@ -105,69 +141,84 @@ pub async fn page(
     let semantic_weight = f64::from(semantic_weight_percent) / 100.0;
     let mut fallback_notice = None;
 
+    let want_semantic = !trimmed.is_empty()
+        && (matches!(mode, SearchMode::Semantic)
+            || (mode == SearchMode::Hybrid && semantic_weight_percent > 0));
+
+    // Embed the query at most once: metered per user and capped per day. On cap
+    // or embedder failure, degrade gracefully to indexed keyword search rather
+    // than rejecting the request (FND-187 §4.1).
+    let query_vector = if !want_semantic {
+        None
+    } else if embed_call_cap_reached(&state, user.id).await? {
+        fallback_notice = Some(
+            "You've reached today's meaning-search limit. Showing exact PostgreSQL matches instead."
+                .to_string(),
+        );
+        None
+    } else {
+        match state.embedder.embed_one(trimmed).await {
+            Ok(vector) => {
+                record_query_embedding(&state, user.id).await;
+                Some(vector)
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "semantic query embedding unavailable; using indexed keyword search");
+                fallback_notice = Some(
+                    "Meaning search is temporarily unavailable. Showing exact PostgreSQL matches instead."
+                        .to_string(),
+                );
+                None
+            }
+        }
+    };
+
     let (searched, hits) = if trimmed.is_empty() {
         (false, Vec::new())
     } else {
-        let results = match (mode, semantic_weight_percent) {
-            (SearchMode::Keyword, _) | (SearchMode::Hybrid, 0) => {
+        let results = match (mode, semantic_weight_percent, query_vector.as_ref()) {
+            (SearchMode::Hybrid, weight, Some(vector)) if weight > 0 && weight < 100 => {
+                article_search::hybrid_for_user(
+                    state.db.pool(),
+                    &article_search::HybridSearch {
+                        user_id: user.id,
+                        query: trimmed,
+                        query_vector: vector,
+                        model: state.embedder.model(),
+                        text_config,
+                        semantic_weight,
+                        limit: 30,
+                    },
+                )
+                .await?
+            }
+            (SearchMode::Semantic, _, Some(vector)) | (SearchMode::Hybrid, 100, Some(vector)) => {
+                embeddings::search_for_user(
+                    state.db.pool(),
+                    user.id,
+                    vector,
+                    state.embedder.model(),
+                    30,
+                )
+                .await?
+                .into_iter()
+                .map(|hit| article_search::SearchHit {
+                    id: hit.id,
+                    title: hit.title,
+                    url: hit.url,
+                    excerpt: hit.excerpt,
+                    image_url: hit.image_url,
+                    published_at: hit.published_at,
+                    feed_name: hit.feed_name,
+                    semantic_score: Some(hit.similarity),
+                    keyword_score: None,
+                    final_score: hit.similarity,
+                })
+                .collect()
+            }
+            _ => {
                 article_search::keyword_for_user(state.db.pool(), user.id, trimmed, text_config, 30)
                     .await?
-            }
-            (SearchMode::Hybrid | SearchMode::Semantic, _) => {
-                match state.embedder.embed_one(trimmed).await {
-                    Ok(vector) if mode == SearchMode::Hybrid && semantic_weight_percent < 100 => {
-                        article_search::hybrid_for_user(
-                            state.db.pool(),
-                            &article_search::HybridSearch {
-                                user_id: user.id,
-                                query: trimmed,
-                                query_vector: &vector,
-                                model: state.embedder.model(),
-                                text_config,
-                                semantic_weight,
-                                limit: 30,
-                            },
-                        )
-                        .await?
-                    }
-                    Ok(vector) => embeddings::search_for_user(
-                        state.db.pool(),
-                        user.id,
-                        &vector,
-                        state.embedder.model(),
-                        30,
-                    )
-                    .await?
-                    .into_iter()
-                    .map(|hit| article_search::SearchHit {
-                        id: hit.id,
-                        title: hit.title,
-                        url: hit.url,
-                        excerpt: hit.excerpt,
-                        image_url: hit.image_url,
-                        published_at: hit.published_at,
-                        feed_name: hit.feed_name,
-                        semantic_score: Some(hit.similarity),
-                        keyword_score: None,
-                        final_score: hit.similarity,
-                    })
-                    .collect(),
-                    Err(error) => {
-                        tracing::warn!(error = %error, "semantic query embedding unavailable; using indexed keyword search");
-                        fallback_notice = Some(
-                            "Meaning search is temporarily unavailable. Showing exact PostgreSQL matches instead."
-                                .to_string(),
-                        );
-                        article_search::keyword_for_user(
-                            state.db.pool(),
-                            user.id,
-                            trimmed,
-                            text_config,
-                            30,
-                        )
-                        .await?
-                    }
-                }
             }
         };
         (true, results.into_iter().map(ranked_hit).collect())

@@ -8,6 +8,7 @@ use moka::future::Cache as MokaCache;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use rustss_cache::Cache;
+use rustss_core::ai_budget::AiBudget;
 use rustss_core::config::{RegistrationMode, SearchMode, SearchTextConfig};
 use rustss_core::crypto::Cryptor;
 use rustss_core::tracking_pixel::TrackingPixelPolicy;
@@ -46,6 +47,32 @@ impl Default for ReverseProxyAuthSettings {
             allowed_domains: Vec::new(),
             admin_emails: Vec::new(),
             logout_url: None,
+        }
+    }
+}
+
+/// Per-key request limits (requests/min). `0` means unlimited.
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimitSettings {
+    pub auth_per_min: u32,
+    pub api_per_min: u32,
+    pub feed_add_per_min: u32,
+    pub search_per_min: u32,
+    pub summarize_per_min: u32,
+    pub opml_per_min: u32,
+    pub media_per_min: u32,
+}
+
+impl Default for RateLimitSettings {
+    fn default() -> Self {
+        Self {
+            auth_per_min: 10,
+            api_per_min: 600,
+            feed_add_per_min: 60,
+            search_per_min: 120,
+            summarize_per_min: 20,
+            opml_per_min: 10,
+            media_per_min: 1_800,
         }
     }
 }
@@ -159,6 +186,13 @@ pub struct AppSettings {
     pub outbound_user_agent: String,
     /// Whether publisher traffic is restricted to HTTP/1.1.
     pub outbound_http1_only: bool,
+    /// Reverse-proxy CIDRs allowed to set the client IP via forwarded headers
+    /// (otherwise the socket peer is used). Guards IP rate limits (FND-190).
+    pub trusted_proxy_cidrs: Vec<IpNet>,
+    /// Immutable AI cost/compute budget (FND-187).
+    pub ai_budget: AiBudget,
+    /// Per-key request rate limits (FND-190).
+    pub rate_limits: RateLimitSettings,
 }
 
 impl Default for AppSettings {
@@ -205,6 +239,9 @@ impl Default for AppSettings {
             youtube_duration_cache_days: 30,
             outbound_user_agent: rustss_feeds::DEFAULT_USER_AGENT.to_string(),
             outbound_http1_only: false,
+            trusted_proxy_cidrs: vec!["127.0.0.1/32".parse().expect("static CIDR")],
+            ai_budget: AiBudget::default(),
+            rate_limits: RateLimitSettings::default(),
         }
     }
 }
@@ -223,6 +260,16 @@ pub struct AppState {
     pub auth_limiter: RateLimiter,
     /// Best-effort per-token limit for native API automation.
     pub api_limiter: RateLimiter,
+    /// Per-user limiter for feed subscription/discovery.
+    pub feed_add_limiter: RateLimiter,
+    /// Per-user limiter for (potentially expensive) search.
+    pub search_limiter: RateLimiter,
+    /// Per-user limiter for on-demand AI summaries.
+    pub summarize_limiter: RateLimiter,
+    /// Per-user limiter for OPML import/preview.
+    pub opml_limiter: RateLimiter,
+    /// Per-user limiter for the media proxy.
+    pub media_limiter: RateLimiter,
     pub(crate) live_view_tokens: Cryptor,
     pub(crate) public_share_tokens: Cryptor,
     pub(crate) llm_credentials: Cryptor,
@@ -259,15 +306,21 @@ impl AppState {
         } else {
             None
         };
+        let limits = settings.rate_limits;
         Self {
             db,
             cache,
             settings: Arc::new(settings),
             fetch: SafeFetchClient::default(),
             embedder: Arc::new(HashEmbedder::default()),
-            // 10 auth attempts per minute per client IP.
-            auth_limiter: RateLimiter::new(10, Duration::from_secs(60)),
-            api_limiter: RateLimiter::new(600, Duration::from_secs(60)),
+            // Per-key limiters built from instance config (0 == unlimited).
+            auth_limiter: RateLimiter::per_minute(limits.auth_per_min),
+            api_limiter: RateLimiter::per_minute(limits.api_per_min),
+            feed_add_limiter: RateLimiter::per_minute(limits.feed_add_per_min),
+            search_limiter: RateLimiter::per_minute(limits.search_per_min),
+            summarize_limiter: RateLimiter::per_minute(limits.summarize_per_min),
+            opml_limiter: RateLimiter::per_minute(limits.opml_per_min),
+            media_limiter: RateLimiter::per_minute(limits.media_per_min),
             live_view_tokens: Cryptor::new(&live_view_key),
             public_share_tokens: Cryptor::new_with_context(
                 &live_view_key,

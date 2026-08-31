@@ -19,7 +19,8 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    /// Allow at most `max` requests per `window` per key.
+    /// Allow at most `max` requests per `window` per key. A `max` of `0` means
+    /// **unlimited** — [`check`](Self::check) always allows.
     pub fn new(max: u32, window: Duration) -> Self {
         Self {
             buckets: Cache::builder()
@@ -30,8 +31,17 @@ impl RateLimiter {
         }
     }
 
+    /// Convenience constructor for a per-minute limit (`0` == unlimited).
+    pub fn per_minute(max: u32) -> Self {
+        Self::new(max, Duration::from_secs(60))
+    }
+
     /// Record an attempt for `key`; returns `true` if it is within the limit.
+    /// An unlimited limiter (`max == 0`) never records and always allows.
     pub async fn check(&self, key: &str) -> bool {
+        if self.max == 0 {
+            return true;
+        }
         let counter = self
             .buckets
             .get_with(key.to_string(), async { Arc::new(AtomicU32::new(0)) })
@@ -54,5 +64,13 @@ mod tests {
         assert!(!rl.check("1.2.3.4").await); // 4 -> blocked
                                              // A different key is independent.
         assert!(rl.check("5.6.7.8").await);
+    }
+
+    #[tokio::test]
+    async fn zero_max_is_unlimited() {
+        let rl = RateLimiter::per_minute(0);
+        for _ in 0..1000 {
+            assert!(rl.check("1.2.3.4").await);
+        }
     }
 }

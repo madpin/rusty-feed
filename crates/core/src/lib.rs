@@ -13,6 +13,7 @@
 //! encode per-user duplication of shared content. See `docs/ARCHITECTURE.md` §7.
 
 pub mod acquisition;
+pub mod ai_budget;
 pub mod config;
 pub mod content_rules;
 pub mod cron;

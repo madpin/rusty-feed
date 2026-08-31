@@ -763,6 +763,9 @@ pub async fn bookmarklet_subscribe(
     jar: CookieJar,
     Query(query): Query<BookmarkletQuery>,
 ) -> Result<Response, AppError> {
+    if !state.feed_add_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
     let ui = crate::prefs::load(&state.db, user.id).await;
     let source_url = query.url.trim().to_string();
     let mut error = None;
@@ -829,6 +832,9 @@ pub async fn add(
 ) -> Result<Response, AppError> {
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
+    }
+    if !state.feed_add_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
     }
     let is_admin = user.role == "admin";
     let normalized = match normalize_url(&form.url) {

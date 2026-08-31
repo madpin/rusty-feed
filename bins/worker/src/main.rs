@@ -112,6 +112,8 @@ async fn main() -> anyhow::Result<()> {
             youtube_duration_enabled: config.youtube_duration_enabled,
             youtube_duration_daily_budget: config.youtube_duration_daily_budget,
             youtube_duration_cache_days: i64::from(config.youtube_duration_cache_days),
+            ai_budget: config.ai_budget(),
+            feed_max_items_per_refresh: config.feed_max_items_per_refresh,
             ..WorkerConfig::default()
         },
     );

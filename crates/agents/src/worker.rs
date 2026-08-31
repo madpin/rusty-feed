@@ -111,6 +111,10 @@ pub struct WorkerConfig {
     pub youtube_duration_enabled: bool,
     pub youtube_duration_daily_budget: u32,
     pub youtube_duration_cache_days: i64,
+    /// Immutable AI budget enforced before background LLM spend (FND-187).
+    pub ai_budget: rustss_core::ai_budget::AiBudget,
+    /// Cap on articles ingested per feed refresh; `0` == unlimited (FND-189).
+    pub feed_max_items_per_refresh: usize,
 }
 
 impl Default for WorkerConfig {
@@ -144,6 +148,8 @@ impl Default for WorkerConfig {
             youtube_duration_enabled: false,
             youtube_duration_daily_budget: 100,
             youtube_duration_cache_days: 30,
+            ai_budget: rustss_core::ai_budget::AiBudget::default(),
+            feed_max_items_per_refresh: 0,
         }
     }
 }
@@ -204,6 +210,9 @@ impl Worker {
             config.youtube_duration_daily_budget,
             config.youtube_duration_cache_days,
         );
+        let ctx = ctx
+            .with_ai_budget(config.ai_budget)
+            .with_feed_max_items_per_refresh(config.feed_max_items_per_refresh);
         Self {
             ctx: Arc::new(ctx),
             registry: Arc::new(registry),

@@ -304,6 +304,36 @@ The two queue lanes ensure a user-requested summary is not starved by feed
 downloads. In scaled mode, disable the embedded worker on web replicas and run
 one or more `rustss-worker` processes against the same PostgreSQL database.
 
+## Public launch: AI budgets, ingest caps, and rate limits
+
+These bound cost, compute, storage, and abuse when the instance is open to
+anonymous registration (`docs/PUBLIC_LAUNCH_PLAN.md` §4). Every value defaults to
+**unlimited** so single-tenant behavior is unchanged; public operators set finite
+values. Users with their own enabled API key (Settings → AI) spend their own
+quota and are exempt from the USD budgets, but the per-user call caps and rate
+limits apply to everyone.
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `AI_LLM_GLOBAL_DAILY_USD` | `0` | Instance-wide daily kill-switch for instance-funded LLM spend (USD; `0` = unlimited) |
+| `AI_LLM_PER_USER_DAILY_USD` | `0` | Per-user instance-funded LLM spend cap (USD/day; `0` = unlimited) |
+| `AI_LLM_PER_USER_DAILY_CALLS` | `0` | Per-user summary calls/day, funding-agnostic (`0` = unlimited) |
+| `AI_EMBED_PER_USER_DAILY_CALLS` | `0` | Per-user interactive search-embedding calls/day (`0` = unlimited) |
+| `FEED_MAX_ITEMS_PER_REFRESH` | `0` | Newest-first cap on articles ingested per feed refresh (`0` = unlimited) |
+| `FEED_MAX_ARTICLES` | `0` | Advisory ceiling on live articles per feed; trimmed by retention (`0` = unlimited) |
+| `TRUSTED_PROXY_CIDRS` | loopback | Only these socket peers may set the client IP via `X-Forwarded-For`/`X-Real-IP`; otherwise the socket peer is used |
+| `RATE_LIMIT_AUTH_PER_MIN` | `10` | Login/register/OAuth/GReader `ClientLogin` per client IP (`0` = unlimited) |
+| `RATE_LIMIT_API_PER_MIN` | `600` | Native API, Fever, and GReader per token (`0` = unlimited) |
+| `RATE_LIMIT_FEED_ADD_PER_MIN` | `60` | Feed subscribe/discovery per user |
+| `RATE_LIMIT_SEARCH_PER_MIN` | `120` | Search per user |
+| `RATE_LIMIT_SUMMARIZE_PER_MIN` | `20` | On-demand AI summaries per user |
+| `RATE_LIMIT_OPML_PER_MIN` | `10` | OPML import/preview per user |
+| `RATE_LIMIT_MEDIA_PER_MIN` | `1800` | Media proxy per user |
+
+The rate limiter is in-process (per replica). For more than one app replica
+behind a balancer, either accept per-replica limits or move counters to Redis
+(`docs/PUBLIC_LAUNCH_PLAN.md` §4.4, §10.2).
+
 ## Docker Compose-only variables
 
 These values configure containers or port publishing and are not fields in

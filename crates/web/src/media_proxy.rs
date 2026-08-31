@@ -33,6 +33,9 @@ pub async fn get(
     if !state.settings.media_proxy_enabled || position < 0 {
         return Err(AppError::NotFound);
     }
+    if !state.media_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
     if !articles::user_can_access(state.db.pool(), user.id, article_id).await? {
         return Err(AppError::NotFound);
     }
@@ -70,6 +73,9 @@ pub async fn hero(
         || !articles::user_can_access(state.db.pool(), user.id, article_id).await?
     {
         return Err(AppError::NotFound);
+    }
+    if !state.media_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
     }
     let article = articles::find_by_id(state.db.pool(), article_id)
         .await?

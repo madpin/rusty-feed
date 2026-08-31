@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
+use rustss_core::ai_budget::AiBudget;
 use rustss_core::feed_content::{
     FeedContentMode, SubscriptionContentSettings, SubscriptionEnclosureDelivery,
     SubscriptionEnclosureLoad, SubscriptionEnclosureSettings,
@@ -23,8 +24,8 @@ use rustss_core::html::{
 };
 use rustss_core::youtube::{SubscriptionYouTubeMode, YouTubePolicy, YouTubeVideo};
 use rustss_db::{
-    articles, bookmarks, categories, feed_icons, feedback, feeds, jobs, patterns, read_articles,
-    subscriptions, youtube_metadata,
+    articles, bookmarks, categories, cost_ledger, feed_icons, feedback, feeds, jobs, llm_profiles,
+    patterns, read_articles, subscriptions, youtube_metadata,
 };
 use rustss_search::personalize;
 use rustss_search::{extract_keywords, relevance_score, ExplicitFeedback};
@@ -1355,6 +1356,42 @@ fn format_timestamp(seconds: u32) -> String {
     }
 }
 
+/// Reject an on-demand summary that would exceed the AI budget/quota (FND-187).
+///
+/// Mirrors the enforcement inside the cascade, but runs *before* the job is
+/// enqueued so the user gets an immediate, friendly 429 and no work is queued.
+async fn summary_budget_gate(state: &AppState, user_id: Uuid) -> Result<(), AppError> {
+    let budget = &state.settings.ai_budget;
+    let since = AiBudget::today_start();
+
+    if budget.has_per_user_llm_call_cap() {
+        let calls =
+            cost_ledger::user_call_count_since(state.db.pool(), user_id, "summary", since).await?;
+        if calls >= i64::from(budget.llm_per_user_daily_calls) {
+            return Err(AppError::RateLimited);
+        }
+    }
+
+    // BYO-key users spend their own quota and are exempt from the USD budgets.
+    if llm_profiles::has_enabled_user_profile(state.db.pool(), user_id).await? {
+        return Ok(());
+    }
+    if budget.has_global_llm_cap() {
+        let spent = cost_ledger::instance_spend_micro_usd_since(state.db.pool(), since).await?;
+        if spent >= budget.llm_global_daily_micro_usd {
+            return Err(AppError::RateLimited);
+        }
+    }
+    if budget.has_per_user_llm_usd_cap() {
+        let spent =
+            cost_ledger::user_spend_micro_usd_since(state.db.pool(), user_id, since).await?;
+        if spent >= budget.llm_per_user_daily_micro_usd {
+            return Err(AppError::RateLimited);
+        }
+    }
+    Ok(())
+}
+
 /// `POST /articles/{id}/summarize` — enqueue a (deduped) summary job.
 pub async fn summarize(
     State(state): State<AppState>,
@@ -1372,6 +1409,13 @@ pub async fn summarize(
             "AI summaries are not enabled for this RustSS instance.".to_string(),
         ));
     }
+    if !state.summarize_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
+    // Enforce the AI budget/quota *before* enqueuing so a stranger cannot fan
+    // out thousands of paid jobs (FND-187). BYO-key users are exempt from the
+    // instance USD budget; the daily call cap applies to everyone.
+    summary_budget_gate(&state, user.id).await?;
     authorize_action(&state, user.id, id).await?;
     let article = articles::find_by_id(state.db.pool(), id)
         .await?

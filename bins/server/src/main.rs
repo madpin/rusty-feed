@@ -11,7 +11,9 @@ use anyhow::Context;
 use rustss_cache::{Cache, CacheConfig};
 use rustss_core::AppConfig;
 use rustss_db::Db;
-use rustss_web::{AppSettings, AppState, OAuthProvider, ProviderKind, ReverseProxyAuthSettings};
+use rustss_web::{
+    AppSettings, AppState, OAuthProvider, ProviderKind, RateLimitSettings, ReverseProxyAuthSettings,
+};
 
 #[path = "../../systemd.rs"]
 mod systemd;
@@ -179,6 +181,20 @@ async fn main() -> anyhow::Result<()> {
         youtube_duration_cache_days: config.youtube_duration_cache_days,
         outbound_user_agent: config.outbound_user_agent.clone(),
         outbound_http1_only: config.outbound_http1_only,
+        trusted_proxy_cidrs: comma_values(&config.trusted_proxy_cidrs)
+            .map(str::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .context("invalid TRUSTED_PROXY_CIDRS")?,
+        ai_budget: config.ai_budget(),
+        rate_limits: RateLimitSettings {
+            auth_per_min: config.rate_limit_auth_per_min,
+            api_per_min: config.rate_limit_api_per_min,
+            feed_add_per_min: config.rate_limit_feed_add_per_min,
+            search_per_min: config.rate_limit_search_per_min,
+            summarize_per_min: config.rate_limit_summarize_per_min,
+            opml_per_min: config.rate_limit_opml_per_min,
+            media_per_min: config.rate_limit_media_per_min,
+        },
     };
 
     // SSRF-safe fetch client (opt into private/loopback for trusted intranet
@@ -243,6 +259,8 @@ async fn main() -> anyhow::Result<()> {
                 youtube_duration_enabled: config.youtube_duration_enabled,
                 youtube_duration_daily_budget: config.youtube_duration_daily_budget,
                 youtube_duration_cache_days: i64::from(config.youtube_duration_cache_days),
+                ai_budget: config.ai_budget(),
+                feed_max_items_per_refresh: config.feed_max_items_per_refresh,
                 ..rustss_agents::WorkerConfig::default()
             },
         );
