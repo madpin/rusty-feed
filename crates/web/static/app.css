@@ -1184,6 +1184,12 @@ a.admin-stat { cursor: pointer; }
 .admin-stat-work::before { background: #0891b2; }
 .admin-stat-warn::before { background: #d97706; }
 .admin-overview-actions h2 { margin-top: 0; }
+.admin-filter-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; margin-bottom: 1rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.admin-filter-bar label { display: grid; gap: 0.25rem; font-size: 0.82rem; font-weight: 650; color: var(--text-strong); }
+.admin-filter-bar input, .admin-filter-bar select { min-width: 11rem; }
+.admin-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 1rem; }
+.admin-pagination-controls { display: flex; gap: 0.5rem; }
+.admin-pagination [aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
 .admin-inline-form { display: flex; align-items: center; gap: 0.45rem; margin: 0; }
 .check-options { display: flex; flex-wrap: wrap; gap: 1rem; }
 .admin-catalog-list > h2 { margin-bottom: 0; }

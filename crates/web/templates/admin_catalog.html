@@ -14,6 +14,14 @@
 {% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
 {% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
 
+<div class="admin-stat-grid">
+  <span class="admin-stat admin-stat-content" title="Total curated magazine entries (published and drafts)."><strong>{{ summary.total }}</strong><span>Entries</span></span>
+  <span class="admin-stat admin-stat-content" title="Entries visible to users on the Discover page."><strong>{{ summary.published }}</strong><span>Published</span></span>
+  <span class="admin-stat admin-stat-work" title="Entries kept private until you publish them."><strong>{{ summary.drafts }}</strong><span>Drafts</span></span>
+  <span class="admin-stat admin-stat-people" title="Entries highlighted as featured in the magazine."><strong>{{ summary.featured }}</strong><span>Featured</span></span>
+  <span class="admin-stat admin-stat-content" title="Total articles fetched across all magazine sources."><strong>{{ ui.format_number(summary.posts) }}</strong><span>Posts</span></span>
+</div>
+
 <section class="panel">
   <h2>Add a source to the magazine</h2>
   <form method="post" action="/admin/catalog" class="stack">

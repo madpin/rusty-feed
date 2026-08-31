@@ -1,5 +1,5 @@
 use askama::Template;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderValue};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
@@ -168,6 +168,25 @@ struct FeedRow {
     subscriber_count: i64,
     article_count: i64,
     last_post: String,
+    last_checked: String,
+}
+
+struct FeedAdminSummary {
+    total: i64,
+    healthy: i64,
+    warning: i64,
+    error: i64,
+    disabled: i64,
+    subscribers: i64,
+    articles: i64,
+}
+
+struct CatalogSummary {
+    total: i64,
+    published: i64,
+    drafts: i64,
+    featured: i64,
+    posts: i64,
 }
 
 struct CatalogFields<'a> {
@@ -267,6 +286,18 @@ struct FeedsTemplate {
     ui: prefs::Preferences,
     is_admin: bool,
     feeds: Vec<FeedRow>,
+    summary: FeedAdminSummary,
+    filter_health: String,
+    filter_query: String,
+    total_matching: i64,
+    showing_from: i64,
+    showing_to: i64,
+    page: i64,
+    total_pages: i64,
+    has_prev: bool,
+    has_next: bool,
+    prev_url: String,
+    next_url: String,
 }
 
 #[derive(Template)]
@@ -278,6 +309,7 @@ struct CatalogTemplate {
     ui: prefs::Preferences,
     is_admin: bool,
     entries: Vec<CatalogRow>,
+    summary: CatalogSummary,
     message: Option<String>,
     error: Option<String>,
 }
@@ -315,6 +347,16 @@ struct LogsTemplate {
 pub struct RoleForm {
     csrf_token: String,
     role: String,
+}
+
+#[derive(Deserialize, Default)]
+pub struct FeedsQuery {
+    #[serde(default)]
+    health: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    page: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -673,11 +715,18 @@ async fn render_catalog(
     error: Option<String>,
 ) -> Result<Response, AppError> {
     let ui = prefs::load(&state.db, user.id).await;
-    let entries = catalog::list_admin(state.db.pool())
+    let entries: Vec<CatalogRow> = catalog::list_admin(state.db.pool())
         .await?
         .into_iter()
         .map(catalog_row)
         .collect();
+    let summary = CatalogSummary {
+        total: entries.len() as i64,
+        published: entries.iter().filter(|entry| entry.published).count() as i64,
+        drafts: entries.iter().filter(|entry| !entry.published).count() as i64,
+        featured: entries.iter().filter(|entry| entry.featured).count() as i64,
+        posts: entries.iter().map(|entry| entry.article_count).sum(),
+    };
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     Ok((
         jar,
@@ -688,6 +737,7 @@ async fn render_catalog(
             ui,
             is_admin: true,
             entries,
+            summary,
             message,
             error,
         })?,
@@ -1018,37 +1068,76 @@ pub async fn revoke_invitation(
     render_users(&state, &user, jar, Some(message.to_string()), None, None).await
 }
 
+const ADMIN_FEEDS_PER_PAGE: i64 = 25;
+
 pub async fn feeds_page(
     State(state): State<AppState>,
     AdminUser(user): AdminUser,
     jar: CookieJar,
+    Query(query): Query<FeedsQuery>,
 ) -> Result<Response, AppError> {
     let ui = prefs::load(&state.db, user.id).await;
-    let feeds = feeds::list_admin(state.db.pool(), ADMIN_LIST_LIMIT)
-        .await?
-        .into_iter()
-        .map(|feed| FeedRow {
-            id: feed.id.to_string(),
-            name: feed.name,
-            url: feed.url,
-            health: feed.health_status,
-            check_cadence: feed_check_cadence(
-                feed.consecutive_failures,
-                feed.failure_started_at,
-                feed.fetch_interval_minutes,
-            ),
-            content_mode: FeedContentSettings::from_json(feed.extraction_settings.as_ref())
-                .mode
-                .label()
-                .to_string(),
-            subscriber_count: feed.subscriber_count,
-            article_count: feed.article_count,
-            last_post: feed
-                .last_post_at
-                .map(|date| date.date().to_string())
-                .unwrap_or_else(|| "No dated posts yet".to_string()),
-        })
-        .collect();
+
+    let health = query
+        .health
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| matches!(*value, "healthy" | "warning" | "error" | "disabled"))
+        .map(str::to_string);
+    let search = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let summary = feeds::admin_summary(state.db.pool()).await?;
+    let total_matching =
+        feeds::count_admin_filtered(state.db.pool(), health.as_deref(), search.as_deref()).await?;
+    let total_pages = (total_matching + ADMIN_FEEDS_PER_PAGE - 1) / ADMIN_FEEDS_PER_PAGE;
+    let page = query.page.unwrap_or(1).max(1).min(total_pages.max(1));
+    let offset = (page - 1) * ADMIN_FEEDS_PER_PAGE;
+
+    let feeds: Vec<FeedRow> = feeds::list_admin_filtered(
+        state.db.pool(),
+        health.as_deref(),
+        search.as_deref(),
+        ADMIN_FEEDS_PER_PAGE,
+        offset,
+    )
+    .await?
+    .into_iter()
+    .map(|feed| FeedRow {
+        id: feed.id.to_string(),
+        name: feed.name,
+        url: feed.url,
+        health: feed.health_status,
+        check_cadence: feed_check_cadence(
+            feed.consecutive_failures,
+            feed.failure_started_at,
+            feed.fetch_interval_minutes,
+        ),
+        content_mode: FeedContentSettings::from_json(feed.extraction_settings.as_ref())
+            .mode
+            .label()
+            .to_string(),
+        subscriber_count: feed.subscriber_count,
+        article_count: feed.article_count,
+        last_post: feed
+            .last_post_at
+            .map(|date| date.date().to_string())
+            .unwrap_or_else(|| "—".to_string()),
+        last_checked: feed
+            .last_fetched_at
+            .map(|date| date.date().to_string())
+            .unwrap_or_else(|| "Never".to_string()),
+    })
+    .collect();
+
+    let showing_from = if feeds.is_empty() { 0 } else { offset + 1 };
+    let showing_to = offset + feeds.len() as i64;
+    let filter_health = health.clone().unwrap_or_default();
+    let filter_query = search.clone().unwrap_or_default();
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     Ok((
         jar,
@@ -1059,9 +1148,51 @@ pub async fn feeds_page(
             ui,
             is_admin: true,
             feeds,
+            summary: FeedAdminSummary {
+                total: summary.total,
+                healthy: summary.healthy,
+                warning: summary.warning,
+                error: summary.error,
+                disabled: summary.disabled,
+                subscribers: summary.subscribers,
+                articles: summary.articles,
+            },
+            prev_url: admin_feeds_url(&filter_health, &filter_query, page - 1),
+            next_url: admin_feeds_url(&filter_health, &filter_query, page + 1),
+            filter_health,
+            filter_query,
+            total_matching,
+            showing_from,
+            showing_to,
+            page,
+            total_pages: total_pages.max(1),
+            has_prev: page > 1,
+            has_next: page < total_pages,
         })?,
     )
         .into_response())
+}
+
+fn admin_feeds_url(health: &str, query: &str, page: i64) -> String {
+    let mut params: Vec<String> = Vec::new();
+    if !health.is_empty() {
+        params.push(format!("health={}", urlencoding_encode(health)));
+    }
+    if !query.is_empty() {
+        params.push(format!("q={}", urlencoding_encode(query)));
+    }
+    if page > 1 {
+        params.push(format!("page={page}"));
+    }
+    if params.is_empty() {
+        "/admin/feeds".to_string()
+    } else {
+        format!("/admin/feeds?{}", params.join("&"))
+    }
+}
+
+fn urlencoding_encode(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
 pub async fn set_feed_status(

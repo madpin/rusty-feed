@@ -161,6 +161,19 @@ pub struct AdminFeed {
     pub subscriber_count: i64,
     pub article_count: i64,
     pub last_post_at: Option<time::OffsetDateTime>,
+    pub last_fetched_at: Option<time::OffsetDateTime>,
+}
+
+/// Aggregate counters for the shared-feed admin overview.
+#[derive(Debug, Clone, Default, sqlx::FromRow)]
+pub struct AdminFeedSummary {
+    pub total: i64,
+    pub healthy: i64,
+    pub warning: i64,
+    pub error: i64,
+    pub disabled: i64,
+    pub subscribers: i64,
+    pub articles: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -226,19 +239,70 @@ pub async fn count(pool: &PgPool) -> Result<i64> {
 }
 
 pub async fn list_admin(pool: &PgPool, limit: i64) -> Result<Vec<AdminFeed>> {
+    list_admin_filtered(pool, None, None, limit, 0).await
+}
+
+/// Paginated, filterable shared-feed listing for the admin console. `health`
+/// filters by health status (`healthy`/`warning`/`error`/`disabled`); `search`
+/// matches feed name or URL case-insensitively.
+pub async fn list_admin_filtered(
+    pool: &PgPool,
+    health: Option<&str>,
+    search: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<AdminFeed>> {
     Ok(sqlx::query_as(
         "SELECT f.id, f.name, f.url, f.health_status, f.fetch_interval_minutes, \
            f.consecutive_failures, f.failure_started_at, f.extraction_settings, \
-           s.subscriber_count, a.article_count, a.last_post_at \
+           s.subscriber_count, a.article_count, a.last_post_at, f.last_fetched_at \
          FROM feeds f \
          LEFT JOIN LATERAL (SELECT count(*)::bigint AS subscriber_count \
                             FROM user_feeds WHERE feed_id = f.id) s ON true \
          LEFT JOIN LATERAL (SELECT count(*)::bigint AS article_count, max(published_at) AS last_post_at \
                             FROM articles WHERE feed_id = f.id) a ON true \
-         ORDER BY f.updated_at DESC LIMIT $1",
+         WHERE ($1::text IS NULL OR f.health_status = $1) \
+           AND ($2::text IS NULL OR f.name ILIKE $2 OR f.url ILIKE $2) \
+         ORDER BY f.updated_at DESC LIMIT $3 OFFSET $4",
     )
+    .bind(health)
+    .bind(search.map(|term| format!("%{term}%")))
     .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
+    .await?)
+}
+
+/// Count feeds matching the same admin filters, for pagination.
+pub async fn count_admin_filtered(
+    pool: &PgPool,
+    health: Option<&str>,
+    search: Option<&str>,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM feeds f \
+         WHERE ($1::text IS NULL OR f.health_status = $1) \
+           AND ($2::text IS NULL OR f.name ILIKE $2 OR f.url ILIKE $2)",
+    )
+    .bind(health)
+    .bind(search.map(|term| format!("%{term}%")))
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Aggregate counters for the shared-feed admin overview.
+pub async fn admin_summary(pool: &PgPool) -> Result<AdminFeedSummary> {
+    Ok(sqlx::query_as(
+        "SELECT count(*) AS total, \
+           count(*) FILTER (WHERE health_status = 'healthy') AS healthy, \
+           count(*) FILTER (WHERE health_status = 'warning') AS warning, \
+           count(*) FILTER (WHERE health_status = 'error') AS error, \
+           count(*) FILTER (WHERE health_status = 'disabled') AS disabled, \
+           (SELECT count(*) FROM user_feeds) AS subscribers, \
+           (SELECT count(*) FROM articles) AS articles \
+         FROM feeds",
+    )
+    .fetch_one(pool)
     .await?)
 }
 

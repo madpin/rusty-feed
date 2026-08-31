@@ -11,12 +11,38 @@
   </div>
   <a class="btn" href="/admin/catalog">Edit catalog</a>
 </div>
+
+<div class="admin-stat-grid">
+  <span class="admin-stat admin-stat-content" title="Total distinct shared feeds."><strong>{{ summary.total }}</strong><span>Shared feeds</span></span>
+  <span class="admin-stat admin-stat-people" title="Total subscriptions across all users and feeds."><strong>{{ ui.format_number(summary.subscribers) }}</strong><span>Subscriptions</span></span>
+  <span class="admin-stat admin-stat-content" title="Total stored articles across all feeds."><strong>{{ ui.format_number(summary.articles) }}</strong><span>Articles</span></span>
+  <a class="admin-stat admin-stat-work" href="/admin/feeds?health=healthy" title="Feeds with no recent fetch failures."><strong>{{ summary.healthy }}</strong><span>Healthy</span></a>
+  <a class="admin-stat admin-stat-warn" href="/admin/feeds?health=warning" title="Feeds with one or two consecutive failures."><strong>{{ summary.warning }}</strong><span>Warning</span></a>
+  <a class="admin-stat admin-stat-warn" href="/admin/feeds?health=error" title="Feeds with three or more consecutive failures."><strong>{{ summary.error }}</strong><span>Failing</span></a>
+  <a class="admin-stat admin-stat-warn" href="/admin/feeds?health=disabled" title="Feeds paused by an administrator."><strong>{{ summary.disabled }}</strong><span>Disabled</span></a>
+</div>
+
+<form method="get" action="/admin/feeds" class="admin-filter-bar">
+  <label>Health
+    <select name="health">
+      <option value=""{% if filter_health == "" %} selected{% endif %}>All</option>
+      <option value="healthy"{% if filter_health == "healthy" %} selected{% endif %}>Healthy</option>
+      <option value="warning"{% if filter_health == "warning" %} selected{% endif %}>Warning</option>
+      <option value="error"{% if filter_health == "error" %} selected{% endif %}>Failing</option>
+      <option value="disabled"{% if filter_health == "disabled" %} selected{% endif %}>Disabled</option>
+    </select>
+  </label>
+  <label>Search<input type="search" name="q" value="{{ filter_query }}" placeholder="Name or URL" /></label>
+  <button type="submit">Apply</button>
+  {% if filter_health != "" || filter_query != "" %}<a class="btn" href="/admin/feeds">Clear</a>{% endif %}
+</form>
+
 {% if feeds.is_empty() %}
-<div class="empty-state"><p><strong>No shared feeds yet.</strong></p></div>
+<div class="empty-state"><p><strong>No shared feeds match these filters.</strong></p></div>
 {% else %}
 <div class="table-wrap">
   <table>
-    <thead><tr><th>Feed</th><th>Content</th><th>Health</th><th>Check cadence</th><th>Subscribers</th><th>Posts</th><th>Last post</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Feed</th><th>Content</th><th>Health</th><th title="How often RustSS re-checks this feed, adjusted for its failure history.">Check cadence</th><th>Subscribers</th><th>Posts</th><th>Last post</th><th title="When RustSS last attempted a fetch.">Last checked</th><th>Actions</th></tr></thead>
     <tbody>
     {% for feed in feeds %}
       <tr>
@@ -27,6 +53,7 @@
         <td>{{ feed.subscriber_count }}</td>
         <td>{{ feed.article_count }}</td>
         <td>{{ feed.last_post }}</td>
+        <td>{{ feed.last_checked }}</td>
         <td>
           <a href="/feeds/{{ feed.id }}/settings">Source policy</a>
           <form method="post" action="/admin/feeds/{{ feed.id }}/status">
@@ -45,5 +72,12 @@
     </tbody>
   </table>
 </div>
+<nav class="admin-pagination" aria-label="Shared feeds pages">
+  <span class="muted">Showing {{ showing_from }}–{{ showing_to }} of {{ ui.format_number(total_matching) }} · page {{ page }} of {{ total_pages }}</span>
+  <span class="admin-pagination-controls">
+    {% if has_prev %}<a class="btn" href="{{ prev_url }}" rel="prev">Previous</a>{% else %}<span class="btn" aria-disabled="true">Previous</span>{% endif %}
+    {% if has_next %}<a class="btn" href="{{ next_url }}" rel="next">Next</a>{% else %}<span class="btn" aria-disabled="true">Next</span>{% endif %}
+  </span>
+</nav>
 {% endif %}
 {% endblock %}
