@@ -1164,6 +1164,10 @@ img.enclosure-image[data-image-modal] { cursor: zoom-in; }
 .bookmarklet-candidates { display: grid; gap: 0.5rem; }
 .bookmarklet-candidates small { display: block; margin-top: 0.15rem; overflow-wrap: anywhere; color: var(--muted); }
 
+/* Long config values (e.g. the outbound user-agent) must wrap so admin pages
+   never overflow on narrow viewports (accessibility-matrix, six-viewport). */
+.page-admin .definition-list dd { min-width: 0; overflow-wrap: anywhere; }
+.page-admin .definition-list dd code { white-space: normal; overflow-wrap: anywhere; }
 .admin-nav { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1.25rem; }
 .admin-nav a { padding: 0.4rem 0.6rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.86rem; font-weight: 700; }
 .admin-nav a:hover { color: var(--text-strong); background: var(--surface-hover); text-decoration: none; }

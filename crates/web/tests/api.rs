@@ -192,6 +192,62 @@ async fn landing_page_renders_for_anonymous_visitors() {
     assert!(body.contains("Create free account"), "hero CTA present");
     assert!(body.contains("Miniflux"), "comparison present");
     assert!(body.contains("Semantic"), "features present");
+    // Strict-CSP: the landing page must carry no inline styles/scripts (§8.2).
+    for forbidden in [
+        "<script>",
+        " style=",
+        " onclick=",
+        " onsubmit=",
+        "javascript:",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "landing page contains inline CSP violation: {forbidden}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn wizard_page_is_csp_clean_with_no_js_swatches() {
+    let Some(state) = state().await else { return };
+    let user = users::create(
+        state.db.pool(),
+        &format!("wiz-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let cookie = session_cookie(&state, user.id).await;
+    let response = router(state.clone())
+        .oneshot(
+            Request::get("/welcome")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8_lossy(&body);
+    // No-JS visual fallback: theme swatches render as CSS classes, not inline.
+    assert!(
+        body.contains("theme-swatch--ocean"),
+        "no-JS swatches present"
+    );
+    assert!(
+        body.contains("data-wizard-attr"),
+        "live-preview hooks present"
+    );
+    for forbidden in ["<script>", " style=", " onclick=", " onsubmit="] {
+        assert!(
+            !body.contains(forbidden),
+            "wizard page contains inline CSP violation: {forbidden}"
+        );
+    }
 }
 
 #[tokio::test]
