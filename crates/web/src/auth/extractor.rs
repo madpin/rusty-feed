@@ -28,6 +28,9 @@ pub struct AuthUser(pub User);
 /// A required user with the `admin` role.
 pub struct AdminUser(pub User);
 
+/// A required admin **or** read-only admin, for admin GET (read) routes (§7.6).
+pub struct AdminReadUser(pub User);
+
 async fn load_session_user(state: &AppState, parts: &Parts) -> Option<User> {
     let jar = CookieJar::from_headers(&parts.headers);
     let raw = jar.get(SESSION_COOKIE)?.value().to_string();
@@ -163,6 +166,24 @@ impl FromRequestParts<AppState> for AdminUser {
             .ok_or(AppError::Unauthorized)?;
         if user.role == "admin" {
             Ok(AdminUser(user))
+        } else {
+            Err(AppError::Forbidden)
+        }
+    }
+}
+
+impl FromRequestParts<AppState> for AdminReadUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
+        let user = load_user(state, parts)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+        // Full admins and read-only admins may *view* admin pages. Every
+        // mutating admin route keeps the stricter `AdminUser`, so a read-only
+        // admin is structurally 403 on writes (§7.6).
+        if matches!(user.role.as_str(), "admin" | "admin_readonly") {
+            Ok(AdminReadUser(user))
         } else {
             Err(AppError::Forbidden)
         }

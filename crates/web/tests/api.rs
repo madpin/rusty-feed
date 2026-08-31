@@ -40,6 +40,115 @@ async fn state_with_saved_search_cap(cap: u32) -> Option<AppState> {
     ))
 }
 
+async fn session_cookie(state: &AppState, user_id: uuid::Uuid) -> String {
+    let raw = format!("sess-{}", uuid::Uuid::now_v7());
+    let hash = rustss_web::auth::token::hash(&raw);
+    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(1);
+    rustss_db::sessions::create(state.db.pool(), user_id, &hash, expires)
+        .await
+        .unwrap();
+    format!("rustss_sid={raw}")
+}
+
+#[tokio::test]
+async fn demo_reset_deletes_only_demo_users() {
+    let Some(state) = state().await else { return };
+    let real = users::create(
+        state.db.pool(),
+        &format!("real-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let demo = users::create_demo(
+        state.db.pool(),
+        &format!("demo-{}@demo.invalid", uuid::Uuid::now_v7()),
+        "Demo user",
+        "user",
+    )
+    .await
+    .unwrap();
+    users::delete_all_demo(state.db.pool()).await.unwrap();
+    assert!(
+        users::find_by_id(state.db.pool(), real.id)
+            .await
+            .unwrap()
+            .is_some(),
+        "the real user must survive the demo reset"
+    );
+    assert!(
+        users::find_by_id(state.db.pool(), demo.id)
+            .await
+            .unwrap()
+            .is_none(),
+        "the demo user must be deleted"
+    );
+}
+
+#[tokio::test]
+async fn read_only_admin_can_read_but_not_write_admin_routes() {
+    let Some(state) = state().await else { return };
+    let ro = users::create(
+        state.db.pool(),
+        &format!("ro-admin-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "admin_readonly",
+        None,
+    )
+    .await
+    .unwrap();
+    let cookie = session_cookie(&state, ro.id).await;
+    let app = router(state.clone());
+
+    // Read-only admin can GET admin pages.
+    for path in ["/admin", "/admin/users", "/admin/feeds", "/admin/costs"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "GET {path} should be 200"
+        );
+    }
+
+    // But every admin write is a structural 403 (no CSRF needed — the extractor
+    // rejects before the handler body).
+    for path in [
+        "/admin/maintenance",
+        "/admin/invitations",
+        &format!("/admin/feeds/{}/status", uuid::Uuid::now_v7()),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from("csrf_token=x"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "POST {path} must be 403 for a read-only admin"
+        );
+    }
+}
+
 #[tokio::test]
 async fn legal_pages_are_public() {
     let Some(state) = state().await else { return };

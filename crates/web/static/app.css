@@ -1447,3 +1447,23 @@ tbody tr:last-child td { border-bottom: 0; }
   *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
   .live-view-status::before { animation: none; }
 }
+
+/* Demo-mode banner (P6 §7.4) — injected by app.js for ephemeral demo accounts. */
+.demo-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 0.5rem 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+}
+
+/* Footer for legal links on auth pages (P4 §9). */
+.site-footer {
+  margin: 2rem auto 1rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  opacity: 0.8;
+}

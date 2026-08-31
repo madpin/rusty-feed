@@ -8,7 +8,7 @@ use crate::models::User;
 
 const USER_COLUMNS: &str =
     "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at, \
-     last_seen_at, failed_login_count, locked_until, tos_accepted_at";
+     last_seen_at, failed_login_count, locked_until, tos_accepted_at, is_demo";
 
 /// Create a user. `role` must be one of `admin` | `user` | `guest`.
 pub async fn create(
@@ -63,6 +63,45 @@ pub async fn create_with_default_feeds(
     subscribe_featured_catalog(&mut transaction, user.id).await?;
     transaction.commit().await?;
     Ok(user)
+}
+
+/// Create an ephemeral demo account (§7): flagged `is_demo`, no password, seeded
+/// with the featured catalog. `role` is `user` or `admin_readonly` (never a
+/// full admin).
+pub async fn create_demo(pool: &PgPool, email: &str, name: &str, role: &str) -> Result<User> {
+    let mut transaction = pool.begin().await?;
+    let sql = format!(
+        "INSERT INTO users (id, email, name, role, is_demo, email_verified_at) \
+         VALUES ($1, $2, $3, $4, true, now()) RETURNING {USER_COLUMNS}"
+    );
+    let user = sqlx::query_as::<_, User>(&sql)
+        .bind(Uuid::now_v7())
+        .bind(email)
+        .bind(name)
+        .bind(role)
+        .fetch_one(&mut *transaction)
+        .await?;
+    subscribe_featured_catalog(&mut transaction, user.id).await?;
+    transaction.commit().await?;
+    Ok(user)
+}
+
+/// Delete every demo account (§7 daily reset). Cascades all per-user rows and
+/// clears non-cascading `cost_ledger` residue first (that FK is SET NULL).
+/// Scoped strictly to `is_demo = true` so real users are never touched.
+pub async fn delete_all_demo(pool: &PgPool) -> Result<u64> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "DELETE FROM cost_ledger WHERE user_id IN (SELECT id FROM users WHERE is_demo = true)",
+    )
+    .execute(&mut *tx)
+    .await?;
+    let deleted = sqlx::query("DELETE FROM users WHERE is_demo = true")
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    tx.commit().await?;
+    Ok(deleted)
 }
 
 /// Atomically consume an invitation, create its user, and apply the shared
@@ -301,7 +340,7 @@ pub async fn change_role(
     target_id: Uuid,
     role: &str,
 ) -> Result<RoleChange> {
-    if !matches!(role, "admin" | "user") {
+    if !matches!(role, "admin" | "admin_readonly" | "user") {
         return Ok(RoleChange::InvalidRole);
     }
     let mut transaction = pool.begin().await?;

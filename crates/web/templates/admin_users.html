@@ -10,6 +10,7 @@
     <p class="muted">Roles are enforced server-side. You cannot demote your own administrator account or remove the final administrator.</p>
   </div>
 </div>
+{% if admin_readonly %}<p class="notice" role="status">Read-only view — user emails are masked and management actions are disabled.</p>{% endif %}
 {% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
 {% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
 {% if let Some(link) = invitation_link %}
@@ -19,6 +20,7 @@
   <input type="text" readonly value="{{ link }}" aria-label="New invitation link" data-select-on-click />
 </div>
 {% endif %}
+{% if !admin_readonly %}
 <section class="panel stack" aria-labelledby="invite-heading">
   <div>
     <h2 id="invite-heading">Invite a person</h2>
@@ -40,6 +42,7 @@
     <div class="form-actions"><button type="submit" class="primary">Create invitation</button></div>
   </form>
 </section>
+{% endif %}
 {% if !invitations.is_empty() %}
 <div class="table-wrap">
   <table>
@@ -80,6 +83,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <select name="role" aria-label="Role for {{ member.email }}">
               <option value="admin"{% if member.role == "admin" %} selected{% endif %}>Admin</option>
+              <option value="admin_readonly"{% if member.role == "admin_readonly" %} selected{% endif %}>Admin (read-only)</option>
               <option value="user"{% if member.role == "user" %} selected{% endif %}>User</option>
             </select>
             <button type="submit">Save</button>

@@ -535,6 +535,20 @@ pub struct AppConfig {
     /// Require accepting the Terms + Privacy Policy at registration.
     #[serde(default)]
     pub require_tos_acceptance: bool,
+
+    // ── Public launch: demo mode (§7) ──
+    /// Enable the shared guest sandbox: ephemeral demo accounts reset daily.
+    #[serde(default)]
+    pub demo_mode: bool,
+    /// UTC cron for the daily demo wipe/reseed.
+    #[serde(default = "defaults::demo_reset_schedule")]
+    pub demo_reset_schedule: String,
+    /// Tighter subscription cap for demo accounts.
+    #[serde(default = "defaults::demo_max_subscriptions")]
+    pub demo_max_subscriptions: u32,
+    /// Provision a read-only admin demo account ("see as admin").
+    #[serde(default = "defaults::bool_true")]
+    pub demo_admin_readonly: bool,
 }
 
 impl AppConfig {
@@ -812,6 +826,8 @@ impl AppConfig {
                 "EMAIL_VERIFICATION_REQUIRED=true requires SMTP_URL to be set".into(),
             ));
         }
+        CronSchedule::parse(&self.demo_reset_schedule)
+            .map_err(|error| ConfigError::Invalid(format!("DEMO_RESET_SCHEDULE: {error}")))?;
         if let Some(provider) = self.captcha_provider.as_deref() {
             let provider = provider.trim();
             if !provider.is_empty() {
@@ -1262,6 +1278,12 @@ mod defaults {
     }
     pub fn login_lockout_seconds() -> u64 {
         900
+    }
+    pub fn demo_reset_schedule() -> String {
+        "0 4 * * *".to_string()
+    }
+    pub fn demo_max_subscriptions() -> u32 {
+        20
     }
 }
 

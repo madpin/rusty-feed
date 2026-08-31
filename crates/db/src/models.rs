@@ -29,6 +29,8 @@ pub struct User {
     pub locked_until: Option<OffsetDateTime>,
     /// When the user accepted the Terms/Privacy Policy at registration.
     pub tos_accepted_at: Option<OffsetDateTime>,
+    /// Ephemeral demo account: sandboxed and wiped by the daily reset (§7).
+    pub is_demo: bool,
 }
 
 /// A shared feed (one row per normalized URL, regardless of subscribers).

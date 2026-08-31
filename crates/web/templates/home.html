@@ -12,5 +12,19 @@
 {% else %}
 <p class="muted">Your RSS reader, but it actually understands what you read.</p>
 <p><a href="/login">Sign in</a> or <a href="/register">register</a> to get started.</p>
+{% if demo_mode %}
+<form method="post" action="/demo/start" class="stack">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <button type="submit" class="primary">Try the live demo</button>
+</form>
+{% if demo_admin_readonly %}
+<form method="post" action="/demo/start">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <input type="hidden" name="admin" value="1" />
+  <button type="submit">Try the admin demo (read-only)</button>
+</form>
+{% endif %}
+<p class="muted">Demo accounts and their data reset daily.</p>
+{% endif %}
 {% endif %}
 {% endblock %}

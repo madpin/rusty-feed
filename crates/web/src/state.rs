@@ -223,6 +223,12 @@ pub struct AppSettings {
     pub legal_entity_name: String,
     /// Require accepting Terms + Privacy at registration.
     pub require_tos_acceptance: bool,
+    /// Demo sandbox enabled: "Try the demo" provisions ephemeral accounts (§7).
+    pub demo_mode: bool,
+    /// Tighter subscription cap for demo accounts.
+    pub demo_max_subscriptions: u32,
+    /// Expose the read-only admin demo ("Try the admin demo").
+    pub demo_admin_readonly: bool,
 }
 
 impl Default for AppSettings {
@@ -281,6 +287,9 @@ impl Default for AppSettings {
             legal_contact_email: None,
             legal_entity_name: "RustSS".to_string(),
             require_tos_acceptance: false,
+            demo_mode: false,
+            demo_max_subscriptions: 20,
+            demo_admin_readonly: true,
         }
     }
 }

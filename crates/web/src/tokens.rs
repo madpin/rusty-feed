@@ -126,6 +126,7 @@ pub async fn create(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    crate::verify::deny_demo(&user)?;
     crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::ApiTokens).await?;
     let name = form.name.trim();
     if name.is_empty() {
@@ -166,6 +167,7 @@ pub async fn create_fever(
     if !state.settings.fever_api_enabled {
         return Err(AppError::NotFound);
     }
+    crate::verify::deny_demo(&user)?;
     crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::ApiTokens).await?;
     let name = form.name.trim();
     let username = form.username.trim();

@@ -248,6 +248,7 @@ pub async fn create(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    crate::verify::deny_demo(&user)?;
     crate::quota::assert_within(
         &state,
         user.id,

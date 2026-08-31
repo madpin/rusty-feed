@@ -70,6 +70,17 @@ pub fn needs_verification(state: &AppState, user: &rustss_db::User) -> bool {
         && user.password_hash.is_some()
 }
 
+/// Reject an action that must not be available to sandboxed demo accounts:
+/// anything that spends money or has outbound/persistent side effects (§7.4).
+pub fn deny_demo(user: &rustss_db::User) -> Result<(), AppError> {
+    if user.is_demo {
+        return Err(AppError::Validation(
+            "This action is disabled in the demo. Create a free account to use it.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Reject a privileged action for an unverified local account (FND-191).
 pub fn require_verified(state: &AppState, user: &rustss_db::User) -> Result<(), AppError> {
     if needs_verification(state, user) {

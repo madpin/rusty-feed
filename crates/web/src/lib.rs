@@ -86,6 +86,7 @@ pub fn router(state: AppState) -> Router {
             get(auth::handlers::register_page).post(auth::handlers::register_submit),
         )
         .route("/logout", post(auth::handlers::logout_submit))
+        .route("/demo/start", post(auth::handlers::demo_start))
         .route("/terms", get(legal::terms))
         .route("/acceptable-use", get(legal::acceptable_use))
         .route("/privacy", get(legal::privacy))

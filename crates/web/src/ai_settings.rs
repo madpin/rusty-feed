@@ -11,7 +11,7 @@ use uuid::Uuid;
 use rustss_db::{llm_profiles, User};
 
 use crate::auth::csrf;
-use crate::auth::{AdminUser, AuthUser};
+use crate::auth::{AdminReadUser, AdminUser, AuthUser};
 use crate::error::AppError;
 use crate::prefs;
 use crate::state::AppState;
@@ -146,7 +146,7 @@ pub async fn user_page(
 
 pub async fn admin_page(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     render(&state, &user, jar, true, None, None).await
@@ -246,6 +246,7 @@ pub async fn user_create(
     jar: CookieJar,
     Form(form): Form<CreateForm>,
 ) -> Result<Response, AppError> {
+    crate::verify::deny_demo(&user)?;
     create(state, user, jar, form, false).await
 }
 

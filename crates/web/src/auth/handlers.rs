@@ -26,6 +26,8 @@ use crate::verify;
 struct HomeTemplate {
     user_name: Option<String>,
     csrf_token: String,
+    demo_mode: bool,
+    demo_admin_readonly: bool,
 }
 
 /// A configured OAuth provider, for rendering "Continue with …" buttons.
@@ -128,8 +130,60 @@ pub async fn home(
     let body = render(&HomeTemplate {
         user_name: None,
         csrf_token,
+        demo_mode: state.settings.demo_mode,
+        demo_admin_readonly: state.settings.demo_mode && state.settings.demo_admin_readonly,
     })?;
     Ok((jar, body).into_response())
+}
+
+#[derive(Deserialize)]
+pub struct DemoStartForm {
+    csrf_token: String,
+    #[serde(default)]
+    admin: String,
+}
+
+/// `POST /demo/start` — provision an ephemeral, sandboxed demo account and sign
+/// in. Available only when `DEMO_MODE=true` (§7). Data resets daily.
+pub async fn demo_start(
+    State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    jar: CookieJar,
+    Form(form): Form<DemoStartForm>,
+) -> Result<Response, AppError> {
+    if !state.settings.demo_mode {
+        return Err(AppError::NotFound);
+    }
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if !state.auth_limiter.check(&ip).await {
+        return Err(AppError::RateLimited);
+    }
+    let want_admin = state.settings.demo_admin_readonly
+        && matches!(form.admin.trim(), "1" | "on" | "true" | "yes");
+    let role = if want_admin { "admin_readonly" } else { "user" };
+    let handle = crate::auth::token::generate();
+    let email = format!(
+        "demo-{}@demo.invalid",
+        &handle.raw[..24.min(handle.raw.len())]
+    );
+    let name = if want_admin {
+        "Demo admin (read-only)"
+    } else {
+        "Demo user"
+    };
+    let user = users::create_demo(state.db.pool(), &email, name, role).await?;
+    let jar = session::login(jar, &state.db, user.id, state.settings.cookie_secure).await?;
+    // A readable (non-HttpOnly) marker so the client shows the demo banner.
+    let jar = jar.add(
+        axum_extra::extract::cookie::Cookie::build(("rustss_demo", "1"))
+            .path("/")
+            .same_site(axum_extra::extract::cookie::SameSite::Lax)
+            .secure(state.settings.cookie_secure)
+            .build(),
+    );
+    Ok((jar, Redirect::to("/articles")).into_response())
 }
 
 /// `GET /login` — show the sign-in form (redirects home if already signed in).

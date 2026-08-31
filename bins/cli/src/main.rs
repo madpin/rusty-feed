@@ -26,6 +26,13 @@ async fn main() -> ExitCode {
             );
             ExitCode::from(2)
         }
+        Some("demo-reset") if args.iter().any(|arg| arg == "--confirm") => run(demo_reset().await),
+        Some("demo-reset") => {
+            eprintln!(
+                "error: demo-reset deletes ALL demo users and their data; rerun with --confirm"
+            );
+            ExitCode::from(2)
+        }
         Some("--version") | Some("-V") => {
             println!("{}", rustss_core::banner());
             ExitCode::SUCCESS
@@ -105,6 +112,17 @@ async fn fetch_model() -> anyhow::Result<()> {
         vector.len(),
         config.model_cache_dir.display()
     );
+    Ok(())
+}
+
+/// Delete every ephemeral demo account (and its data). Scoped strictly to
+/// `is_demo = true`, so real users are never touched (docs/PUBLIC_LAUNCH_PLAN.md §7.3).
+async fn demo_reset() -> anyhow::Result<()> {
+    let config = rustss_core::AppConfig::load()?;
+    let db = rustss_db::Db::connect(&config.database_url).await?;
+    db.migrate().await?;
+    let deleted = rustss_db::users::delete_all_demo(db.pool()).await?;
+    println!("demo reset complete: {deleted} demo account(s) deleted");
     Ok(())
 }
 
@@ -257,6 +275,8 @@ fn print_help() {
          \x20   canonicalize-urls [--apply]\n\
          \x20                      Dry-run or apply collision-free legacy URL cleanup\n\
          \x20   reindex --confirm Replace the vector space and queue every article\n\
+         \x20   demo-reset --confirm\n\
+         \x20                      Delete all demo accounts and their data\n\
          \x20   help              Show this help\n",
         banner = rustss_core::banner()
     );

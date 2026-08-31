@@ -551,6 +551,16 @@ pub async fn subscribe(
         rustss_core::quotas::QuotaKind::Subscriptions,
     )
     .await?;
+    // Demo accounts get a tighter subscription cap (§7.4).
+    if user.is_demo && state.settings.demo_max_subscriptions > 0 {
+        let count = rustss_db::subscriptions::count_for_user(state.db.pool(), user.id).await?;
+        if count >= i64::from(state.settings.demo_max_subscriptions) {
+            return Err(AppError::QuotaExceeded(format!(
+                "Demo accounts are limited to {} subscriptions.",
+                state.settings.demo_max_subscriptions
+            )));
+        }
+    }
     let result = match catalog::subscribe_published_many(state.db.pool(), user.id, &feed_ids).await
     {
         Ok(result) => result,

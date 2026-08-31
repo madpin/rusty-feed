@@ -2140,3 +2140,15 @@
     });
   }
 })();
+
+// Demo-mode banner: shown on every page for ephemeral demo accounts. Driven by
+// the readable `rustss_demo` cookie set at /demo/start (CSP-safe, no inline JS).
+(function () {
+  if (!/(?:^|;\s*)rustss_demo=1(?:;|$)/.test(document.cookie)) return;
+  var banner = document.createElement("div");
+  banner.className = "demo-banner";
+  banner.setAttribute("role", "status");
+  banner.textContent =
+    "Demo mode — this account and its data reset daily at 04:00 UTC.";
+  if (document.body) document.body.insertBefore(banner, document.body.firstChild);
+})();

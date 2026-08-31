@@ -13,7 +13,7 @@ use rustss_core::acquisition::AcquisitionSecrets;
 use rustss_db::{acquisition_profiles, feeds, User};
 
 use crate::auth::csrf;
-use crate::auth::extractor::AdminUser;
+use crate::auth::extractor::{AdminReadUser, AdminUser};
 use crate::error::AppError;
 use crate::prefs;
 use crate::state::AppState;
@@ -157,7 +157,7 @@ async fn render_page(
 
 pub async fn page(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     render_page(&state, &user, jar, None, None).await

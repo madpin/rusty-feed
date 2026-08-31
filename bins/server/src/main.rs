@@ -218,6 +218,9 @@ async fn main() -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| config.pwa_name.clone()),
         require_tos_acceptance: config.require_tos_acceptance,
+        demo_mode: config.demo_mode,
+        demo_max_subscriptions: config.demo_max_subscriptions,
+        demo_admin_readonly: config.demo_admin_readonly,
     };
 
     // SSRF-safe fetch client (opt into private/loopback for trusted intranet
@@ -304,6 +307,11 @@ async fn main() -> anyhow::Result<()> {
                 youtube_duration_cache_days: i64::from(config.youtube_duration_cache_days),
                 ai_budget: config.ai_budget(),
                 feed_max_items_per_refresh: config.feed_max_items_per_refresh,
+                demo_mode: config.demo_mode,
+                demo_reset_schedule: rustss_core::cron::CronSchedule::parse(
+                    &config.demo_reset_schedule,
+                )
+                .map_err(|error| anyhow::anyhow!("invalid DEMO_RESET_SCHEDULE: {error}"))?,
                 ..rustss_agents::WorkerConfig::default()
             },
         );

@@ -19,10 +19,10 @@ use rustss_feeds::SafeFetchClient;
 use rustss_llm::LlmClient;
 
 use crate::{
-    Agent, AgentContext, CatalogPreviewAgent, ContentCleanupAgent, EmbedArticleAgent,
-    ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent, IntegrationDeliveryAgent,
-    PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent, SummarizeArticleAgent,
-    YouTubeDurationAgent,
+    Agent, AgentContext, CatalogPreviewAgent, ContentCleanupAgent, DemoResetAgent,
+    EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
+    IntegrationDeliveryAgent, PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent,
+    SummarizeArticleAgent, YouTubeDurationAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -115,6 +115,10 @@ pub struct WorkerConfig {
     pub ai_budget: rustss_core::ai_budget::AiBudget,
     /// Cap on articles ingested per feed refresh; `0` == unlimited (FND-189).
     pub feed_max_items_per_refresh: usize,
+    /// Whether the demo sandbox is enabled (drives the daily reset, §7).
+    pub demo_mode: bool,
+    /// UTC cron for the daily demo wipe.
+    pub demo_reset_schedule: CronSchedule,
 }
 
 impl Default for WorkerConfig {
@@ -150,6 +154,9 @@ impl Default for WorkerConfig {
             youtube_duration_cache_days: 30,
             ai_budget: rustss_core::ai_budget::AiBudget::default(),
             feed_max_items_per_refresh: 0,
+            demo_mode: false,
+            demo_reset_schedule: CronSchedule::parse("0 4 * * *")
+                .unwrap_or_else(|_| unreachable!("static cron is valid")),
         }
     }
 }
@@ -196,6 +203,10 @@ impl Worker {
                 config.article_retention_days,
                 config.retention_age_basis,
             )),
+        );
+        registry.register(
+            "demo_reset",
+            Arc::new(DemoResetAgent::new(config.demo_mode)),
         );
         let ctx = AgentContext::new(db, fetch)
             .with_embed_on_ingest(config.embed_on_ingest)
@@ -304,6 +315,8 @@ impl Worker {
             let interval = self.config.scheduler_interval;
             let feed_refresh_schedule = self.config.feed_refresh_schedule.clone();
             let cleanup_schedule = self.config.cleanup_schedule.clone();
+            let demo_reset_schedule = self.config.demo_reset_schedule.clone();
+            let demo_mode = self.config.demo_mode;
             let mut sd = shutdown.clone();
             handles.push(tokio::spawn(async move {
                 let mut evaluated_minute = None;
@@ -326,6 +339,11 @@ impl Worker {
                             }
                             if let Err(e) = enqueue_singleton(&ctx.db, "content_cleanup").await {
                                 tracing::warn!(error = %e, "scheduler: could not enqueue content_cleanup");
+                            }
+                        }
+                        if demo_mode && demo_reset_schedule.matches(now) {
+                            if let Err(e) = enqueue_singleton(&ctx.db, "demo_reset").await {
+                                tracing::warn!(error = %e, "scheduler: could not enqueue demo_reset");
                             }
                         }
                     }

@@ -14,7 +14,7 @@ use rustss_db::{
 };
 use rustss_feeds::{enqueue_fetch_feed, normalize_url};
 
-use crate::auth::extractor::AdminUser;
+use crate::auth::extractor::{AdminReadUser, AdminUser};
 use crate::auth::{csrf, token};
 use crate::catalog_view::{content_size, frequency};
 use crate::error::AppError;
@@ -271,11 +271,23 @@ struct UsersTemplate {
     csrf_token: String,
     ui: prefs::Preferences,
     is_admin: bool,
+    admin_readonly: bool,
     users: Vec<UserRow>,
     invitations: Vec<InvitationRow>,
     invitation_link: Option<String>,
     message: Option<String>,
     error: Option<String>,
+}
+
+/// Mask an email for read-only admin views: keep the first character and domain.
+fn mask_email(email: &str) -> String {
+    match email.split_once('@') {
+        Some((local, domain)) => {
+            let first = local.chars().next().unwrap_or('*');
+            format!("{first}***@{domain}")
+        }
+        None => "***".to_string(),
+    }
 }
 
 #[derive(Template)]
@@ -323,6 +335,7 @@ struct CostsTemplate {
     csrf_token: String,
     ui: prefs::Preferences,
     is_admin: bool,
+    admin_readonly: bool,
     rows: Vec<CostRow>,
     total_usd: String,
 }
@@ -651,21 +664,32 @@ async fn render_users(
     invitation_link: Option<String>,
 ) -> Result<Response, AppError> {
     let ui = prefs::load(&state.db, user.id).await;
+    // Read-only admins (e.g. the demo "see as admin") must not see other users'
+    // PII, so mask emails and hide mutation controls (§7.6 privacy).
+    let admin_readonly = user.role == "admin_readonly";
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let users = users::list(state.db.pool(), ADMIN_LIST_LIMIT)
         .await?
         .into_iter()
         .map(|candidate| UserRow {
             id: candidate.id.to_string(),
-            email: candidate.email,
-            name: candidate.name.unwrap_or_else(|| "—".to_string()),
+            email: if admin_readonly {
+                mask_email(&candidate.email)
+            } else {
+                candidate.email
+            },
+            name: if admin_readonly {
+                "—".to_string()
+            } else {
+                candidate.name.unwrap_or_else(|| "—".to_string())
+            },
             role: candidate.role,
             created: candidate.created_at.date().to_string(),
             last_seen: candidate
                 .last_seen_at
                 .map(|seen| seen.date().to_string())
                 .unwrap_or_else(|| "—".to_string()),
-            can_change: candidate.id != user.id,
+            can_change: !admin_readonly && candidate.id != user.id,
         })
         .collect();
     let now = time::OffsetDateTime::now_utc();
@@ -682,11 +706,19 @@ async fn render_users(
             } else {
                 ("Available".to_string(), true)
             };
+            let email = invitation
+                .email
+                .map(|value| {
+                    if admin_readonly {
+                        mask_email(&value)
+                    } else {
+                        value
+                    }
+                })
+                .unwrap_or_else(|| "Anyone with the link".to_string());
             InvitationRow {
                 id: invitation.id.to_string(),
-                email: invitation
-                    .email
-                    .unwrap_or_else(|| "Anyone with the link".to_string()),
+                email,
                 created: invitation.created_at.date().to_string(),
                 expires: invitation.expires_at.date().to_string(),
                 status,
@@ -702,6 +734,7 @@ async fn render_users(
             csrf_token,
             ui,
             is_admin: true,
+            admin_readonly,
             users,
             invitations,
             invitation_link,
@@ -776,7 +809,7 @@ fn catalog_draft<'a>(fields: CatalogFields<'a>) -> Result<catalog::CatalogDraft<
 
 pub async fn dashboard(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     let (
@@ -970,7 +1003,7 @@ pub async fn maintenance(
 
 pub async fn users_page(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     render_users(&state, &user, jar, None, None, None).await
@@ -1077,7 +1110,7 @@ const ADMIN_FEEDS_PER_PAGE: i64 = 25;
 
 pub async fn feeds_page(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
     Query(query): Query<FeedsQuery>,
 ) -> Result<Response, AppError> {
@@ -1226,7 +1259,7 @@ pub async fn set_feed_status(
 
 pub async fn catalog_page(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     render_catalog(&state, &user, jar, None, None).await
@@ -1324,7 +1357,7 @@ pub async fn update_catalog_entry(
 
 pub async fn logs(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     let (feed_errors, agent_runs, queue, queue_by_kind, active_jobs, recent_jobs, workers) = tokio::try_join!(
@@ -1452,22 +1485,29 @@ pub async fn logs(
 
 pub async fn costs(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
-    let rows = cost_ledger::by_model(state.db.pool())
-        .await?
-        .into_iter()
-        .map(|row| CostRow {
-            provider: row.provider,
-            model: row.model,
-            kind: row.kind,
-            calls: row.calls,
-            input_tokens: row.input_tokens,
-            output_tokens: row.output_tokens,
-            cost_usd: micro_to_usd(row.cost_micro_usd),
-        })
-        .collect();
+    // Read-only admins see the aggregate total only, never the per-model
+    // breakdown (§7.6 privacy).
+    let admin_readonly = user.role == "admin_readonly";
+    let rows = if admin_readonly {
+        Vec::new()
+    } else {
+        cost_ledger::by_model(state.db.pool())
+            .await?
+            .into_iter()
+            .map(|row| CostRow {
+                provider: row.provider,
+                model: row.model,
+                kind: row.kind,
+                calls: row.calls,
+                input_tokens: row.input_tokens,
+                output_tokens: row.output_tokens,
+                cost_usd: micro_to_usd(row.cost_micro_usd),
+            })
+            .collect()
+    };
     let total_usd = micro_to_usd(cost_ledger::total_micro_usd(state.db.pool()).await?);
     let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
@@ -1479,6 +1519,7 @@ pub async fn costs(
             csrf_token,
             ui,
             is_admin: true,
+            admin_readonly,
             rows,
             total_usd,
         })?,

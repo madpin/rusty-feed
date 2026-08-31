@@ -11,7 +11,9 @@
   </div>
   <div class="panel"><strong>{{ total_usd }}</strong><span class="muted"> total</span></div>
 </div>
-{% if rows.is_empty() %}
+{% if admin_readonly %}
+<p class="notice" role="status">Read-only view — only the aggregate total is shown; the per-model breakdown is hidden.</p>
+{% else if rows.is_empty() %}
 <div class="empty-state"><p><strong>No billable calls recorded yet.</strong></p></div>
 {% else %}
 <div class="table-wrap">

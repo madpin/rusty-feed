@@ -114,6 +114,11 @@ async fn main() -> anyhow::Result<()> {
             youtube_duration_cache_days: i64::from(config.youtube_duration_cache_days),
             ai_budget: config.ai_budget(),
             feed_max_items_per_refresh: config.feed_max_items_per_refresh,
+            demo_mode: config.demo_mode,
+            demo_reset_schedule: rustss_core::cron::CronSchedule::parse(
+                &config.demo_reset_schedule,
+            )
+            .map_err(|error| anyhow::anyhow!("invalid DEMO_RESET_SCHEDULE: {error}"))?,
             ..WorkerConfig::default()
         },
     );

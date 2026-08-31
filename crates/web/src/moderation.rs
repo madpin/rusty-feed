@@ -15,7 +15,7 @@ use rustss_core::blocklist::BlockKind;
 use rustss_db::{abuse_reports, articles, feed_blocklist, feeds, moderation, User};
 
 use crate::auth::csrf;
-use crate::auth::extractor::{AdminUser, AuthUser};
+use crate::auth::extractor::{AdminReadUser, AdminUser, AuthUser};
 use crate::error::AppError;
 use crate::prefs;
 use crate::state::AppState;
@@ -216,7 +216,7 @@ async fn render_blocklist(
         user_email: user.email.clone(),
         ui,
         is_admin: true,
-        admin_readonly: false,
+        admin_readonly: user.role == "admin_readonly",
         csrf_token,
         error,
         notice,
@@ -232,7 +232,7 @@ async fn render_blocklist(
 /// `GET /admin/feeds/blocklist` — the blocklist + abuse queue + audit.
 pub async fn blocklist_page(
     State(state): State<AppState>,
-    AdminUser(user): AdminUser,
+    AdminReadUser(user): AdminReadUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     render_blocklist(&state, &user, jar, None, None).await

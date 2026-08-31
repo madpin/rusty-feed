@@ -10,6 +10,7 @@
 
 mod catalog_preview;
 mod content_cleanup;
+mod demo_reset;
 mod embed_article;
 mod extract_content;
 mod feed_refresh;
@@ -23,6 +24,7 @@ mod youtube_duration;
 
 pub use catalog_preview::CatalogPreviewAgent;
 pub use content_cleanup::ContentCleanupAgent;
+pub use demo_reset::DemoResetAgent;
 pub use embed_article::EmbedArticleAgent;
 pub use extract_content::ExtractContentAgent;
 pub use feed_refresh::FeedRefreshAgent;

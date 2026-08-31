@@ -840,6 +840,8 @@ pub async fn add(
     if !state.feed_add_limiter.check(&user.id.to_string()).await {
         return Err(AppError::RateLimited);
     }
+    // Demo accounts add feeds only from the curated catalog, not arbitrary URLs.
+    crate::verify::deny_demo(&user)?;
     crate::verify::require_verified(&state, &user)?;
     crate::quota::assert_within(
         &state,

@@ -387,6 +387,28 @@ Account deletion cascades all per-user rows and is guarded so the last
 administrator cannot orphan the instance. Review the shipped legal copy for your
 jurisdiction before launch.
 
+## Public launch: demo mode & read-only admin
+
+A shared guest sandbox (`docs/PUBLIC_LAUNCH_PLAN.md` §7). "Try the demo" on the
+landing page provisions ephemeral `is_demo` accounts that are sandboxed and
+wiped daily by the `DemoResetAgent` (scoped strictly to `is_demo = true`, so real
+users and shared seed content are never touched). A first-class `admin_readonly`
+role backs the demo "see as admin" view and is reusable for support/auditors:
+it may `GET` admin pages but is structurally `403` on every admin write, and
+other users' PII (emails, cost breakdown) is masked.
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `DEMO_MODE` | `false` | Enable the demo sandbox + daily reset. |
+| `DEMO_RESET_SCHEDULE` | `0 4 * * *` | UTC cron for the daily demo wipe. |
+| `DEMO_MAX_SUBSCRIPTIONS` | `20` | Tighter subscription cap for demo accounts. |
+| `DEMO_ADMIN_READONLY` | `true` | Expose the read-only admin demo CTA. |
+
+Demo accounts cannot spend money or cause outbound/persistent side effects
+(summaries, BYO-key AI, integrations, public shares, API tokens, and arbitrary
+feed adds are all disabled — they subscribe from the curated catalog only).
+`rustss-cli demo-reset --confirm` performs a manual wipe with the same scoping.
+
 ## Docker Compose-only variables
 
 These values configure containers or port publishing and are not fields in
