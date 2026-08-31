@@ -157,6 +157,8 @@ async fn share_is_public_private_by_default_and_revocable() {
     let (csrf, initial, owner_cache_control) = article_page(&app, &sid, article_id).await;
     assert_eq!(owner_cache_control, "private, no-store");
     assert!(initial.contains("Public share"));
+    assert!(initial.contains("class=\"reader-toolbar\""));
+    assert!(initial.contains("class=\"share-controls reader-share\""));
     assert!(initial.contains("External images (may contact publisher servers)"));
 
     let response = app
@@ -195,6 +197,11 @@ async fn share_is_public_private_by_default_and_revocable() {
     assert!(public_html.contains("A private reader shares safely"));
     assert!(public_html.contains("Ada Reader"));
     assert!(public_html.contains("Useful shared text."));
+    assert!(public_html.contains("data-reader-surface"));
+    assert!(public_html.contains("class=\"reader-view\""));
+    assert!(public_html.contains("class=\"reader-header\""));
+    assert!(public_html.contains("class=\"reader-article-copy\""));
+    assert!(!public_html.contains("class=\"reader-toolbar\""));
     assert!(public_html.contains("External images were omitted"));
     assert!(!public_html.contains("tracker.example"));
     assert!(!public_html.contains("<script"));

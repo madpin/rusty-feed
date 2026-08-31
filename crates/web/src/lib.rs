@@ -88,6 +88,7 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/live-ticket", get(live_view::ticket))
         .route("/articles/{id}/live", get(live_view::page))
         .route("/articles/{id}/live/resource", get(live_view::resource))
+        .route("/articles/{id}/hero", get(media_proxy::hero))
         .route("/articles/{id}/media/{position}", get(media_proxy::get))
         .route("/articles/{id}/read", post(reader::mark_read))
         .route("/articles/{id}/unread", post(reader::mark_unread))

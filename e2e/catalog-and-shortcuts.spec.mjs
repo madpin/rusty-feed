@@ -461,6 +461,42 @@ test("public-share controls copy the bearer link and keep risky media explicit",
   await expect(page.locator("#action-status")).toContainText("Public link copied");
 });
 
+test("the reader presents actions, sharing, summary, and content as one surface", async ({ page }) => {
+  await page.goto("/login");
+  const cssUrl = new URL("/static/app.css", page.url()).href;
+  await page.setContent(`
+    <link rel="stylesheet" href="${cssUrl}" />
+    <main class="content">
+      <article class="reader" data-reader-surface>
+        <div class="reader-view">
+          <header class="reader-header"><p class="eyebrow">Example feed</p><h1>A cohesive article</h1><p class="reader-meta"><span>Today</span><a href="#source">Open clean link</a></p></header>
+          <div class="reader-toolbar">
+            <div class="reader-actions" aria-label="Article actions"><button>Save</button><button>Mark read</button><button class="summary-button">Summarize with AI</button></div>
+            <details class="share-controls reader-share"><summary><span>Public share</span></summary><div class="share-controls-body"><p>Share settings remain part of this reader.</p></div></details>
+          </div>
+          <div class="reader-document" data-reader-view-content>
+            <section class="reader-summary"><header class="reader-section-heading"><p class="reader-section-kicker">At a glance</p><h2>AI summary</h2></header><div class="reader-summary-copy"><p>A short integrated summary.</p></div></section>
+            <section class="reader-article-copy"><div class="article-body"><p>The article begins here.</p></div></section>
+          </div>
+        </div>
+      </article>
+    </main>
+  `);
+
+  const surface = page.locator("[data-reader-surface]");
+  await expect(surface.locator(":scope > .reader-view")).toHaveCount(1);
+  await expect(surface.locator(".reader-view > .reader-toolbar")).toHaveCount(1);
+  await expect(surface.locator(".reader-document > .reader-summary")).toContainText("A short integrated summary");
+  await expect(surface.locator(".reader-document > .reader-article-copy")).toContainText("The article begins here");
+  await surface.getByText("Public share").click();
+  await expect(surface.locator(".share-controls-body")).toBeVisible();
+  await expect(surface.locator(".share-controls-body")).toHaveCSS("position", "absolute");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(surface.locator(".share-controls-body")).toHaveCSS("position", "static");
+  await expect(surface.locator(".reader-summary")).toHaveCSS("grid-template-columns", /\d+(\.\d+)?px/);
+});
+
 test("side-panel cards and catalog cards support direct selection", async ({ page }) => {
   await page.goto("/login");
   const scriptUrl = new URL("/static/app.js", page.url()).href;

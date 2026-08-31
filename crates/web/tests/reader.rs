@@ -350,7 +350,7 @@ async fn reading_actions_and_detail_work() {
             author: None,
             content: "<p>Body text with <a href=\"https://youtu.be/dQw4w9WgXcQ?t=42&utm_source=rss\">a video</a>.</p><figure><img src=\"/cover.png\" alt=\"Cover\"></figure><img src=\"/open.gif\" width=\"1\" height=\"1\"><script>alert(1)</script>".into(),
             excerpt: Some("An excerpt".into()),
-            image_url: None,
+            image_url: Some("https://cdn.example/header.jpg".into()),
             enclosures: vec![
                 NewArticleEnclosure {
                     url: "https://cdn.example/episode.mp3".into(),
@@ -521,7 +521,15 @@ async fn reading_actions_and_detail_work() {
     assert!(body.contains("Tracking images removed by RustSS: 1."));
     assert!(!body.contains("open.gif"));
     assert!(body.contains("data-live-view-toggle"));
+    assert!(body.contains("data-reader-surface"));
+    assert!(body.contains("class=\"reader-view\""));
+    assert!(body.contains("class=\"reader-toolbar\""));
     assert!(body.contains("data-reader-view-content"));
+    assert!(body.contains(&format!(
+        "class=\"article-hero\" src=\"/articles/{aid}/hero\""
+    )));
+    assert!(!body.contains("class=\"article-hero\" src=\"https://cdn.example/header.jpg\""));
+    assert!(!body.contains("summary-box"));
     assert!(body.contains("Attachments"));
     assert!(body.contains("The full episode"));
     assert!(body.contains("12:34 · 5.0 MB · audio/mpeg"));
@@ -643,7 +651,14 @@ async fn reading_actions_and_detail_work() {
     assert!(panel.contains("Open comments"));
     assert!(!panel.contains("AI summary unavailable"));
     assert!(panel.contains("data-live-view-toggle"));
+    assert!(panel.contains("data-reader-surface"));
+    assert!(panel.contains("class=\"reader-view\""));
+    assert!(panel.contains("class=\"reader-toolbar\""));
     assert!(panel.contains("data-reader-view-content"));
+    assert!(panel.contains(&format!(
+        "class=\"article-hero\" src=\"/articles/{aid}/hero\""
+    )));
+    assert!(!panel.contains("summary-box"));
     assert!(panel.contains("The full episode"));
     assert!(panel.contains(&format!("data-src=\"/articles/{aid}/media/0\"")));
     assert!(panel.contains("publisher frame restrictions do not block the page"));
@@ -1273,9 +1288,12 @@ async fn summarize_enqueues_a_job() {
         )
         .await
         .unwrap();
-    assert!(body_string(response)
-        .await
-        .contains("AI-generated article summary"));
+    let body = body_string(response).await;
+    assert!(body.contains("AI-generated article summary"));
+    assert!(body.contains("class=\"reader-summary\""));
+    assert!(body.contains("class=\"reader-section-kicker\">At a glance"));
+    assert!(body.contains("class=\"reader-article-copy\""));
+    assert!(!body.contains("summary-box"));
 }
 
 #[tokio::test]

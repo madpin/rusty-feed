@@ -1,6 +1,6 @@
 {% if share.enabled %}
-<details class="share-controls">
-  <summary>Public share</summary>
+<details class="share-controls reader-share">
+  <summary><span>Public share</span>{% if share.active %}<span class="reader-tool-state">On</span>{% endif %}</summary>
   <div class="share-controls-body">
     {% if share.active %}
       <p class="muted">{{ share.expires_label.as_deref().unwrap_or("Active") }}. Anyone with this bearer link can read the selected stored copy.</p>

@@ -86,6 +86,16 @@ async fn media_is_article_authorized_range_capable_and_shared() {
         .expect(1)
         .mount(&publisher)
         .await;
+    Mock::given(method("GET"))
+        .and(path("/hero.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "image/jpeg")
+                .set_body_bytes(b"private-header-image"),
+        )
+        .expect(1)
+        .mount(&publisher)
+        .await;
 
     let state = AppState::new(
         db,
@@ -128,7 +138,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
             author: None,
             content: "<p>Listen</p>".to_string(),
             excerpt: None,
-            image_url: None,
+            image_url: Some(format!("{}/hero.jpg", publisher.uri())),
             enclosures: vec![NewArticleEnclosure {
                 url: media_url,
                 media_kind: "audio".to_string(),
@@ -145,6 +155,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
     .await
     .unwrap();
     let route = format!("/articles/{}/media/0", article.id);
+    let hero_route = format!("/articles/{}/hero", article.id);
 
     let response = app
         .clone()
@@ -155,8 +166,27 @@ async fn media_is_article_authorized_range_capable_and_shared() {
 
     let response = app
         .clone()
+        .oneshot(Request::get(&hero_route).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
         .oneshot(
             Request::get(&route)
+                .header("cookie", format!("rustss_sid={second_sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(&hero_route)
                 .header("cookie", format!("rustss_sid={second_sid}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -185,7 +215,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
                 .body(Body::empty())
                 .unwrap(),
         ),
-        second_app.oneshot(
+        second_app.clone().oneshot(
             Request::get(&route)
                 .header("cookie", format!("rustss_sid={second_sid}"))
                 .body(Body::empty())
@@ -211,6 +241,30 @@ async fn media_is_article_authorized_range_capable_and_shared() {
             .to_bytes(),
         &b"0123456789"[..]
     );
+
+    let (response, second_response) = tokio::join!(
+        app.clone().oneshot(
+            Request::get(&hero_route)
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        ),
+        second_app.oneshot(
+            Request::get(&hero_route)
+                .header("cookie", format!("rustss_sid={second_sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+    );
+    for response in [response.unwrap(), second_response.unwrap()] {
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "image/jpeg");
+        assert_eq!(response.headers()["referrer-policy"], "no-referrer");
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            &b"private-header-image"[..]
+        );
+    }
 
     let response = app
         .clone()

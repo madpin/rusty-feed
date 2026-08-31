@@ -64,6 +64,14 @@ with sans-serif or serif typography. Font family, size, line height, article
 density, sidebar width, and reader-panel width are personal settings rendered
 before JavaScript loads.
 
+The article itself is one continuous reading surface. Source metadata and the
+primary actions form one compact header; public-share settings open from that
+same toolbar; an available AI summary appears as the article's **At a glance**
+preamble; attachments and video follow the same section rhythm before the
+publisher body. The standalone, side-panel, and anonymous shared views use the
+same typography and spacing, while private controls and reading state never
+appear on a public link.
+
 ### RSS, processed content, and Live View
 
 Each subscription chooses its preferred reading source:
@@ -245,6 +253,12 @@ from **Feeds → source settings**, including proxy/direct delivery and
 on-demand/metadata/links-only loading. Nothing is fetched merely because a second subscriber opens the
 article. Player policy can require explicit consent and always retains a
 publisher link.
+
+The article's header image follows that same effective per-feed media-delivery
+choice. In **proxy** mode it is fetched through an authenticated, SSRF-safe
+RustSS URL with an 8 MiB ceiling and a passive raster-image MIME allow-list, so
+the browser never contacts the publisher. **Mixed content** proxies only HTTP
+images; **direct** mode may contact the publisher and still sends no referrer.
 
 Recognized YouTube links stay iframe-free in stored content. When enabled, an
 explicit **Load player** action creates the selected validated player frame,

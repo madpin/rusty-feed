@@ -1,4 +1,4 @@
-//! Article-authorized, SSRF-safe delivery for shared enclosure media.
+//! Article-authorized, SSRF-safe delivery for shared reader media.
 
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -8,12 +8,14 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use rustss_core::hash::sha256_hex;
-use rustss_db::{articles, media_cache, ArticleEnclosure, MediaCacheEntry};
+use rustss_db::{articles, media_cache, MediaCacheEntry};
 use rustss_feeds::FeedError;
 use serde::Deserialize;
 
 use crate::auth::extractor::AuthUser;
 use crate::{AppError, AppState};
+
+const HERO_IMAGE_MAX_BYTES: usize = 8 * 1_024 * 1_024;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct MediaQuery {
@@ -38,21 +40,17 @@ pub async fn get(
         .await?
         .ok_or(AppError::NotFound)?;
     let cache_key = sha256_hex(enclosure.url.as_bytes());
-
-    let entry = if let Some(entry) = fresh_entry(&state, &cache_key, &enclosure.url).await? {
-        entry
-    } else {
-        let lock = state.media_fetch_lock(&cache_key).await;
-        let _guard = lock.lock().await;
-        if let Some(entry) = fresh_entry(&state, &cache_key, &enclosure.url).await? {
-            entry
-        } else {
-            fetch_and_cache_coalesced(&state, &cache_key, &enclosure.url).await?
-        }
-    };
+    let entry = cached_entry(
+        &state,
+        &cache_key,
+        &enclosure.url,
+        state.settings.media_proxy_max_bytes,
+    )
+    .await?;
 
     serve_entry(
-        &enclosure,
+        &enclosure.media_kind,
+        &enclosure.url,
         entry,
         &request_headers,
         query.download == Some(1),
@@ -60,10 +58,66 @@ pub async fn get(
     )
 }
 
+/// `GET /articles/{id}/hero` — serve an authorized header image without
+/// exposing the reader's address to the publisher.
+pub async fn hero(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(article_id): Path<Uuid>,
+    request_headers: HeaderMap,
+) -> Result<Response, AppError> {
+    if !state.settings.media_proxy_enabled
+        || !articles::user_can_access(state.db.pool(), user.id, article_id).await?
+    {
+        return Err(AppError::NotFound);
+    }
+    let article = articles::find_by_id(state.db.pool(), article_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let source_url = article.image_url.ok_or(AppError::NotFound)?;
+    let cache_key = sha256_hex(format!("hero:v1:{source_url}").as_bytes());
+    let entry = cached_entry(
+        &state,
+        &cache_key,
+        &source_url,
+        state
+            .settings
+            .media_proxy_max_bytes
+            .min(HERO_IMAGE_MAX_BYTES),
+    )
+    .await?;
+    serve_entry(
+        "image",
+        &source_url,
+        entry,
+        &request_headers,
+        false,
+        &state.settings.media_proxy_extra_inline_mime_types,
+    )
+}
+
+async fn cached_entry(
+    state: &AppState,
+    cache_key: &str,
+    source_url: &str,
+    max_bytes: usize,
+) -> Result<MediaCacheEntry, AppError> {
+    if let Some(entry) = fresh_entry(state, cache_key, source_url).await? {
+        return Ok(entry);
+    }
+    let lock = state.media_fetch_lock(cache_key).await;
+    let _guard = lock.lock().await;
+    if let Some(entry) = fresh_entry(state, cache_key, source_url).await? {
+        return Ok(entry);
+    }
+    fetch_and_cache_coalesced(state, cache_key, source_url, max_bytes).await
+}
+
 async fn fetch_and_cache_coalesced(
     state: &AppState,
     cache_key: &str,
     source_url: &str,
+    max_bytes: usize,
 ) -> Result<MediaCacheEntry, AppError> {
     // The session advisory lock coordinates cache misses across all processes
     // connected to this PostgreSQL cluster. The in-process Moka lock above
@@ -73,7 +127,7 @@ async fn fetch_and_cache_coalesced(
         if let Some(entry) = fresh_entry(state, cache_key, source_url).await? {
             Ok(entry)
         } else {
-            fetch_and_cache(state, cache_key, source_url).await
+            fetch_and_cache(state, cache_key, source_url, max_bytes).await
         }
     }
     .await;
@@ -97,10 +151,11 @@ async fn fetch_and_cache(
     state: &AppState,
     cache_key: &str,
     source_url: &str,
+    max_bytes: usize,
 ) -> Result<MediaCacheEntry, AppError> {
     let fetched = state
         .fetch
-        .get_bytes_with_metadata(source_url, state.settings.media_proxy_max_bytes)
+        .get_bytes_with_metadata(source_url, max_bytes)
         .await;
     let now = OffsetDateTime::now_utc();
     match fetched {
@@ -209,7 +264,8 @@ fn safe_inline_content_type(
 }
 
 fn serve_entry(
-    enclosure: &ArticleEnclosure,
+    media_kind: &str,
+    source_url: &str,
     entry: MediaCacheEntry,
     request_headers: &HeaderMap,
     force_download: bool,
@@ -229,11 +285,11 @@ fn serve_entry(
     let body = entry.body.ok_or_else(|| {
         AppError::Internal(anyhow::anyhow!("ready media cache entry has no body"))
     })?;
-    let download = force_download || enclosure.media_kind == "file";
+    let download = force_download || media_kind == "file";
     let inline_type = (!download)
         .then(|| {
             safe_inline_content_type(
-                &enclosure.media_kind,
+                media_kind,
                 entry.content_type.as_deref(),
                 extra_inline_mime_types,
             )
@@ -299,7 +355,7 @@ fn serve_entry(
         );
     }
     if download {
-        let filename = download_filename(&enclosure.url);
+        let filename = download_filename(source_url);
         response_headers.insert(
             header::CONTENT_DISPOSITION,
             HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))

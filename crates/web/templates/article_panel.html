@@ -1,5 +1,6 @@
-<article class="panel-reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" data-panel-article="{{ id }}" data-panel-read="{% if is_read %}true{% else %}false{% endif %}" data-panel-bookmarked="{% if is_bookmarked %}true{% else %}false{% endif %}" data-panel-feedback="{% if is_liked %}up{% else if is_disliked %}down{% endif %}">
-  <header>
+<article class="panel-reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" data-panel-article="{{ id }}" data-panel-read="{% if is_read %}true{% else %}false{% endif %}" data-panel-bookmarked="{% if is_bookmarked %}true{% else %}false{% endif %}" data-panel-feedback="{% if is_liked %}up{% else if is_disliked %}down{% endif %}" data-reader-surface>
+  <div class="reader-view">
+  <header class="reader-header">
     <p class="eyebrow">{{ feed_name }}</p>
     <h2>{{ title }}</h2>
     <p class="reader-meta">
@@ -14,10 +15,13 @@
       {% if let Some(comments_url) = comments_url %}<a href="{{ comments_url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">Open comments</a>{% endif %}
     </p>
   </header>
-  {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
-  {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
-  {% if let Some(count) = blocked_tracking_pixels %}<p class="content-notice privacy-notice">Tracking images removed by RustSS: {{ count }}.</p>{% endif %}
-  <div class="reader-actions" aria-label="Article actions">
+    {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />{% endif %}
+    <div class="reader-notices">
+      {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
+      {% if let Some(count) = blocked_tracking_pixels %}<p class="content-notice privacy-notice">Tracking images removed by RustSS: {{ count }}.</p>{% endif %}
+    </div>
+    <div class="reader-toolbar">
+      <div class="reader-actions" aria-label="Article actions">
     <form method="post" class="js-action" data-action="bookmark-toggle" data-target="#card-{{ id }}" data-toggle-class="bookmarked" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel"
           action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
           data-alt-action="/articles/{{ id }}/{% if is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
@@ -46,38 +50,20 @@
       <input type="hidden" name="next" value="/articles/{{ id }}" />
       <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">👎</button>
     </form>
-    <a class="btn" href="/articles/{{ id }}/send">{{ ui.text("send_to") }}</a>
-  </div>
-
-  {% include "article_share_controls.html" %}
-
-  <div data-reader-view-content>
-    {% if let Some(text) = summary %}
-    <div class="summary-box">
-      <h3>AI summary</h3>
-      <p>{{ text }}</p>
-      {% if !key_points.is_empty() %}
-      <ul>{% for p in key_points %}<li>{{ p }}</li>{% endfor %}</ul>
-      {% endif %}
-      {% if !topics.is_empty() %}
-      <p class="muted">Topics: {% for t in topics %}<span class="badge">{{ t }}</span> {% endfor %}</p>
-      {% endif %}
+        <a class="btn" href="/articles/{{ id }}/send">{{ ui.text("send_to") }}</a>
+        {% if summary.is_none() && can_summarize %}
+        <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" data-summary-status-url="/articles/{{ id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="next" value="/articles/{{ id }}" />
+          <button type="submit" class="summary-button">{{ ui.text("generate_summary") }}</button>
+          <span data-summary-progress role="status"></span>
+        </form>
+        {% endif %}
+      </div>
+      {% include "article_share_controls.html" %}
     </div>
-    {% else if can_summarize %}
-    <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" data-summary-status-url="/articles/{{ id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-      <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" class="primary">{{ ui.text("generate_summary") }}</button>
-      <span class="muted" data-summary-progress role="status">Uses the priority queue and updates here live.</span>
-    </form>
-    {% endif %}
 
-    {% include "article_youtube.html" %}
-    {% include "article_enclosures.html" %}
-
-    <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}"{% if content_pending %} data-content-pending="true" data-content-url="/articles/{{ id }}/content"{% endif %}>
-      {{ content|safe }}
-    </div>
+    {% include "article_reader_content.html" %}
   </div>
 
   {% if let Some(url) = url %}

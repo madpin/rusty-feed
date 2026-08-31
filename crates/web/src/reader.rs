@@ -1250,6 +1250,26 @@ fn enclosure_views(
         .collect()
 }
 
+fn reader_image_url(
+    article_id: Uuid,
+    raw_url: Option<&str>,
+    media_proxy_enabled: bool,
+    delivery_mode: &str,
+) -> Option<String> {
+    let publisher_url = safe_external_url(raw_url)?;
+    let proxied = media_proxy_enabled
+        && match delivery_mode {
+            "proxy" => true,
+            "mixed-content" => publisher_url.starts_with("http://"),
+            _ => false,
+        };
+    Some(if proxied {
+        format!("/articles/{article_id}/hero")
+    } else {
+        publisher_url
+    })
+}
+
 fn youtube_views(
     videos: Vec<YouTubeVideo>,
     article_title: &str,
@@ -1610,7 +1630,12 @@ async fn reader_view(
         id: id.to_string(),
         title: article.title,
         feed_name,
-        image_url: safe_external_url(article.image_url.as_deref()),
+        image_url: reader_image_url(
+            id,
+            article.image_url.as_deref(),
+            state.settings.media_proxy_enabled,
+            enclosure_delivery_mode,
+        ),
         enclosures,
         youtube_videos,
         url,
@@ -1911,7 +1936,8 @@ pub async fn mark_all_read(
 
 #[cfg(test)]
 mod tests {
-    use super::{enclosure_mime_is_safe, format_timestamp, safe_external_url};
+    use super::{enclosure_mime_is_safe, format_timestamp, reader_image_url, safe_external_url};
+    use uuid::Uuid;
 
     #[test]
     fn external_urls_reject_unsafe_origins_and_strip_fragments() {
@@ -1959,6 +1985,40 @@ mod tests {
             None,
             "https://cdn.example/download"
         ));
+    }
+
+    #[test]
+    fn header_images_follow_the_effective_media_privacy_mode() {
+        let article_id = Uuid::now_v7();
+        let publisher = "https://images.example.test/hero.jpg";
+        assert_eq!(
+            reader_image_url(article_id, Some(publisher), true, "proxy"),
+            Some(format!("/articles/{article_id}/hero"))
+        );
+        assert_eq!(
+            reader_image_url(article_id, Some(publisher), true, "mixed-content").as_deref(),
+            Some(publisher)
+        );
+        assert_eq!(
+            reader_image_url(
+                article_id,
+                Some("http://images.example.test/hero.jpg"),
+                true,
+                "mixed-content"
+            ),
+            Some(format!("/articles/{article_id}/hero"))
+        );
+        assert_eq!(
+            reader_image_url(article_id, Some(publisher), true, "direct").as_deref(),
+            Some(publisher)
+        );
+        assert!(reader_image_url(
+            article_id,
+            Some("http://127.0.0.1/private.jpg"),
+            true,
+            "proxy"
+        )
+        .is_none());
     }
 
     #[test]

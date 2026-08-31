@@ -1,0 +1,28 @@
+<div class="reader-document" data-reader-view-content>
+  {% if let Some(text) = summary %}
+  <section class="reader-summary" aria-labelledby="summary-heading-{{ id }}">
+    <header class="reader-section-heading">
+      <p class="reader-section-kicker">At a glance</p>
+      <h2 id="summary-heading-{{ id }}">AI summary</h2>
+    </header>
+    <div class="reader-summary-copy">
+      <p>{{ text }}</p>
+      {% if !key_points.is_empty() %}
+      <ul>{% for p in key_points %}<li>{{ p }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if !topics.is_empty() %}
+      <p class="reader-topics"><span>Topics</span>{% for t in topics %}<span class="badge">{{ t }}</span>{% endfor %}</p>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% include "article_youtube.html" %}
+  {% include "article_enclosures.html" %}
+
+  <section class="reader-article-copy" aria-label="Article content">
+    <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}"{% if content_pending %} data-content-pending="true" data-content-url="/articles/{{ id }}/content"{% endif %}>
+      {{ content|safe }}
+    </div>
+  </section>
+</div>
