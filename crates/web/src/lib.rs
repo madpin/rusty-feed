@@ -26,6 +26,7 @@ mod integrations;
 mod live_view;
 pub mod mailer;
 mod media_proxy;
+mod moderation;
 pub mod oauth;
 mod opml;
 mod passkeys;
@@ -109,6 +110,7 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/feedback", post(reader::feedback))
         .route("/articles/{id}/summarize", post(reader::summarize))
         .route("/articles/{id}/summary/status", get(reader::summary_status))
+        .route("/articles/{id}/report", post(moderation::report_article))
         .route(
             "/articles/{id}/send",
             get(integrations::article_page).post(integrations::article_send),
@@ -161,6 +163,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/feeds/{id}/refresh", post(feeds::refresh))
         .route("/feeds/{id}/unsubscribe", post(feeds::unsubscribe))
+        .route("/feeds/{id}/report", post(moderation::report_feed))
         .route("/catalog", get(catalog::page))
         .route("/catalog/{feed_id}/preview", get(catalog::preview))
         .route(
@@ -186,6 +189,23 @@ pub fn router(state: AppState) -> Router {
             post(admin::revoke_invitation),
         )
         .route("/admin/feeds", get(admin::feeds_page))
+        .route(
+            "/admin/feeds/blocklist",
+            get(moderation::blocklist_page).post(moderation::blocklist_add),
+        )
+        .route(
+            "/admin/feeds/blocklist/{id}/delete",
+            post(moderation::blocklist_remove),
+        )
+        .route("/admin/feeds/{id}/block", post(moderation::block_feed))
+        .route(
+            "/admin/articles/{id}/takedown",
+            post(moderation::takedown_article),
+        )
+        .route(
+            "/admin/abuse/{id}/resolve",
+            post(moderation::resolve_report),
+        )
         .route(
             "/admin/acquisition",
             get(acquisition::page).post(acquisition::create),

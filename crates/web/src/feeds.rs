@@ -767,6 +767,7 @@ pub async fn bookmarklet_subscribe(
         return Err(AppError::RateLimited);
     }
     let ui = crate::prefs::load(&state.db, user.id).await;
+    let blocklist = state.blocklist().await?;
     let source_url = query.url.trim().to_string();
     let mut error = None;
     let candidates = if source_url.len() > 8_192 {
@@ -785,7 +786,10 @@ pub async fn bookmarklet_subscribe(
                     &response.body,
                 )
                 .into_iter()
-                .filter(|candidate| state.fetch.validate_url(&candidate.url).is_ok())
+                .filter(|candidate| {
+                    state.fetch.validate_url(&candidate.url).is_ok()
+                        && !blocklist.is_blocked(&candidate.url)
+                })
                 .collect(),
                 Err(fetch_error) => {
                     error = Some(format!("RustSS could not inspect that page: {fetch_error}"));
@@ -868,6 +872,20 @@ pub async fn add(
             jar,
             None,
             Some(format!("That URL cannot be used: {error}")),
+        )
+        .await;
+    }
+    if let Err(AppError::Validation(message)) =
+        crate::moderation::assert_feed_allowed(&state, &normalized).await
+    {
+        return render_page(
+            &state,
+            user.id,
+            user.email,
+            is_admin,
+            jar,
+            None,
+            Some(message),
         )
         .await;
     }

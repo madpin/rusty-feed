@@ -103,7 +103,16 @@ impl Agent for FetchFeedAgent {
         if feed.health_status == "disabled" {
             return Ok(json!({ "feed_id": feed_id, "skipped": "feed is paused" }));
         }
+        // Belt-and-suspenders: never fetch a blocked feed even if a stale job
+        // was queued before the block landed (FND-192).
+        if feed.blocked_at.is_some() {
+            return Ok(json!({ "feed_id": feed_id, "skipped": "feed is blocked" }));
+        }
 
+        // Compile the blocklist once per refresh so per-article checks are O(1).
+        let blocklist = rustss_db::feed_blocklist::compiled(ctx.db.pool())
+            .await
+            .unwrap_or_default();
         let acquisition_fetch = ctx.fetch_for_feed(feed_id).await?;
         let stats = rustss_feeds::refresh_feed_with_policies(
             &ctx.db,
@@ -112,6 +121,7 @@ impl Agent for FetchFeedAgent {
             &ctx.tracking_url_policy,
             &ctx.tracking_pixel_policy,
             ctx.feed_max_items_per_refresh,
+            &blocklist,
         )
         .await?;
         let integration_jobs =

@@ -346,6 +346,14 @@ pub async fn subscription_edit(
                 .fetch
                 .validate_url(&normalized)
                 .map_err(|error| GReaderError::BadRequest(format!("unsafe feed URL: {error}")))?;
+            if let Some(reason) = rustss_db::feed_blocklist::compiled(state.db.pool())
+                .await?
+                .blocked_reason(&normalized)
+            {
+                return Err(GReaderError::BadRequest(format!(
+                    "feed is blocked: {reason}"
+                )));
+            }
             let host = url::Url::parse(&normalized)
                 .ok()
                 .and_then(|url| url.host_str().map(str::to_string))

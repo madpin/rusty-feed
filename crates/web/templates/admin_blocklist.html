@@ -1,0 +1,115 @@
+{% extends "app_base.html" %}
+{% block title %}Feed blocklist &amp; moderation{% endblock %}
+{% block body_class %}page-admin{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-header"><div><p class="eyebrow">Administration</p><h1>Feed blocklist &amp; moderation</h1><p class="muted">Because content is shared, one abuser's feed or article is everyone's. Block domains/URLs, review reports, and take down shared content. All actions are audited.</p></div></div>
+{% if admin_readonly %}<p class="notice" role="status">Read-only view — moderation actions are disabled.</p>{% endif %}
+{% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
+
+{% if !admin_readonly %}
+<section class="panel">
+  <h2>Add a block</h2>
+  <p class="muted">Domain blocks match the host and all subdomains (recommended). URL blocks are exact. Blocking disables matching shared feeds and prevents re-ingestion.</p>
+  <form method="post" action="/admin/feeds/blocklist" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Kind
+      <select name="kind"><option value="domain">Domain (suffix match)</option><option value="url">Exact URL</option></select>
+    </label>
+    <label>Pattern
+      <input name="pattern" placeholder="evil.example  or  https://evil.example/feed.xml" maxlength="400" required />
+    </label>
+    <label>Reason (optional)
+      <input name="reason" maxlength="200" placeholder="malware / phishing / spam" />
+    </label>
+    <button class="primary" type="submit">Block</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Blocklist entries</h2>
+  {% if entries.is_empty() %}<p class="muted">No blocklist entries.</p>{% else %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Kind</th><th>Pattern</th><th>Reason</th><th>Source</th>{% if !admin_readonly %}<th>Actions</th>{% endif %}</tr></thead>
+    <tbody>
+    {% for entry in entries %}
+      <tr>
+        <td>{{ entry.kind }}</td>
+        <td><code>{{ entry.pattern }}</code></td>
+        <td>{{ entry.reason }}</td>
+        <td>{{ entry.source }}</td>
+        {% if !admin_readonly %}
+        <td>
+          <form method="post" action="/admin/feeds/blocklist/{{ entry.id }}/delete" data-confirm="Remove this blocklist entry?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button class="danger" type="submit">Remove</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Abuse reports</h2>
+  {% if reports.is_empty() %}<p class="muted">No open reports.</p>{% else %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Type</th><th>Target</th><th>Reason</th><th>Reporter</th><th>Status</th>{% if !admin_readonly %}<th>Actions</th>{% endif %}</tr></thead>
+    <tbody>
+    {% for report in reports %}
+      <tr>
+        <td>{{ report.target_kind }}</td>
+        <td><code>{{ report.target_url }}</code></td>
+        <td>{{ report.reason }}</td>
+        <td>{{ report.reporter }}</td>
+        <td>{{ report.status }}</td>
+        {% if !admin_readonly %}
+        <td class="actions">
+          {% if report.target_kind == "article" %}
+          <form method="post" action="/admin/articles/{{ report.target_id }}/takedown" data-confirm="Delete this shared article everywhere and block its URL?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button class="danger" type="submit">Take down</button>
+          </form>
+          {% else %}
+          <form method="post" action="/admin/feeds/{{ report.target_id }}/block" data-confirm="Block this feed's domain and disable it everywhere?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button class="danger" type="submit">Block feed</button>
+          </form>
+          {% endif %}
+          <form method="post" action="/admin/abuse/{{ report.id }}/resolve">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="status" value="dismissed" />
+            <button type="submit">Dismiss</button>
+          </form>
+          <form method="post" action="/admin/abuse/{{ report.id }}/resolve">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="status" value="resolved" />
+            <button type="submit">Resolve</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Recent moderation audit</h2>
+  {% if audit.is_empty() %}<p class="muted">No moderation actions yet.</p>{% else %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Reason</th></tr></thead>
+    <tbody>
+    {% for entry in audit %}
+      <tr><td>{{ entry.when }}</td><td>{{ entry.actor }}</td><td>{{ entry.action }}</td><td><code>{{ entry.target }}</code></td><td>{{ entry.reason }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+{% endblock %}

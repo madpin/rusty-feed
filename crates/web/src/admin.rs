@@ -516,6 +516,9 @@ fn safe_run_stats(value: Option<serde_json::Value>) -> String {
                     | "no subscriber requests public-page content"
                     | "public-page content is current"
                     | "feed is paused"
+                    | "feed is blocked"
+                    | "over AI budget"
+                    | "no LLM configured"
             )
         })
     {
@@ -1259,6 +1262,11 @@ pub async fn create_catalog_entry(
     };
     if let Err(error) = state.fetch.validate_url(&url) {
         return render_catalog(&state, &user, jar, None, Some(error.to_string())).await;
+    }
+    if let Err(crate::error::AppError::Validation(message)) =
+        crate::moderation::assert_feed_allowed(&state, &url).await
+    {
+        return render_catalog(&state, &user, jar, None, Some(message)).await;
     }
     let (feed, _) = feeds::upsert_by_url(state.db.pool(), &url, draft.title, None).await?;
     catalog::upsert(state.db.pool(), feed.id, draft).await?;

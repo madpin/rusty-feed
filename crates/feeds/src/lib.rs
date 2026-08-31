@@ -170,6 +170,7 @@ pub async fn refresh_feed_with_policy(
         tracking_url_policy,
         &TrackingPixelPolicy::default(),
         0,
+        &rustss_core::blocklist::Blocklist::default(),
     )
     .await
 }
@@ -178,7 +179,9 @@ pub async fn refresh_feed_with_policy(
 ///
 /// `max_items` caps how many articles (newest-first) a single refresh may
 /// ingest; `0` means unlimited. This is a **shared** bound (O(1) regardless of
-/// subscribers) that blunts feed fan-out amplification (FND-189).
+/// subscribers) that blunts feed fan-out amplification (FND-189). `blocklist`
+/// skips article URLs taken down by moderation so they cannot re-ingest
+/// (FND-192).
 pub async fn refresh_feed_with_policies(
     db: &Db,
     client: &SafeFetchClient,
@@ -186,6 +189,7 @@ pub async fn refresh_feed_with_policies(
     tracking_url_policy: &TrackingUrlPolicy,
     tracking_pixel_policy: &TrackingPixelPolicy,
     max_items: usize,
+    blocklist: &rustss_core::blocklist::Blocklist,
 ) -> Result<RefreshStats> {
     let outcome = match fetch_feed(
         client,
@@ -299,6 +303,14 @@ pub async fn refresh_feed_with_policies(
     }
     for article_index in order {
         let article = &parsed.articles[article_index];
+        // Skip article URLs blocklisted by moderation (taken-down content).
+        if !blocklist.is_empty() {
+            if let Some(reason) = blocklist.blocked_reason(&article.url) {
+                stats.skipped += 1;
+                tracing::info!(feed_id = %feed.id, url = %article.url, reason, "skipped blocklisted article URL (FND-192)");
+                continue;
+            }
+        }
         match rustss_db::articles::upsert_with_original_url_and_privacy(
             db.pool(),
             article,

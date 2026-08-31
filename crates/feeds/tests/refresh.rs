@@ -142,6 +142,7 @@ async fn refresh_caps_items_per_refresh() {
         &rustss_core::tracking_url::TrackingUrlPolicy::default(),
         &rustss_core::tracking_pixel::TrackingPixelPolicy::default(),
         cap,
+        &rustss_core::blocklist::Blocklist::default(),
     )
     .await
     .unwrap();

@@ -69,7 +69,7 @@ pub async fn upsert_by_url(
 pub async fn list_due(pool: &PgPool, limit: i64) -> Result<Vec<Feed>> {
     let sql = format!(
         "SELECT {FEED_COLUMNS} FROM feeds \
-         WHERE health_status <> 'disabled' \
+         WHERE health_status <> 'disabled' AND blocked_at IS NULL \
            AND (EXISTS (SELECT 1 FROM user_feeds uf WHERE uf.feed_id = feeds.id) \
                 OR EXISTS (SELECT 1 FROM feed_catalog_entries ce \
                            WHERE ce.feed_id = feeds.id AND ce.published)) \
@@ -110,11 +110,11 @@ pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Feed>> {
 
 /// List non-paused shared feeds eligible for a forced refresh.
 pub async fn list_active_ids(pool: &PgPool) -> Result<Vec<Uuid>> {
-    Ok(
-        sqlx::query_scalar("SELECT id FROM feeds WHERE health_status <> 'disabled'")
-            .fetch_all(pool)
-            .await?,
+    Ok(sqlx::query_scalar(
+        "SELECT id FROM feeds WHERE health_status <> 'disabled' AND blocked_at IS NULL",
     )
+    .fetch_all(pool)
+    .await?)
 }
 
 /// Mark selected non-paused shared feeds due immediately without clearing health history.
@@ -124,11 +124,39 @@ pub async fn reset_refresh_schedule(pool: &PgPool, feed_ids: &[Uuid]) -> Result<
     }
     Ok(sqlx::query_scalar(
         "UPDATE feeds SET last_fetched_at = NULL, updated_at = now() \
-         WHERE id = ANY($1) AND health_status <> 'disabled' RETURNING id",
+         WHERE id = ANY($1) AND health_status <> 'disabled' AND blocked_at IS NULL RETURNING id",
     )
     .bind(feed_ids)
     .fetch_all(pool)
     .await?)
+}
+
+/// Blocklist a shared feed (FND-192): set the dedicated block markers so all
+/// refresh-suppression sites and the fetch agent skip it. Idempotent.
+pub async fn set_blocked(pool: &PgPool, feed_id: Uuid, reason: Option<&str>) -> Result<bool> {
+    Ok(sqlx::query(
+        "UPDATE feeds SET blocked_at = COALESCE(blocked_at, now()), blocked_reason = $2, \
+                updated_at = now() WHERE id = $1",
+    )
+    .bind(feed_id)
+    .bind(reason)
+    .execute(pool)
+    .await?
+    .rows_affected()
+        > 0)
+}
+
+/// Lift a feed block.
+pub async fn clear_blocked(pool: &PgPool, feed_id: Uuid) -> Result<bool> {
+    Ok(sqlx::query(
+        "UPDATE feeds SET blocked_at = NULL, blocked_reason = NULL, updated_at = now() \
+         WHERE id = $1 AND blocked_at IS NOT NULL",
+    )
+    .bind(feed_id)
+    .execute(pool)
+    .await?
+    .rows_affected()
+        > 0)
 }
 
 /// Explicit administrator pause/resume. Resume derives health from preserved

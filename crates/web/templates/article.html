@@ -70,6 +70,21 @@
           <span data-summary-progress role="status"></span>
         </form>
         {% endif %}
+        <details class="report-control">
+          <summary class="btn">Report</summary>
+          <form method="post" action="/articles/{{ id }}/report" class="stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <label>Reason
+              <select name="reason">
+                <option value="spam or advertising">Spam or advertising</option>
+                <option value="malware or phishing">Malware or phishing</option>
+                <option value="illegal content">Illegal content</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <button type="submit" class="danger">Report to admins</button>
+          </form>
+        </details>
       </div>
       {% include "article_share_controls.html" %}
     </div>

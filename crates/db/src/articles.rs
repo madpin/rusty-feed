@@ -363,6 +363,19 @@ pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Article>> {
         .await?)
 }
 
+/// Global takedown of a shared article (FND-192): delete the row everywhere,
+/// cascading its embedding, summary columns, enclosures, and per-user state.
+/// This is the deliberate, admin-only exception to "unsubscribe never deletes
+/// shared content". Returns whether a row was deleted.
+pub async fn delete_by_id(pool: &PgPool, id: Uuid) -> Result<bool> {
+    Ok(sqlx::query("DELETE FROM articles WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?
+        .rows_affected()
+        > 0)
+}
+
 /// Whether `user_id` is subscribed to the feed that owns `article_id` (used to
 /// authorize reading a shared article).
 pub async fn user_can_access(pool: &PgPool, user_id: Uuid, article_id: Uuid) -> Result<bool> {

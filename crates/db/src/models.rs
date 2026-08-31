@@ -57,6 +57,10 @@ pub struct Feed {
     pub extraction_delay_ms: Option<i32>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+    /// Set when an administrator blocklisted this feed (FND-192). Blocked feeds
+    /// are never fetched and cannot be subscribed to.
+    pub blocked_at: Option<OffsetDateTime>,
+    pub blocked_reason: Option<String>,
 }
 
 /// Columns for `feeds` (excludes nothing; kept in sync with [`Feed`]).
@@ -64,7 +68,7 @@ pub(crate) const FEED_COLUMNS: &str = "id, url, name, site_url, description, ima
     last_modified, last_fetched_at, last_successful_fetch_at, failure_started_at, fetch_interval_minutes, health_status, \
     consecutive_failures, error_count, last_error, auto_disable_threshold, notify_on_error, \
     http_status, redirect_url, extraction_settings, respect_robots_txt, extraction_delay_ms, \
-    created_at, updated_at";
+    created_at, updated_at, blocked_at, blocked_reason";
 
 /// A shared article (one row per URL). Enrichment columns (summary, embedding)
 /// are computed once and shared across all subscribers.

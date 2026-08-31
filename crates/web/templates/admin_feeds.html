@@ -66,6 +66,10 @@
             <button type="submit" data-confirm="Pause this shared source for every subscriber? Stored articles remain available.">Pause</button>
             {% endif %}
           </form>
+          <form method="post" action="/admin/feeds/{{ feed.id }}/block">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button type="submit" class="danger" data-confirm="Block this source's domain and disable it everywhere? It cannot be re-subscribed.">Block</button>
+          </form>
         </td>
       </tr>
     {% endfor %}

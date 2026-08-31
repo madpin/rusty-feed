@@ -146,6 +146,7 @@ pub async fn feed_create(
         .fetch
         .validate_url(&url)
         .map_err(|_| AppError::Validation("feed URL is not allowed".into()))?;
+    crate::moderation::assert_feed_allowed(&state, &url).await?;
     let host = url::Url::parse(&url)
         .ok()
         .and_then(|url| url.host_str().map(str::to_string))

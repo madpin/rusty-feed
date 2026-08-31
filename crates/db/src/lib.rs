@@ -8,6 +8,7 @@
 //! (feeds, articles) are idempotent so concurrent workers never duplicate
 //! content. The [`Db`] handle owns the pool and runs migrations.
 
+pub mod abuse_reports;
 pub mod acquisition_profiles;
 pub mod agent_locks;
 pub mod agent_runs;
@@ -22,6 +23,7 @@ pub mod domain_state;
 pub mod embedding_space;
 pub mod embeddings;
 pub mod error;
+pub mod feed_blocklist;
 pub mod feed_icons;
 pub mod feedback;
 pub mod feeds;
@@ -32,6 +34,7 @@ pub mod jobs;
 pub mod llm_profiles;
 pub mod media_cache;
 pub mod models;
+pub mod moderation;
 pub mod notifications;
 pub mod oauth_accounts;
 pub mod operations;

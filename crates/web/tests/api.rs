@@ -41,6 +41,56 @@ async fn state_with_saved_search_cap(cap: u32) -> Option<AppState> {
 }
 
 #[tokio::test]
+async fn blocklisted_feed_is_rejected_on_add() {
+    let Some(state) = state().await else { return };
+    let user = users::create(
+        state.db.pool(),
+        &format!("block-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let raw = format!("block-token-{}", uuid::Uuid::now_v7());
+    api_tokens::create(
+        state.db.pool(),
+        user.id,
+        "test",
+        &rustss_web::auth::token::hash(&raw),
+        &[],
+    )
+    .await
+    .unwrap();
+    let host = format!("blocked-{}.example", uuid::Uuid::now_v7());
+    rustss_db::feed_blocklist::add(
+        state.db.pool(),
+        "domain",
+        &host,
+        Some("test"),
+        "admin",
+        None,
+    )
+    .await
+    .unwrap();
+    let app = router(state.clone());
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/feeds")
+                .header("authorization", format!("Bearer {raw}"))
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"url":"https://{host}/feed.xml"}}"#
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn per_user_quota_returns_409_past_the_cap() {
     let Some(state) = state_with_saved_search_cap(1).await else {
         return;

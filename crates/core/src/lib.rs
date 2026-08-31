@@ -14,6 +14,7 @@
 
 pub mod acquisition;
 pub mod ai_budget;
+pub mod blocklist;
 pub mod config;
 pub mod content_rules;
 pub mod cron;

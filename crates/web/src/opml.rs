@@ -258,13 +258,14 @@ pub async fn preview(
         Ok(document) => document,
         Err(error) => return render_source_error(&state, &user, jar, error.to_string()).await,
     };
+    let blocklist = state.blocklist().await?;
     let mut seen = HashSet::new();
     let mut normalized_subscriptions = Vec::new();
     let mut skipped_count = 0;
     let mut skipped_examples = Vec::new();
     for mut subscription in document.subscriptions {
         let normalized = match normalize_url(&subscription.xml_url) {
-            Ok(url) if state.fetch.validate_url(&url).is_ok() => url,
+            Ok(url) if state.fetch.validate_url(&url).is_ok() && !blocklist.is_blocked(&url) => url,
             _ => {
                 skipped_count += 1;
                 push_skipped(
@@ -424,6 +425,7 @@ async fn import_entry(
         .fetch
         .validate_url(&normalized)
         .map_err(|_| AppError::Validation("The selected feed URL is unsafe.".to_string()))?;
+    crate::moderation::assert_feed_allowed(state, &normalized).await?;
     let host = url::Url::parse(&normalized)
         .ok()
         .and_then(|url| url.host_str().map(str::to_string))

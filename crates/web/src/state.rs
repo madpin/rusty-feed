@@ -311,6 +311,8 @@ pub struct AppState {
     pub(crate) webauthn: Option<Arc<Webauthn>>,
     live_view_fetch_locks: MokaCache<String, Arc<Mutex<()>>>,
     media_fetch_locks: MokaCache<String, Arc<Mutex<()>>>,
+    /// Cached compiled feed blocklist (shared; short TTL + invalidate on edit).
+    blocklist_cache: MokaCache<(), Arc<rustss_core::blocklist::Blocklist>>,
     metrics: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
@@ -385,8 +387,36 @@ impl AppState {
                 .max_capacity(10_000)
                 .time_to_idle(Duration::from_secs(30 * 60))
                 .build(),
+            blocklist_cache: MokaCache::builder()
+                .max_capacity(1)
+                .time_to_live(Duration::from_secs(30))
+                .build(),
             metrics: Arc::new(metrics_renderer),
         }
+    }
+
+    /// The compiled feed blocklist, cached with a short TTL. Errors surface as
+    /// an internal error so a feed-add fails cleanly rather than silently
+    /// bypassing moderation.
+    pub async fn blocklist(
+        &self,
+    ) -> Result<Arc<rustss_core::blocklist::Blocklist>, crate::error::AppError> {
+        let pool = self.db.pool().clone();
+        self.blocklist_cache
+            .try_get_with((), async move {
+                rustss_db::feed_blocklist::compiled(&pool)
+                    .await
+                    .map(Arc::new)
+            })
+            .await
+            .map_err(|error: Arc<rustss_db::DbError>| {
+                crate::error::AppError::Internal(anyhow::anyhow!("blocklist load failed: {error}"))
+            })
+    }
+
+    /// Drop the cached blocklist after an admin edit so the next check reloads.
+    pub fn invalidate_blocklist(&self) {
+        self.blocklist_cache.invalidate_all();
     }
 
     /// Override the fetch client (e.g. tests using an allow-private client).

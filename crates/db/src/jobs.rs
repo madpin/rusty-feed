@@ -331,7 +331,7 @@ pub async fn run_pending_feed_fetches_now(pool: &PgPool, feed_ids: &[Uuid]) -> R
         "UPDATE job_queue job SET run_at = now(), updated_at = now() \
          FROM feeds feed WHERE job.kind = 'fetch_feed' AND job.status = 'pending' \
            AND job.run_at > now() AND job.payload ->> 'feed_id' = feed.id::text \
-           AND feed.id = ANY($1) AND feed.health_status <> 'disabled'",
+           AND feed.id = ANY($1) AND feed.health_status <> 'disabled' AND feed.blocked_at IS NULL",
     )
     .bind(feed_ids)
     .execute(pool)
