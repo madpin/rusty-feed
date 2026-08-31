@@ -687,6 +687,9 @@ legend { margin-bottom: 0.7rem; color: var(--text-strong); font-size: 0.95rem; f
 .quick-settings-dialog { width: min(100% - 2rem, 31rem); max-height: calc(100vh - 2rem); padding: 0; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
 .quick-settings-dialog::backdrop { background: color-mix(in srgb, #000 48%, transparent); }
 .quick-settings-dialog form { padding: clamp(1rem, 3vw, 1.4rem); }
+.article-send-dialog-body { padding: clamp(1rem, 3vw, 1.4rem); }
+.article-send-dialog label { display: grid; gap: 0.4rem; color: var(--text-strong); font-weight: 700; }
+.article-send-dialog[open] { overflow: auto; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .dialog-heading h2 { margin: 0.1rem 0 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.55rem; }

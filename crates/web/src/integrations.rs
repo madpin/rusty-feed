@@ -2,6 +2,7 @@
 
 use askama::Template;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
@@ -13,6 +14,7 @@ use rustss_db::{articles, integrations, jobs, subscriptions, User};
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
 use crate::error::AppError;
+use crate::extract::Ajax;
 use crate::prefs;
 use crate::state::AppState;
 
@@ -70,6 +72,15 @@ struct ArticleSendTemplate {
     profiles: Vec<ProfileView>,
     notice: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "article_send_modal.html")]
+struct ArticleSendModalTemplate {
+    csrf_token: String,
+    article_id: String,
+    article_title: String,
+    profiles: Vec<ProfileView>,
 }
 
 #[derive(Deserialize)]
@@ -575,11 +586,37 @@ pub async fn article_page(
     render_send(&state, &user, jar, &article, None, None).await
 }
 
+pub async fn article_modal(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    let article = authorized_article(&state, user.id, id).await?;
+    let profiles = integrations::list_profiles(state.db.pool(), user.id)
+        .await?
+        .into_iter()
+        .filter(|profile| profile.enabled && profile.paused_at.is_none())
+        .collect();
+    let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
+    let body = ArticleSendModalTemplate {
+        csrf_token,
+        article_id: article.id.to_string(),
+        article_title: article.title,
+        profiles: profile_views(profiles),
+    }
+    .render()
+    .map(Html)
+    .map_err(|error| AppError::Internal(anyhow::anyhow!("template render failed: {error}")))?;
+    Ok((jar, body).into_response())
+}
+
 pub async fn article_send(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     jar: CookieJar,
     Path(id): Path<Uuid>,
+    Ajax(is_ajax): Ajax,
     Form(form): Form<SendForm>,
 ) -> Result<Response, AppError> {
     if !csrf::verify(&jar, &form.csrf_token) {
@@ -596,6 +633,9 @@ pub async fn article_send(
     .filter(|profile| profile.enabled && profile.paused_at.is_none())
     .ok_or_else(|| AppError::Validation("Choose an active destination profile.".into()))?;
     enqueue(&state, &profile, Some(id), "article.saved").await?;
+    if is_ajax {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
     render_send(
         &state,
         &user,

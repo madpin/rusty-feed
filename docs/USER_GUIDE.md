@@ -374,7 +374,11 @@ Credentials are encrypted and never redisplayed; use **Rotate credential** to
 replace one. Test, pause/resume, delete, and recent delivery history are on the
 same page.
 
-From an article, **Send to…** chooses an active destination or your default.
+From an article, **Send to…** opens a destination picker over the reader, so
+your article and reading position stay in place while the delivery is queued.
+The default destination is preselected. Choose another active destination when
+needed; if none exists, the picker links to the larger Integrations setup flow.
+With JavaScript disabled, the same control opens an equivalent full page.
 Automatic events are available for bookmark, new feed entries, and summary
 ready. Signed webhooks include payload/event version headers and an
 `X-RustSS-Signature: sha256=…` over the exact request body. Failed destinations

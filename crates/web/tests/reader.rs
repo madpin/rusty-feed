@@ -318,7 +318,7 @@ async fn duplicate_shortcuts_return_an_accessible_error_without_saving() {
 #[tokio::test]
 async fn reading_actions_and_detail_work() {
     use rustss_db::models::{NewArticle, NewArticleEnclosure};
-    use rustss_db::{articles, bookmarks, feeds, read_articles, subscriptions};
+    use rustss_db::{articles, bookmarks, feeds, integrations, read_articles, subscriptions};
 
     let Some(state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
@@ -524,6 +524,8 @@ async fn reading_actions_and_detail_work() {
     assert!(body.contains("data-reader-surface"));
     assert!(body.contains("class=\"reader-view\""));
     assert!(body.contains("class=\"reader-toolbar\""));
+    assert!(body.contains("data-article-send-trigger"));
+    assert!(body.contains(&format!("data-modal-url=\"/articles/{aid}/send/modal\"")));
     assert!(body.contains("data-reader-view-content"));
     assert!(body.contains(&format!(
         "class=\"article-hero\" src=\"/articles/{aid}/hero\""
@@ -591,6 +593,87 @@ async fn reading_actions_and_detail_work() {
         "content must be sanitized"
     );
 
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{aid}/send/modal"))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let empty_modal = body_string(resp).await;
+    assert!(empty_modal.contains("data-article-send-dialog"));
+    assert!(empty_modal.contains("No active destination exists"));
+    assert!(empty_modal.contains("/settings/integrations"));
+    assert!(!empty_modal.contains("<html"));
+
+    let profile = integrations::create_profile(
+        pool,
+        user.id,
+        "Reading archive",
+        "webhook",
+        "https://hooks.example.test/rustss",
+        None,
+        "none",
+        "{{title}} {{url}}",
+        &[],
+        &["article.saved".into()],
+        3,
+        30,
+        true,
+    )
+    .await
+    .unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{aid}/send/modal"))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let modal_cookies = set_cookies(&resp);
+    let modal_csrf = find(&modal_cookies, "rustss_csrf").unwrap().to_string();
+    let modal = body_string(resp).await;
+    assert!(modal.contains("data-article-send-form"));
+    assert!(modal.contains("Reading archive · webhook · default"));
+    assert!(modal.contains(&format!("value=\"{}\" selected", profile.id)));
+    assert!(!modal.contains("<html"));
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{aid}/send"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header(
+                    "cookie",
+                    format!("rustss_sid={sid}; rustss_csrf={modal_csrf}"),
+                )
+                .body(Body::from(format!(
+                    "csrf_token={modal_csrf}&profile_id={}",
+                    profile.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let deliveries = integrations::list_deliveries(pool, user.id, 10)
+        .await
+        .unwrap();
+    assert!(deliveries.iter().any(|delivery| {
+        delivery.profile_id == profile.id
+            && delivery.article_id == Some(aid)
+            && delivery.status == "queued"
+    }));
+
     rustss_db::subscriptions::update_youtube_mode(
         pool,
         user.id,
@@ -654,6 +737,7 @@ async fn reading_actions_and_detail_work() {
     assert!(panel.contains("data-reader-surface"));
     assert!(panel.contains("class=\"reader-view\""));
     assert!(panel.contains("class=\"reader-toolbar\""));
+    assert!(panel.contains("data-article-send-trigger"));
     assert!(panel.contains("data-reader-view-content"));
     assert!(panel.contains(&format!(
         "class=\"article-hero\" src=\"/articles/{aid}/hero\""

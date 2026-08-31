@@ -889,6 +889,86 @@
     });
   }
 
+  function initializeArticleSendDialog() {
+    var capability = document.createElement("dialog");
+    if (typeof capability.showModal !== "function") return;
+
+    document.addEventListener("click", function (event) {
+      var trigger = event.target.closest ? event.target.closest("[data-article-send-trigger]") : null;
+      if (!trigger || (event.button !== undefined && event.button !== 0) || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      var modalUrl = trigger.getAttribute("data-modal-url");
+      if (!modalUrl || trigger.getAttribute("aria-busy") === "true") return;
+      event.preventDefault();
+      trigger.setAttribute("aria-busy", "true");
+
+      fetch(modalUrl, {
+        headers: { "X-Requested-With": "fetch" },
+        credentials: "same-origin",
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error("send dialog load failed");
+          return response.text();
+        })
+        .then(function (markup) {
+          var holder = document.createElement("div");
+          holder.innerHTML = markup.trim();
+          var dialog = holder.firstElementChild;
+          if (!dialog || dialog.tagName !== "DIALOG" || !dialog.hasAttribute("data-article-send-dialog")) {
+            throw new Error("invalid send dialog response");
+          }
+          document.body.appendChild(dialog);
+
+          function close() {
+            if (dialog.open) dialog.close();
+          }
+          Array.prototype.forEach.call(dialog.querySelectorAll("[data-article-send-close]"), function (button) {
+            button.addEventListener("click", close);
+          });
+          dialog.addEventListener("click", function (dialogEvent) {
+            if (dialogEvent.target === dialog) close();
+          });
+          dialog.addEventListener("close", function () {
+            dialog.remove();
+            if (trigger.isConnected) trigger.focus();
+          }, { once: true });
+
+          var form = dialog.querySelector("[data-article-send-form]");
+          if (form) {
+            form.addEventListener("submit", function (submitEvent) {
+              submitEvent.preventDefault();
+              if (form.dataset.pending === "true") return;
+              setPending(form, true);
+              fetch(form.action, {
+                method: "POST",
+                body: encodedForm(form),
+                headers: { "X-Requested-With": "fetch" },
+                credentials: "same-origin",
+              })
+                .then(function (response) {
+                  if (!response.ok) throw new Error("article send failed");
+                  close();
+                  announce(form.getAttribute("data-success-message") || "Article delivery queued.", false);
+                })
+                .catch(function () {
+                  announce("The article could not be queued for delivery. Please try again.", true);
+                })
+                .finally(function () { setPending(form, false); });
+            });
+          }
+
+          dialog.showModal();
+          var firstControl = dialog.querySelector("[data-article-send-destination], a[href], button:not([disabled])");
+          if (firstControl) firstControl.focus();
+        })
+        .catch(function () {
+          announce("The destination picker could not be opened. Please try again.", true);
+        })
+        .finally(function () {
+          trigger.removeAttribute("aria-busy");
+        });
+    });
+  }
+
   function initializeSidebarToggle() {
     var root = document.documentElement;
     var buttons = document.querySelectorAll("[data-sidebar-toggle]");
@@ -1318,6 +1398,7 @@
   initializeFolderCollapse();
   initializeSidebarQuickTools();
   initializeQuickSettingsDialogs();
+  initializeArticleSendDialog();
   initializeAdminQueueRefresh();
   initializeSidebarToggle();
   initializePanelResize();

@@ -101,6 +101,10 @@ pub fn router(state: AppState) -> Router {
             "/articles/{id}/send",
             get(integrations::article_page).post(integrations::article_send),
         )
+        .route(
+            "/articles/{id}/send/modal",
+            get(integrations::article_modal),
+        )
         .route("/articles/{id}/share", post(public_shares::create))
         .route("/articles/{id}/share/revoke", post(public_shares::revoke))
         .route("/shared/{token}/{slug}", get(public_shares::show))

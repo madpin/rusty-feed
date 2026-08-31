@@ -1,0 +1,27 @@
+<dialog class="quick-settings-dialog article-send-dialog" data-article-send-dialog aria-labelledby="article-send-title-{{ article_id }}">
+  {% if profiles.is_empty() %}
+  <div class="article-send-dialog-body stack">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">Third-party save</p><h2 id="article-send-title-{{ article_id }}">Send article</h2></div>
+      <button type="button" class="button-quiet" data-article-send-close aria-label="Close send dialog">Close</button>
+    </div>
+    <p>No active destination exists. Configure a destination once, then send articles without leaving the reader.</p>
+    <div class="dialog-actions"><button type="button" data-article-send-close>Cancel</button><a class="btn primary" href="/settings/integrations">Configure integrations</a></div>
+  </div>
+  {% else %}
+  <form method="post" action="/articles/{{ article_id }}/send" class="stack" data-article-send-form data-success-message="Article delivery queued.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="dialog-heading">
+      <div><p class="eyebrow">Third-party save</p><h2 id="article-send-title-{{ article_id }}">Send “{{ article_title }}”</h2></div>
+      <button type="button" class="button-quiet" data-article-send-close aria-label="Close send dialog">Close</button>
+    </div>
+    <label>Destination
+      <select name="profile_id" required data-article-send-destination>
+        {% for profile in profiles %}<option value="{{ profile.id }}"{% if profile.is_default %} selected{% endif %}>{{ profile.name }} · {{ profile.provider }}{% if profile.is_default %} · default{% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="muted">Delivery runs in the background. You can keep reading while RustSS sends it.</p>
+    <div class="dialog-actions"><button type="button" data-article-send-close>Cancel</button><button type="submit" class="primary">Queue delivery</button></div>
+  </form>
+  {% endif %}
+</dialog>

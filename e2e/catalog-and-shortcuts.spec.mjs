@@ -643,6 +643,53 @@ test("AI summary progress stays live until the priority job is ready", async ({ 
   expect(statusRequests).toBeGreaterThanOrEqual(3);
 });
 
+test("article destinations open and submit without leaving the reader", async ({ page }) => {
+  await page.goto("/login");
+  const cssUrl = new URL("/static/app.css", page.url()).href;
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  let queuedBody = "";
+  await page.route("**/articles/one/send/modal", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: `<dialog class="quick-settings-dialog article-send-dialog" data-article-send-dialog aria-labelledby="send-title">
+        <form method="post" action="/articles/one/send" data-article-send-form data-success-message="Article delivery queued.">
+          <h2 id="send-title">Send “Context matters”</h2>
+          <input name="csrf_token" value="csrf-token">
+          <label>Destination<select name="profile_id" data-article-send-destination><option value="archive">Reading archive · webhook · default</option></select></label>
+          <button type="button" data-article-send-close>Cancel</button><button type="submit">Queue delivery</button>
+        </form>
+      </dialog>`,
+    });
+  });
+  await page.route("**/articles/one/send", async (route) => {
+    queuedBody = route.request().postData() || "";
+    await route.fulfill({ status: 204, body: "" });
+  });
+  await page.setContent(`
+    <link rel="stylesheet" href="${cssUrl}">
+    <article data-reader-surface><h1>Context matters</h1><p>Keep this article visible.</p>
+      <a class="btn" href="/articles/one/send" data-article-send-trigger data-modal-url="/articles/one/send/modal" aria-haspopup="dialog">Send to…</a>
+    </article>
+    <div id="action-status" role="status"></div>
+  `);
+  await page.evaluate(() => window.history.replaceState({}, "", "/articles/one"));
+  await page.addScriptTag({ url: scriptUrl });
+
+  await page.getByRole("link", { name: "Send to…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Send “Context matters”" });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByText("Keep this article visible.")).toBeVisible();
+  await expect(page.locator("[data-article-send-destination]")).toBeFocused();
+  await page.getByRole("button", { name: "Queue delivery" }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/\/articles\/one$/);
+  await expect(page.locator("#action-status")).toContainText("Article delivery queued.");
+  expect(queuedBody).toContain("csrf_token=csrf-token");
+  expect(queuedBody).toContain("profile_id=archive");
+});
+
 test("dragging an article onto a sidebar folder moves its source feed", async ({ page }) => {
   await page.goto("/login");
   const scriptUrl = new URL("/static/app.js", page.url()).href;

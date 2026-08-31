@@ -50,7 +50,7 @@
       <input type="hidden" name="next" value="/articles/{{ id }}" />
       <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">👎</button>
     </form>
-        <a class="btn" href="/articles/{{ id }}/send">{{ ui.text("send_to") }}</a>
+        <a class="btn" href="/articles/{{ id }}/send" data-article-send-trigger data-modal-url="/articles/{{ id }}/send/modal" aria-haspopup="dialog">{{ ui.text("send_to") }}</a>
         {% if summary.is_none() && can_summarize %}
         <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" data-summary-status-url="/articles/{{ id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
