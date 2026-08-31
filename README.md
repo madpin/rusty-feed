@@ -72,6 +72,28 @@ The living Miniflux feature-parity and customization checklist is in
 
 ---
 
+## 📸 Screenshots
+
+A smart reading list with **per-feed unread counts**, in-place reading, and one-click AI summaries:
+
+![Library](docs/screenshots/library.png)
+
+| Discover magazine (filter-aware select-all) | Standalone reader |
+|---|---|
+| [![Discover feeds](docs/screenshots/discover.png)](docs/screenshots/discover.png) | [![Article reader](docs/screenshots/article.png)](docs/screenshots/article.png) |
+
+| Admin instance overview | Shared-feed admin (stats · filters · pagination) |
+|---|---|
+| [![Admin overview](docs/screenshots/admin-overview.png)](docs/screenshots/admin-overview.png) | [![Admin shared feeds](docs/screenshots/admin-feeds.png)](docs/screenshots/admin-feeds.png) |
+
+| Feeds & bulk actions | AI providers | Integrations |
+|---|---|---|
+| [![Feeds](docs/screenshots/feeds.png)](docs/screenshots/feeds.png) | [![AI providers](docs/screenshots/ai-providers.png)](docs/screenshots/ai-providers.png) | [![Integrations & webhooks](docs/screenshots/integrations.png)](docs/screenshots/integrations.png) |
+
+<sub>Regenerate against a running instance with `node scripts/capture-screenshots.mjs` — see [docs/screenshots/README.md](docs/screenshots/README.md).</sub>
+
+---
+
 ## 🏗️ How it works (30-second tour)
 
 ```
