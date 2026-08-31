@@ -38,7 +38,9 @@ mod state;
 mod tokens;
 
 pub use error::{AppError, Result};
-pub use state::{AppSettings, AppState, OAuthProvider, ProviderKind, ReverseProxyAuthSettings};
+pub use state::{
+    AppSettings, AppState, EnvLlmProvider, OAuthProvider, ProviderKind, ReverseProxyAuthSettings,
+};
 
 use std::time::Instant;
 

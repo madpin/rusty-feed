@@ -27,6 +27,17 @@ struct ProfileView {
     has_key: bool,
 }
 
+/// Read-only view of the environment-configured fallback provider.
+struct EnvProviderView {
+    provider: String,
+    model: String,
+    base_url: String,
+    has_key: bool,
+    /// Whether the current scope can create a profile of this provider type
+    /// (users may only create OpenAI-compatible profiles).
+    copyable: bool,
+}
+
 #[derive(Template)]
 #[template(path = "ai_settings.html")]
 struct AiSettingsTemplate {
@@ -37,6 +48,7 @@ struct AiSettingsTemplate {
     is_admin: bool,
     managing_instance: bool,
     profiles: Vec<ProfileView>,
+    env_provider: Option<EnvProviderView>,
     notice: Option<String>,
     error: Option<String>,
 }
@@ -99,6 +111,13 @@ async fn render(
             has_key: profile.api_key_ciphertext.is_some(),
         })
         .collect();
+    let env_provider = state.settings.env_llm.as_ref().map(|env| EnvProviderView {
+        provider: env.provider.clone(),
+        model: env.model.clone(),
+        base_url: env.base_url.clone(),
+        has_key: env.has_key,
+        copyable: managing_instance || env.provider == "openai",
+    });
     let body = AiSettingsTemplate {
         theme: ui.theme.clone(),
         user_email: user.email.clone(),
@@ -107,6 +126,7 @@ async fn render(
         is_admin: user.role == "admin",
         managing_instance,
         profiles,
+        env_provider,
         notice,
         error,
     }

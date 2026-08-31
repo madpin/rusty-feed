@@ -101,6 +101,20 @@ async fn main() -> anyhow::Result<()> {
         config.encryption_secret.expose().as_bytes(),
         llm.clone(),
     ));
+    // Surface the environment-configured provider (the cascade fallback) on the
+    // AI providers screen when one is actually usable.
+    let env_llm = llm.is_some().then(|| rustss_web::EnvLlmProvider {
+        provider: config.llm_provider.as_str().to_string(),
+        model: config.llm_summary_model.clone(),
+        base_url: match config.llm_provider {
+            rustss_core::config::LlmProvider::Openai => config
+                .openai_base_url
+                .clone()
+                .unwrap_or_else(|| "https://api.openai.com".to_string()),
+            rustss_core::config::LlmProvider::Ollama => config.ollama_base_url.clone(),
+        },
+        has_key: config.openai_api_key.is_some(),
+    });
 
     let settings = AppSettings {
         registration_mode: config.registration_mode,
@@ -143,6 +157,7 @@ async fn main() -> anyhow::Result<()> {
         oauth_providers,
         // The managed-provider screen can enable summarization without a restart.
         summarization_enabled: true,
+        env_llm,
         auto_embed: config.embedding_auto_generate,
         search_mode: config.search_mode,
         search_text_config: config.search_text_config,

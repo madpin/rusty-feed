@@ -73,6 +73,17 @@ pub struct OAuthProvider {
     pub kind: ProviderKind,
 }
 
+/// Summary of the environment-configured summarization provider — the final
+/// fallback in the user → admin → environment cascade. Surfaced read-only on
+/// the AI providers screen so operators can see the built-in fallback.
+#[derive(Debug, Clone)]
+pub struct EnvLlmProvider {
+    pub provider: String,
+    pub model: String,
+    pub base_url: String,
+    pub has_key: bool,
+}
+
 /// Instance-level settings the web layer needs at request time.
 #[derive(Debug, Clone)]
 pub struct AppSettings {
@@ -114,6 +125,8 @@ pub struct AppSettings {
     pub oauth_providers: Vec<OAuthProvider>,
     /// Whether an LLM is configured (enables the "Summarize" action).
     pub summarization_enabled: bool,
+    /// Environment-configured summarization provider (the cascade fallback), if any.
+    pub env_llm: Option<EnvLlmProvider>,
     /// Whether newly-ingested articles should be enqueued for embedding.
     pub auto_embed: bool,
     /// Instance default for keyword, semantic, or blended interactive search.
@@ -174,6 +187,7 @@ impl Default for AppSettings {
             passkey_rp_name: "RustSS".to_string(),
             oauth_providers: Vec::new(),
             summarization_enabled: false,
+            env_llm: None,
             auto_embed: false,
             search_mode: SearchMode::Hybrid,
             search_text_config: SearchTextConfig::Simple,

@@ -14,8 +14,8 @@
 {% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 
 <section class="panel">
-  <h2>Add a provider</h2>
-  <form method="post" action="{% if managing_instance %}/admin/ai{% else %}/settings/ai{% endif %}" class="stack">
+  <h2 id="add-provider">Add a provider</h2>
+  <form method="post" action="{% if managing_instance %}/admin/ai{% else %}/settings/ai{% endif %}" class="stack" data-provider-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="form-grid">
       <label>Profile name<input name="name" maxlength="80" placeholder="Fast summaries" required /></label>
@@ -35,6 +35,25 @@
   </form>
 </section>
 
+{% if let Some(env) = env_provider %}
+<section class="panel">
+  <h2>Environment default</h2>
+  <p class="muted">Configured from this instance's environment variables. It runs last, after every profile above, and cannot be edited here.</p>
+  <ul class="token-list">
+    <li class="token-row">
+      <div>
+        <strong>Environment provider</strong> <span class="token-status">{{ env.provider }}</span>
+        <div class="meta">{{ env.model }} · {{ env.base_url }} · key {% if env.has_key %}configured{% else %}not required{% endif %}</div>
+      </div>
+      <div class="row-actions">
+        {% if env.copyable %}<button type="button" class="button-quiet" data-provider-copy data-name="Copy of environment provider" data-provider="{{ env.provider }}" data-model="{{ env.model }}" data-base-url="{{ env.base_url }}">Copy to my providers</button>{% endif %}
+      </div>
+    </li>
+  </ul>
+  <p class="muted">Copying pre-fills the form above; you must supply your own API key.</p>
+</section>
+{% endif %}
+
 <section class="panel">
   <h2>Fallback order</h2>
   {% if profiles.is_empty() %}
@@ -48,6 +67,7 @@
         <div class="meta">Priority {{ profile.priority }} · {{ profile.model }} · {{ profile.base_url }} · key {% if profile.has_key %}stored{% else %}not required{% endif %}{% if !profile.enabled %} · disabled{% endif %}</div>
       </div>
       <div class="row-actions">
+        <button type="button" class="button-quiet" data-provider-copy data-name="Copy of {{ profile.name }}" data-provider="{{ profile.provider }}" data-model="{{ profile.model }}" data-base-url="{{ profile.base_url }}">Copy</button>
         <form method="post" action="{% if managing_instance %}/admin/ai{% else %}/settings/ai{% endif %}/{{ profile.id }}/toggle">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <input type="hidden" name="enabled" value="{% if profile.enabled %}false{% else %}true{% endif %}" />

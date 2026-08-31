@@ -875,6 +875,37 @@
     dialog.addEventListener("close", reset);
   }
 
+  function initializeProviderCopy() {
+    var form = document.querySelector("[data-provider-form]");
+    if (!form) return;
+    function setField(name, value) {
+      var field = form.querySelector("[name='" + name + "']");
+      if (!field) return null;
+      if (field.tagName === "SELECT") {
+        var match = Array.prototype.some.call(field.options, function (option) {
+          return option.value === value;
+        });
+        if (match) field.value = value;
+      } else {
+        field.value = value;
+      }
+      return field;
+    }
+    Array.prototype.forEach.call(document.querySelectorAll("[data-provider-copy]"), function (button) {
+      button.addEventListener("click", function () {
+        setField("name", button.getAttribute("data-name") || "");
+        setField("provider", button.getAttribute("data-provider") || "");
+        setField("model", button.getAttribute("data-model") || "");
+        setField("base_url", button.getAttribute("data-base-url") || "");
+        // Never copy a key: the user must supply their own.
+        var key = setField("api_key", "");
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (key && typeof key.focus === "function") key.focus();
+        announce("Copied provider details. Enter your own API key to save.", false);
+      });
+    });
+  }
+
   function initializeQuickSettingsDialogs() {
     var contentDialog = document.querySelector("[data-content-settings-dialog]");
     var contentForm = contentDialog ? contentDialog.querySelector("[data-content-settings-form]") : null;
@@ -1514,6 +1545,7 @@
   initializeSidebarQuickTools();
   initializeImageLightbox();
   initializeCatalogSelection();
+  initializeProviderCopy();
   initializeQuickSettingsDialogs();
   initializeArticleSendDialog();
   initializeAdminQueueRefresh();
