@@ -43,6 +43,7 @@ mod sessions;
 mod state;
 mod tokens;
 mod verify;
+mod welcome;
 
 pub use error::{AppError, Result};
 pub use state::{
@@ -238,6 +239,7 @@ pub fn router(state: AppState) -> Router {
         .route("/settings/account", get(account::page))
         .route("/settings/account/export", post(account::export))
         .route("/settings/account/delete", post(account::delete))
+        .route("/welcome", get(welcome::page).post(welcome::submit))
         .route("/settings/passkeys", get(passkeys::page))
         .route(
             "/settings/passkeys/register/start",

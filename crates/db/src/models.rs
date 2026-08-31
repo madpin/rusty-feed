@@ -31,6 +31,8 @@ pub struct User {
     pub tos_accepted_at: Option<OffsetDateTime>,
     /// Ephemeral demo account: sandboxed and wiped by the daily reset (§7).
     pub is_demo: bool,
+    /// When the first-run setup wizard was completed or skipped (§8.4).
+    pub onboarded_at: Option<OffsetDateTime>,
 }
 
 /// A shared feed (one row per normalized URL, regardless of subscribers).

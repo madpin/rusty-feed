@@ -1467,3 +1467,33 @@ tbody tr:last-child td { border-bottom: 0; }
   font-size: 0.8125rem;
   opacity: 0.8;
 }
+
+/* ── Marketing landing page (P8 §8.2) ─────────────────────────────────────── */
+body.landing { max-width: none; }
+.landing-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 1rem 1.5rem; max-width: 72rem; margin: 0 auto;
+}
+.landing-nav nav { display: flex; gap: 0.75rem; align-items: center; }
+.landing main { max-width: 72rem; margin: 0 auto; padding: 0 1.5rem; }
+.landing-hero { text-align: center; padding: 3rem 0 1.5rem; }
+.landing-hero h1 { font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.1; margin: 0 auto 1rem; max-width: 22ch; }
+.landing-hero .lede { font-size: 1.15rem; opacity: 0.85; max-width: 60ch; margin: 0 auto 1.5rem; }
+.landing-cta { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; align-items: center; }
+.landing-cta .inline-form, .landing-final-cta .inline-form { display: inline; }
+.landing-shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 2rem 0; }
+.landing-shots img { width: 100%; height: auto; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,0.15); }
+.landing-features { margin: 3rem 0; text-align: center; }
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.25rem; text-align: left; }
+.feature { padding: 1rem 1.25rem; border: 1px solid var(--color-border, #3333); border-radius: 10px; }
+.feature h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+.feature p { margin: 0; opacity: 0.82; font-size: 0.95rem; }
+.landing-compare { margin: 3rem 0; }
+.landing-compare td:nth-child(2), .landing-compare th:nth-child(2) { text-align: center; font-weight: 600; }
+.landing-final-cta { text-align: center; margin: 3rem 0; display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; align-items: center; }
+
+/* ── First-run setup wizard live preview (P8 §8.4) ────────────────────────── */
+.wizard-preview { border: 1px solid var(--color-border, #3333); border-radius: 10px; padding: 1rem; margin-top: 1rem; }
+.wizard-preview .preview-list { border-right: 1px solid var(--color-border, #3333); padding-right: 1rem; }
+.wizard-steps { display: grid; gap: 1.5rem; }
+.wizard-swatches { display: flex; flex-wrap: wrap; gap: 0.5rem; }

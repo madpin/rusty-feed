@@ -3,8 +3,11 @@ import { expect, test } from "@playwright/test";
 async function register(page, suffix) {
   await page.goto("/register");
   await page.getByLabel("Email").fill(`matrix-${suffix}@example.test`);
-  await page.getByLabel("Password (min 8 characters)").fill("password123");
+  await page.getByLabel("Password (min 10 characters)").fill("Str0ng-Test-Pass-9x");
   await page.getByRole("button", { name: "Create account" }).click();
+  // New accounts land on the first-run wizard; skip it to reach the reader.
+  await expect(page).toHaveURL(/\/welcome/);
+  await page.getByRole("button", { name: "Skip for now" }).click();
   await expect(page).toHaveURL(/\/articles/);
 }
 

@@ -8,7 +8,7 @@ use crate::models::User;
 
 const USER_COLUMNS: &str =
     "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at, \
-     last_seen_at, failed_login_count, locked_until, tos_accepted_at, is_demo";
+     last_seen_at, failed_login_count, locked_until, tos_accepted_at, is_demo, onboarded_at";
 
 /// Create a user. `role` must be one of `admin` | `user` | `guest`.
 pub async fn create(
@@ -219,6 +219,24 @@ pub async fn touch_last_seen(pool: &PgPool, user_id: Uuid) -> Result<()> {
     .bind(user_id)
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+/// Stamp the first-run wizard as done (finished or skipped), idempotently (§8.4).
+pub async fn mark_onboarded(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query("UPDATE users SET onboarded_at = COALESCE(onboarded_at, now()) WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Re-open the first-run wizard for this user ("Re-run setup").
+pub async fn clear_onboarded(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query("UPDATE users SET onboarded_at = NULL WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

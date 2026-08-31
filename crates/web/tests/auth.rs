@@ -163,7 +163,7 @@ async fn register_login_logout_flow() {
         .to_string();
 
     // 2. POST /register creates the account and starts a session.
-    let body = format!("name=&email={email}&password=password123&csrf_token={csrf}");
+    let body = format!("name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}");
     let resp = app
         .clone()
         .oneshot(
@@ -275,7 +275,7 @@ async fn login_rejects_wrong_password() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
                 .body(Body::from(format!(
-                    "name=&email={email}&password=password123&csrf_token={csrf}"
+                    "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
@@ -375,7 +375,7 @@ async fn api_token_create_list_revoke() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
                 .body(Body::from(format!(
-                    "name=&email={email}&password=password123&csrf_token={csrf}"
+                    "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
@@ -489,7 +489,7 @@ async fn admin_extractor_enforces_role() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
                 .body(Body::from(format!(
-                    "name=&email={email}&password=password123&csrf_token={csrf}"
+                    "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
@@ -591,7 +591,7 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
                     .header("content-type", "application/x-www-form-urlencoded")
                     .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
                     .body(Body::from(format!(
-                    "name=Invited&email={}&password=password123&invite_token={}&csrf_token={csrf}",
+                    "name=Invited&email={}&password=Str0ng-Test-Pass-9x&invite_token={}&csrf_token={csrf}",
                     invited_email.replace('@', "%40"), invitation.raw
                 )))
                     .unwrap(),

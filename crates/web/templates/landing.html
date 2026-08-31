@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>RustSS — your RSS reader, but it understands what you read</title>
+    <meta name="description" content="A self-hosted, AI-augmented RSS reader: semantic search, personalized ranking that learns from your reading, optional LLM summaries, GReader & Fever APIs, and a fast server-rendered UI." />
+    <meta property="og:title" content="RustSS — an RSS reader that understands what you read" />
+    <meta property="og:description" content="Semantic search, personalized ranking, optional AI summaries, GReader & Fever APIs — self-hostable." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/static/screenshots/library.webp" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body class="landing">
+    <header class="landing-nav">
+      <a class="auth-brand" href="/"><span class="brand-mark">R</span><span>RustSS</span></a>
+      <nav><a href="/login">Sign in</a> <a class="btn primary" href="/register">Create free account</a></nav>
+    </header>
+
+    <main>
+      <section class="landing-hero">
+        <h1>Your RSS reader, but it actually understands what you read.</h1>
+        <p class="lede">RustSS is a self-hosted, AI-augmented reader: find articles by meaning, get a feed that learns what you care about, and (optionally, with your own key) summarize the long ones.</p>
+        <div class="landing-cta">
+          {% if registration_open %}<a class="btn primary" href="/register">Create free account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
+          {% if demo_mode %}
+          <form method="post" action="/demo/start" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button type="submit" class="btn">Try the live demo</button>
+          </form>
+          {% endif %}
+        </div>
+        {% if demo_mode %}<p class="muted">Demo accounts reset daily. No sign-up required.</p>{% endif %}
+      </section>
+
+      <section class="landing-shots">
+        <img src="/static/screenshots/library.webp" alt="The RustSS reading library" loading="lazy" width="1100" />
+        <img src="/static/screenshots/discover.webp" alt="Semantic discovery and search" loading="lazy" width="1100" />
+        <img src="/static/screenshots/article.webp" alt="An article with an AI summary" loading="lazy" width="1100" />
+      </section>
+
+      <section class="landing-features">
+        <h2>What you get</h2>
+        <div class="feature-grid">
+          <div class="feature"><h3>Semantic search</h3><p>Find articles by meaning with vector search, not just keywords.</p></div>
+          <div class="feature"><h3>Ranking that learns</h3><p>Per-user relevance ranking adapts to what you actually read.</p></div>
+          <div class="feature"><h3>AI summaries</h3><p>Optional LLM summaries — bring your own key; your key, your quota.</p></div>
+          <div class="feature"><h3>Saved semantic searches</h3><p>Alerts and “more like this” for topics you follow.</p></div>
+          <div class="feature"><h3>Three reading modes + 14 themes</h3><p>Side-panel, inline, or standalone; make it yours.</p></div>
+          <div class="feature"><h3>OPML, GReader &amp; Fever</h3><p>Import/export and connect Reeder, NetNewsWire, and more.</p></div>
+          <div class="feature"><h3>Full-text extraction</h3><p>Readable full content with per-feed rewrite rules.</p></div>
+          <div class="feature"><h3>Self-hostable</h3><p>A single binary; you own your data.</p></div>
+        </div>
+      </section>
+
+      <section class="landing-compare">
+        <h2>RustSS vs Miniflux</h2>
+        <p class="muted">Everything you expect from Miniflux, plus it understands what you read. Compared as of {{ comparison_date }}; verify the Miniflux column against current docs.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Capability</th><th>RustSS</th><th>Miniflux</th></tr></thead>
+            <tbody>
+              <tr><td>Feeds / OPML / categories, keyboard-driven reading</td><td>Yes</td><td>Yes</td></tr>
+              <tr><td>GReader &amp; Fever client APIs</td><td>Yes</td><td>Yes</td></tr>
+              <tr><td>Full-text extraction, per-feed rewrite rules</td><td>Yes</td><td>Yes</td></tr>
+              <tr><td>Integrations / webhooks to save &amp; notify</td><td>Yes</td><td>Yes (large built-in list)</td></tr>
+              <tr><td><strong>Semantic (vector) search — find by meaning</strong></td><td>Yes</td><td>No</td></tr>
+              <tr><td><strong>Personalized ranking that learns from your reading</strong></td><td>Yes</td><td>No</td></tr>
+              <tr><td><strong>LLM article summaries (bring your own key)</strong></td><td>Yes</td><td>No</td></tr>
+              <tr><td><strong>Saved semantic searches + “more like this” alerts</strong></td><td>Yes</td><td>No</td></tr>
+              <tr><td>Reading modes (side-panel / inline / standalone) + 14 themes</td><td>Yes</td><td>Single clean reader</td></tr>
+              <tr><td>Maturity, install base, minimal footprint</td><td>Newer; heavier (Postgres+pgvector, Redis, optional Chromium, embeddings)</td><td>Very mature, tiny footprint</td></tr>
+              <tr><td>Language</td><td>Rust</td><td>Go</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">Miniflux is more mature, lighter, and simpler to run; RustSS adds AI/semantic capabilities at a higher resource floor. Pick what fits your needs.</p>
+      </section>
+
+      <section class="landing-final-cta">
+        {% if registration_open %}<a class="btn primary" href="/register">Create your free account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
+        {% if demo_mode && demo_admin_readonly %}
+        <form method="post" action="/demo/start" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="admin" value="1" />
+          <button type="submit" class="btn">Try the admin demo (read-only)</button>
+        </form>
+        {% endif %}
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/abuse">Abuse</a> · <a href="https://github.com/madpin/rustss" rel="noopener noreferrer">Source</a>
+    </footer>
+  </body>
+</html>

@@ -2152,3 +2152,22 @@
     "Demo mode — this account and its data reset daily at 04:00 UTC.";
   if (document.body) document.body.insertBefore(banner, document.body.firstChild);
 })();
+
+// First-run wizard live preview (P8 §8.4): swap data-attributes on the page /
+// preview pane as the user changes options. CSP-safe (no inline styles/JS).
+(function () {
+  var controls = document.querySelectorAll("input[data-wizard-attr]");
+  if (!controls.length) return;
+  var preview = document.getElementById("wizard-preview");
+  controls.forEach(function (input) {
+    input.addEventListener("change", function () {
+      if (!input.checked) return;
+      var attr = "data-" + input.getAttribute("data-wizard-attr");
+      var target =
+        input.getAttribute("data-wizard-target") === "preview"
+          ? preview
+          : document.documentElement;
+      if (target) target.setAttribute(attr, input.value);
+    });
+  });
+})();

@@ -51,7 +51,7 @@ async fn register(app: &Router) -> (String, String) {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "name=&email={email}&password=password123&csrf_token={csrf}"
+                    "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )

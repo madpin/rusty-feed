@@ -108,8 +108,14 @@ pub async fn callback(
     let user = upsert_oauth_user(&state, provider, profile).await?;
 
     let jar = clear_oauth(jar);
+    // Route first-time users through the setup wizard (§8.4).
+    let destination = if user.onboarded_at.is_none() {
+        "/welcome"
+    } else {
+        "/"
+    };
     let jar = session::login(jar, &state.db, user.id, state.settings.cookie_secure).await?;
-    Ok((jar, Redirect::to("/")).into_response())
+    Ok((jar, Redirect::to(destination)).into_response())
 }
 
 fn find_provider<'a>(state: &'a AppState, slug: &str) -> Option<&'a OAuthProvider> {

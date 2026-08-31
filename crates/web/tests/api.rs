@@ -150,6 +150,89 @@ async fn read_only_admin_can_read_but_not_write_admin_routes() {
 }
 
 #[tokio::test]
+async fn landing_page_renders_for_anonymous_visitors() {
+    let Some(state) = state().await else { return };
+    let app = router(state.clone());
+    let response = app
+        .oneshot(Request::get("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8_lossy(&body);
+    assert!(body.contains("Create free account"), "hero CTA present");
+    assert!(body.contains("Miniflux"), "comparison present");
+    assert!(body.contains("Semantic"), "features present");
+}
+
+#[tokio::test]
+async fn first_run_wizard_routes_and_persists() {
+    let Some(state) = state().await else { return };
+    let user = users::create(
+        state.db.pool(),
+        &format!("welcome-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let cookie = session_cookie(&state, user.id).await;
+    let app = router(state.clone());
+
+    // The wizard page renders for a signed-in user.
+    let welcome = app
+        .clone()
+        .oneshot(
+            Request::get("/welcome")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(welcome.status(), StatusCode::OK);
+    let csrf = set_cookies_value(&welcome, "rustss_csrf").unwrap_or_else(|| "x".to_string());
+    let welcome_cookie = format!("{cookie}; rustss_csrf={csrf}");
+
+    // Finishing the wizard stamps onboarded_at.
+    let finish = app
+        .oneshot(
+            Request::post("/welcome")
+                .header("cookie", &welcome_cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&theme=ocean&reading_mode=inline&font_family=serif&article_density=compact"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(finish.status(), StatusCode::SEE_OTHER);
+    let refreshed = users::find_by_id(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        refreshed.onboarded_at.is_some(),
+        "finishing the wizard stamps onboarded_at"
+    );
+}
+
+fn set_cookies_value(resp: &axum::response::Response, name: &str) -> Option<String> {
+    resp.headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|hv| hv.to_str().ok())
+        .find_map(|s| {
+            let s = s.split(';').next()?;
+            let (k, v) = s.split_once('=')?;
+            (k.trim() == name).then(|| v.trim().to_string())
+        })
+}
+
+#[tokio::test]
 async fn legal_pages_are_public() {
     let Some(state) = state().await else { return };
     let app = router(state.clone());

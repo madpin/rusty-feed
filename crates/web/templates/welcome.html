@@ -1,0 +1,58 @@
+{% extends "app_base.html" %}
+{% block title %}Set up RustSS{% endblock %}
+{% block body_class %}page-settings page-welcome{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Welcome</p>
+    <h1>Set up RustSS</h1>
+    <p class="muted">Pick a few basics. Changing an option updates the preview instantly; you can change everything later in Preferences.</p>
+  </div>
+</div>
+<form method="post" action="/welcome" class="wizard-steps">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+  <fieldset class="panel">
+    <legend>1. Reading layout</legend>
+    <label><input type="radio" name="reading_mode" value="side-panel" data-wizard-attr="reading-mode" data-wizard-target="preview"{% if ui.reading_mode == "side-panel" %} checked{% endif %}> List + reader side-by-side</label>
+    <label><input type="radio" name="reading_mode" value="inline" data-wizard-attr="reading-mode" data-wizard-target="preview"{% if ui.reading_mode == "inline" %} checked{% endif %}> Inline in the list</label>
+    <label><input type="radio" name="reading_mode" value="standalone" data-wizard-attr="reading-mode" data-wizard-target="preview"{% if ui.reading_mode == "standalone" %} checked{% endif %}> Standalone page</label>
+  </fieldset>
+
+  <fieldset class="panel">
+    <legend>2. Theme &amp; colors</legend>
+    <div class="wizard-swatches">
+      <label><input type="radio" name="theme" value="system" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "system" %} checked{% endif %}> System</label>
+      <label><input type="radio" name="theme" value="light" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "light" %} checked{% endif %}> Light</label>
+      <label><input type="radio" name="theme" value="dark" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "dark" %} checked{% endif %}> Dark</label>
+      <label><input type="radio" name="theme" value="ocean" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "ocean" %} checked{% endif %}> Ocean</label>
+      <label><input type="radio" name="theme" value="forest" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "forest" %} checked{% endif %}> Forest</label>
+      <label><input type="radio" name="theme" value="plum" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "plum" %} checked{% endif %}> Plum</label>
+      <label><input type="radio" name="theme" value="sunset" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "sunset" %} checked{% endif %}> Sunset</label>
+    </div>
+  </fieldset>
+
+  <fieldset class="panel">
+    <legend>3. Typography &amp; density</legend>
+    <label><input type="radio" name="font_family" value="sans" data-wizard-attr="font-family" data-wizard-target="root"{% if ui.font_family == "sans" %} checked{% endif %}> Sans serif</label>
+    <label><input type="radio" name="font_family" value="serif" data-wizard-attr="font-family" data-wizard-target="root"{% if ui.font_family == "serif" %} checked{% endif %}> Serif</label>
+    <hr />
+    <label><input type="radio" name="article_density" value="compact" data-wizard-attr="density" data-wizard-target="root"{% if ui.article_density == "compact" %} checked{% endif %}> Compact</label>
+    <label><input type="radio" name="article_density" value="comfortable" data-wizard-attr="density" data-wizard-target="root"{% if ui.article_density == "comfortable" %} checked{% endif %}> Comfortable</label>
+    <label><input type="radio" name="article_density" value="spacious" data-wizard-attr="density" data-wizard-target="root"{% if ui.article_density == "spacious" %} checked{% endif %}> Spacious</label>
+  </fieldset>
+
+  <div class="wizard-preview panel" id="wizard-preview" data-reading-mode="{{ ui.reading_mode }}">
+    <h2>Preview</h2>
+    <div class="reader-surface">
+      <h3>A sample article title</h3>
+      <p>This is how your reading typography, spacing, and theme colors will look. Change the options above to see it update instantly — no page reload.</p>
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="primary">Finish</button>
+    <button type="submit" name="skip" value="1" class="button-quiet">Skip for now</button>
+  </div>
+</form>
+{% endblock %}

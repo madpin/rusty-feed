@@ -7,9 +7,14 @@
     <p class="eyebrow">Settings</p>
     <h1>Reading preferences</h1>
     <p class="muted">Make RustSS look and read the way you prefer.</p>
-    <p class="muted"><a href="/settings/account">Account &amp; data (export / delete)</a></p>
+    <p class="muted"><a href="/settings/ai">AI &amp; summaries</a> · <a href="/settings/account">Account &amp; data (export / delete)</a> · <a href="/welcome">Re-run setup</a></p>
   </div>
 </div>
+<section class="panel">
+  <h2>AI &amp; summaries</h2>
+  <p class="muted">Add your own OpenAI key to get article summaries. Your key is encrypted and used only for your summaries — you spend your own quota, exempt from any shared instance budget.</p>
+  <p><a class="btn" href="/settings/ai">Manage your AI key</a></p>
+</section>
 {% if saved %}<p class="notice" role="status">Preferences saved.</p>{% endif %}
 {% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 <form method="post" action="/settings/preferences" class="stack panel preference-form">

@@ -22,12 +22,13 @@ use crate::state::AppState;
 use crate::verify;
 
 #[derive(Template)]
-#[template(path = "home.html")]
-struct HomeTemplate {
-    user_name: Option<String>,
+#[template(path = "landing.html")]
+struct LandingTemplate {
     csrf_token: String,
     demo_mode: bool,
     demo_admin_readonly: bool,
+    registration_open: bool,
+    comparison_date: &'static str,
 }
 
 /// A configured OAuth provider, for rendering "Continue with …" buttons.
@@ -127,11 +128,16 @@ pub async fn home(
         return Ok((jar, Redirect::to("/articles")).into_response());
     }
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
-    let body = render(&HomeTemplate {
-        user_name: None,
+    let body = render(&LandingTemplate {
         csrf_token,
         demo_mode: state.settings.demo_mode,
         demo_admin_readonly: state.settings.demo_mode && state.settings.demo_admin_readonly,
+        registration_open: matches!(
+            state.settings.registration_mode,
+            rustss_core::config::RegistrationMode::Open
+        ),
+        // Verify the Miniflux column against current docs before changing this.
+        comparison_date: "2026-08",
     })?;
     Ok((jar, body).into_response())
 }
@@ -250,8 +256,13 @@ pub async fn login_submit(
         if let Some(ref hash) = user.password_hash {
             if verify_password(&form.password, hash) {
                 let _ = users::clear_failed_logins(state.db.pool(), user.id).await;
+                let destination = if user.onboarded_at.is_none() {
+                    "/welcome"
+                } else {
+                    "/"
+                };
                 let jar = session::login(jar, &state.db, user.id, secure).await?;
-                return Ok((jar, Redirect::to("/")).into_response());
+                return Ok((jar, Redirect::to(destination)).into_response());
             }
         }
         // Wrong password for a real account: count the failure toward lockout.
@@ -449,7 +460,8 @@ pub async fn register_submit(
     }
 
     let jar = session::login(jar, &state.db, user.id, secure).await?;
-    Ok((jar, Redirect::to("/")).into_response())
+    // New accounts start at the first-run wizard (§8.4); it is skippable.
+    Ok((jar, Redirect::to("/welcome")).into_response())
 }
 
 /// `POST /logout` — end the current session.
