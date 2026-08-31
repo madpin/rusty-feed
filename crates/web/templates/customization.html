@@ -1,0 +1,23 @@
+{% extends "app_base.html" %}
+{% block title %}Customization{% endblock %}
+{% block body_class %}page-settings{% endblock %}
+{% block content %}
+<div class="page-header"><div><p class="eyebrow">Appearance</p><h1>Interface customization</h1><p class="muted">Versioned, recoverable customization without weakening the default Content Security Policy.</p></div></div>
+{% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
+{% if safe_mode %}<p class="alert" role="alert">Safe mode is active: all custom CSS and JavaScript are suppressed. <a href="/safe-mode/leave">Leave safe mode</a>.</p>{% else %}<p class="notice">If a customization makes the UI hard to use, open <a href="/safe-mode">Safe mode</a> directly.</p>{% endif %}
+
+<section class="panel"><h2>Personal CSS</h2>
+{% if css_enabled %}
+<p class="muted">External imports and resource URLs are rejected. Use the preview before saving; every save creates a restorable version.</p>
+<form method="post" action="/settings/customization/css" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><label>Stylesheet<textarea name="content" rows="16" spellcheck="false" data-css-customization>{{ css }}</textarea></label><div class="customization-preview" data-css-preview><strong>Preview card</strong><p>Article text, metadata, and actions appear here.</p><button type="button">Example action</button></div><div class="form-actions"><button type="submit" class="primary">Save new CSS version</button></div></form>
+<form method="post" action="/settings/customization/css/reset"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><button type="submit" class="danger">Reset personal CSS</button></form>
+{% else %}<p class="notice">Personal CSS is disabled by the instance administrator.</p>{% endif %}
+{% if !css_versions.is_empty() %}<h3>CSS history</h3><ul class="token-list">{% for version in css_versions %}<li class="token-row"><span>Version {{ version.version }} · {{ version.created }}{% if version.active %} · active{% endif %}</span>{% if !version.active %}<form method="post" action="/settings/customization/css/{{ version.id }}/restore"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><button type="submit">Restore</button></form>{% endif %}</li>{% endfor %}</ul>{% endif %}
+</section>
+
+{% if is_admin %}<section class="panel"><h2>Administrator-managed JavaScript</h2>
+{% if javascript_enabled %}<p class="alert">This script runs with the signed-in RustSS origin. Review it like application code. Users must opt in individually, and Safe mode always suppresses it.</p><form method="post" action="/settings/customization/javascript" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><label>External asset content<textarea name="content" rows="16" spellcheck="false">{{ javascript }}</textarea></label><div class="form-actions"><button type="submit" class="primary">Save new script version</button></div></form><form method="post" action="/settings/customization/javascript/reset"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><button type="submit" class="danger">Disable script</button></form>{% else %}<p class="notice">Set <code>CUSTOM_JAVASCRIPT_ENABLED=true</code> to expose this administrator-only feature.</p>{% endif %}
+{% if !javascript_versions.is_empty() %}<h3>Script history</h3><ul class="token-list">{% for version in javascript_versions %}<li class="token-row"><span>Version {{ version.version }} · {{ version.created }}{% if version.active %} · active{% endif %}</span>{% if !version.active %}<form method="post" action="/settings/customization/javascript/{{ version.id }}/restore"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><button type="submit">Restore</button></form>{% endif %}</li>{% endfor %}</ul>{% endif %}
+</section>{% endif %}
+{% endblock %}

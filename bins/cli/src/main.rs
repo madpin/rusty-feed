@@ -1,9 +1,7 @@
 //! RustSS admin/maintenance CLI.
 //!
-//! Implemented so far: `migrate` (M2). Remaining subcommands are milestone-tagged
-//! stubs (see `docs/DEVELOPMENT_PLAN.md`): `create-admin` (M4), `fetch-model` (M9),
-//! `backfill`/`reindex` (M9), `migrate-secrets` (M12). A richer parser (clap) is
-//! introduced when the first command gains real flags.
+//! Commands intentionally use the same validated configuration as the server,
+//! so maintenance cannot create an incompatible embedding space.
 
 use std::process::ExitCode;
 
@@ -12,11 +10,22 @@ async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("migrate") => run(migrate().await),
-        Some("create-admin") => todo_cmd("create-admin", "M4"),
-        Some("fetch-model") => todo_cmd("fetch-model", "M9"),
-        Some("backfill") => todo_cmd("backfill", "M9"),
-        Some("reindex") => todo_cmd("reindex", "M9"),
-        Some("migrate-secrets") => todo_cmd("migrate-secrets", "M12"),
+        Some("config-check") => run(config_check()),
+        Some("create-admin") => run(create_admin().await),
+        Some("fetch-model") => run(fetch_model().await),
+        Some("backfill") => run(queue_embedding_backfill(false).await),
+        Some("canonicalize-urls") => {
+            run(canonicalize_urls(args.iter().any(|arg| arg == "--apply")).await)
+        }
+        Some("reindex") if args.iter().any(|arg| arg == "--confirm") => {
+            run(queue_embedding_backfill(true).await)
+        }
+        Some("reindex") => {
+            eprintln!(
+                "error: reindex replaces every stored vector; stop workers and rerun with --confirm"
+            );
+            ExitCode::from(2)
+        }
         Some("--version") | Some("-V") => {
             println!("{}", rustss_core::banner());
             ExitCode::SUCCESS
@@ -31,6 +40,183 @@ async fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Report legacy URL collisions and optionally update only conflict-free keys.
+async fn canonicalize_urls(apply: bool) -> anyhow::Result<()> {
+    let config = rustss_core::AppConfig::load()?;
+    let policy = config.tracking_url_policy().map_err(anyhow::Error::msg)?;
+    let db = rustss_db::Db::connect(&config.database_url).await?;
+    db.migrate().await?;
+    let plan = rustss_db::url_backfill::plan(db.pool(), &policy).await?;
+    println!(
+        "canonical URL plan: {} safe change(s), {} collision(s), {} unchanged",
+        plan.changes.len(),
+        plan.collisions.len(),
+        plan.unchanged
+    );
+    for collision in plan.collisions.iter().take(50) {
+        println!(
+            "collision: article {} cannot change {} -> {}",
+            collision.article_id, collision.current_url, collision.canonical_url
+        );
+    }
+    if plan.collisions.len() > 50 {
+        println!(
+            "{} additional collision(s) omitted",
+            plan.collisions.len() - 50
+        );
+    }
+    if apply {
+        let changed = rustss_db::url_backfill::apply(db.pool(), &plan).await?;
+        println!("updated {changed} collision-free article key(s)");
+    } else if !plan.changes.is_empty() {
+        println!("dry run only; rerun with --apply to update collision-free keys");
+    }
+    Ok(())
+}
+
+/// Download and load the configured local ONNX model, then run a dimensional
+/// readiness probe. A populated cache can subsequently be copied to an
+/// air-gapped host without runtime network access.
+async fn fetch_model() -> anyhow::Result<()> {
+    let config = rustss_core::AppConfig::load()?;
+    let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
+        provider: config.embedding_provider,
+        model: config.embedding_model,
+        openai_api_key: config
+            .openai_api_key
+            .as_ref()
+            .map(|secret| secret.expose().to_string()),
+        openai_base_url: config.openai_base_url,
+        model_cache_dir: config.model_cache_dir.clone(),
+    })?;
+    let vector = embedder.embed_one("RustSS model readiness probe").await?;
+    if vector.len() != rustss_embed::EMBEDDING_DIM {
+        anyhow::bail!(
+            "model returned {} dimensions; RustSS requires {}",
+            vector.len(),
+            rustss_embed::EMBEDDING_DIM
+        );
+    }
+    println!(
+        "model {} is ready ({} dimensions) in {}",
+        embedder.model(),
+        vector.len(),
+        config.model_cache_dir.display()
+    );
+    Ok(())
+}
+
+/// Create or promote an administrator. Credentials are read from environment
+/// variables so the password never appears in the process argument list.
+async fn create_admin() -> anyhow::Result<()> {
+    use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
+
+    let config = rustss_core::AppConfig::load()?;
+    let email = std::env::var("RUSTSS_ADMIN_EMAIL")
+        .map_err(|_| anyhow::anyhow!("RUSTSS_ADMIN_EMAIL must be set"))?;
+    let email = email.trim().to_ascii_lowercase();
+    if !email.contains('@') || email.len() > 320 {
+        anyhow::bail!("RUSTSS_ADMIN_EMAIL is not a valid email address");
+    }
+    let db = rustss_db::Db::connect(&config.database_url).await?;
+    db.migrate().await?;
+    if let Some(user) = rustss_db::users::find_by_email(db.pool(), &email).await? {
+        rustss_db::users::set_role(db.pool(), user.id, "admin").await?;
+        println!("promoted {email} to administrator");
+        return Ok(());
+    }
+    let password = std::env::var("RUSTSS_ADMIN_PASSWORD")
+        .map_err(|_| anyhow::anyhow!("RUSTSS_ADMIN_PASSWORD must be set for a new account"))?;
+    if password.chars().count() < 8 {
+        anyhow::bail!("RUSTSS_ADMIN_PASSWORD must contain at least 8 characters");
+    }
+    let salt = SaltString::generate(&mut OsRng);
+    let password_hash = argon2::Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|error| anyhow::anyhow!("password hashing failed: {error}"))?
+        .to_string();
+    let name = std::env::var("RUSTSS_ADMIN_NAME").ok();
+    rustss_db::users::create_with_default_feeds(
+        db.pool(),
+        &email,
+        name.as_deref(),
+        None,
+        "admin",
+        Some(&password_hash),
+    )
+    .await?;
+    println!("created administrator {email}");
+    Ok(())
+}
+
+/// Queue one revision-keyed job per shared article missing the configured
+/// vector space. Reindex first replaces the durable space guard and removes old
+/// vectors, making the disruptive model transition explicit.
+async fn queue_embedding_backfill(reindex: bool) -> anyhow::Result<()> {
+    let config = rustss_core::AppConfig::load()?;
+    let model = rustss_embed::canonical_model(config.embedding_provider, &config.embedding_model)?;
+    let db = rustss_db::Db::connect(&config.database_url).await?;
+    db.migrate().await?;
+    if reindex {
+        let removed = rustss_db::embedding_space::replace(
+            db.pool(),
+            &model,
+            rustss_embed::EMBEDDING_DIM as i32,
+        )
+        .await?;
+        println!("removed {removed} vectors from the previous embedding space");
+    } else {
+        rustss_db::embedding_space::ensure(db.pool(), &model, rustss_embed::EMBEDDING_DIM as i32)
+            .await?;
+    }
+
+    let mut cursor = None;
+    let mut queued = 0_u64;
+    loop {
+        let batch =
+            rustss_db::articles::list_needing_embedding_space(db.pool(), &model, cursor, 1_000)
+                .await?;
+        if batch.is_empty() {
+            break;
+        }
+        for article in &batch {
+            let dedup = format!("embed:{}:{}", article.id, article.content_revision);
+            if rustss_db::jobs::enqueue(
+                db.pool(),
+                "embed_article",
+                serde_json::json!({
+                    "article_id": article.id,
+                    "content_revision": article.content_revision,
+                }),
+                Some(&dedup),
+                None,
+                3,
+            )
+            .await?
+            .is_some()
+            {
+                queued += 1;
+            }
+        }
+        cursor = batch.last().map(|article| article.id);
+    }
+    println!(
+        "queued {queued} shared article revision(s) for model {}",
+        model
+    );
+    Ok(())
+}
+
+/// Validate all application configuration and print only a secret-safe summary.
+fn config_check() -> anyhow::Result<()> {
+    let config = rustss_core::AppConfig::load()?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&config.diagnostic_summary())?
+    );
+    Ok(())
 }
 
 /// Apply database migrations. Reads `DATABASE_URL` directly (migrate needs only
@@ -57,11 +243,6 @@ fn run(result: anyhow::Result<()>) -> ExitCode {
     }
 }
 
-fn todo_cmd(name: &str, milestone: &str) -> ExitCode {
-    eprintln!("`{name}` is not implemented yet (scheduled for milestone {milestone}).");
-    ExitCode::from(1)
-}
-
 fn print_help() {
     println!(
         "{banner}\n\n\
@@ -69,11 +250,13 @@ fn print_help() {
          USAGE:\n    rustss-cli <COMMAND>\n\n\
          COMMANDS:\n\
          \x20   migrate           Apply database migrations\n\
-         \x20   create-admin      Create/promote an admin user (M4)\n\
-         \x20   fetch-model       Pre-download the embedding model (M9)\n\
-         \x20   backfill          Backfill embeddings for existing articles (M9)\n\
-         \x20   reindex           Rebuild vector/search indexes (M9)\n\
-         \x20   migrate-secrets   Re-encrypt secrets under the unified AEAD (M12)\n\
+         \x20   config-check      Validate config and print a secret-safe summary\n\
+         \x20   create-admin      Create/promote using RUSTSS_ADMIN_* environment variables\n\
+         \x20   fetch-model       Download/cache and verify the embedding model\n\
+         \x20   backfill          Queue missing vectors for the active model\n\
+         \x20   canonicalize-urls [--apply]\n\
+         \x20                      Dry-run or apply collision-free legacy URL cleanup\n\
+         \x20   reindex --confirm Replace the vector space and queue every article\n\
          \x20   help              Show this help\n",
         banner = rustss_core::banner()
     );

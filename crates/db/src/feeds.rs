@@ -5,6 +5,7 @@
 
 use serde_json::Value as Json;
 use sqlx::PgPool;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error::{DbError, Result};
@@ -128,6 +129,23 @@ pub async fn reset_refresh_schedule(pool: &PgPool, feed_ids: &[Uuid]) -> Result<
     .bind(feed_ids)
     .fetch_all(pool)
     .await?)
+}
+
+/// Explicit administrator pause/resume. Resume derives health from preserved
+/// failure history instead of falsely declaring a failing source healthy.
+pub async fn set_paused(pool: &PgPool, feed_id: Uuid, paused: bool) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE feeds SET health_status = CASE WHEN $2 THEN 'disabled' \
+              WHEN consecutive_failures = 0 THEN 'healthy' \
+              WHEN consecutive_failures < 3 THEN 'warning' ELSE 'error' END, \
+         last_fetched_at = CASE WHEN $2 THEN last_fetched_at ELSE NULL END, updated_at = now() \
+         WHERE id = $1 RETURNING id",
+    )
+    .bind(feed_id)
+    .bind(paused)
+    .fetch_optional(pool)
+    .await?;
+    Ok(result.is_some())
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -288,6 +306,19 @@ pub async fn update_content_settings(
     Ok(())
 }
 
+/// Force the next shared refresh to retrieve a full representation instead of
+/// accepting a conditional 304. Used when administrator-owned processing rules
+/// change and the stored feed body must be rebuilt from publisher input.
+pub async fn clear_fetch_validators(pool: &PgPool, feed_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE feeds SET etag = NULL, last_modified = NULL, updated_at = now() WHERE id = $1",
+    )
+    .bind(feed_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Record a successful fetch: refresh validators + reset health.
 pub async fn record_fetch_success(
     pool: &PgPool,
@@ -296,6 +327,12 @@ pub async fn record_fetch_success(
     last_modified: Option<&str>,
 ) -> Result<()> {
     let mut transaction = pool.begin().await?;
+    let previous: Option<(String, String, Option<OffsetDateTime>)> = sqlx::query_as(
+        "SELECT name, health_status, failure_started_at FROM feeds WHERE id = $1 FOR UPDATE",
+    )
+    .bind(feed_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
     sqlx::query(
         "UPDATE feeds SET last_fetched_at = now(), last_successful_fetch_at = now(), \
          etag = $2, last_modified = $3, error_count = 0, consecutive_failures = 0, \
@@ -311,6 +348,24 @@ pub async fn record_fetch_success(
         .execute(&mut *transaction)
         .await?;
     transaction.commit().await?;
+    if let Some((name, previous_status, failure_started_at)) = previous {
+        if previous_status == "error" {
+            let event_key = format!(
+                "feed:{feed_id}:recovered:{}",
+                failure_started_at
+                    .map(|started| started.unix_timestamp())
+                    .unwrap_or_default()
+            );
+            crate::notifications::create_feed_health_batch(
+                pool,
+                feed_id,
+                &name,
+                "recovered",
+                &event_key,
+            )
+            .await?;
+        }
+    }
     Ok(())
 }
 
@@ -324,17 +379,17 @@ pub async fn record_fetch_failure(
     let error = failure.summary();
     let http_status = failure.http_status();
     let mut transaction = pool.begin().await?;
-    sqlx::query(
+    let transition: Option<(String, i32, Option<OffsetDateTime>)> = sqlx::query_as(
         "UPDATE feeds SET last_fetched_at = now(), error_count = error_count + 1, \
          consecutive_failures = consecutive_failures + 1, \
          failure_started_at = coalesce(failure_started_at, now()), last_error = $2, http_status = $3, \
          health_status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'error' ELSE 'warning' END \
-         WHERE id = $1",
+         WHERE id = $1 RETURNING name, consecutive_failures, failure_started_at",
     )
     .bind(feed_id)
     .bind(&error)
     .bind(http_status)
-    .execute(&mut *transaction)
+    .fetch_optional(&mut *transaction)
     .await?;
     sqlx::query(
         "INSERT INTO feed_error_log (id, feed_id, error_type, error_message, http_status) \
@@ -348,6 +403,20 @@ pub async fn record_fetch_failure(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
+    if let Some((name, consecutive_failures, failure_started_at)) = transition {
+        if consecutive_failures == 3 {
+            let event_key = format!(
+                "feed:{feed_id}:failing:{}",
+                failure_started_at
+                    .map(|started| started.unix_timestamp())
+                    .unwrap_or_default()
+            );
+            crate::notifications::create_feed_health_batch(
+                pool, feed_id, &name, "failing", &event_key,
+            )
+            .await?;
+        }
+    }
     Ok(())
 }
 

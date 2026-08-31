@@ -16,6 +16,8 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+fastembed = { workspace = true }
+tokio = { workspace = true }
 async-trait = "0.1"
 
 [dev-dependencies]

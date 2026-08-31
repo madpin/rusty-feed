@@ -1,0 +1,36 @@
+{% extends "app_base.html" %}
+{% block title %}Sessions{% endblock %}
+{% block body_class %}page-sessions{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Account security</p>
+    <h1>Signed-in sessions</h1>
+    <p class="muted">Review where your account is signed in and revoke access you no longer use.</p>
+  </div>
+</div>
+{% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+<section class="panel">
+  <div class="form-actions">
+    <form method="post" action="/settings/sessions/revoke-others">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="danger">Sign out every other session</button>
+    </form>
+  </div>
+  <ul class="token-list">
+  {% for entry in sessions %}
+    <li class="token-row">
+      <div>
+        <strong>{% if entry.current %}This session{% else %}Signed-in session{% endif %}</strong>
+        <div class="meta">Created {{ entry.created }} · Last used {{ entry.last_used }} · Expires {{ entry.expires }}</div>
+      </div>
+      <form method="post" action="/settings/sessions/{{ entry.id }}/revoke"
+            data-confirm="Revoke this session?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button type="submit" class="danger">{% if entry.current %}Sign out here{% else %}Revoke{% endif %}</button>
+      </form>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endblock %}

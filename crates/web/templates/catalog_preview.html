@@ -70,7 +70,7 @@
   <details class="preview-article" open>
     <summary><span>{{ article.title }}</span>{% if let Some(published) = article.published %}<span class="muted">{{ published }}</span>{% endif %}</summary>
     <div class="preview-article-content">
-      {% if let Some(url) = article.url %}<p class="reader-meta"><a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original article</a></p>{% endif %}
+      {% if let Some(url) = article.url %}<p class="reader-meta"><a href="{{ url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open original article</a></p>{% endif %}
       {% if let Some(content) = article.rss_content %}
       <div class="preview-body">{{ content }}</div>
       {% else %}

@@ -16,7 +16,9 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use rustss_core::config::LlmProvider;
-use rustss_db::{articles, cost_ledger, Article, Db};
+use rustss_core::crypto::Cryptor;
+use rustss_core::html::article_html_to_markdown;
+use rustss_db::{articles, cost_ledger, llm_profiles, Article, Db};
 
 /// A chat completion result with token usage.
 #[derive(Debug, Clone)]
@@ -165,6 +167,87 @@ pub fn build_client(config: LlmConfig) -> Option<Arc<dyn LlmClient>> {
     }
 }
 
+/// Resolves managed providers in user → administrator → environment order.
+/// Failed providers are tried in sequence; credentials are decrypted only when
+/// a summary job runs and are never logged or returned to the browser.
+pub struct ProviderCascade {
+    db: Db,
+    cryptor: Cryptor,
+    environment: Option<Arc<dyn LlmClient>>,
+}
+
+impl ProviderCascade {
+    pub fn new(db: Db, encryption_secret: &[u8], environment: Option<Arc<dyn LlmClient>>) -> Self {
+        Self {
+            db,
+            cryptor: Cryptor::new_with_context(
+                encryption_secret,
+                b"rustss/llm-provider-credentials/v1",
+            ),
+            environment,
+        }
+    }
+
+    pub fn has_environment(&self) -> bool {
+        self.environment.is_some()
+    }
+
+    async fn clients(&self, user_id: Option<Uuid>) -> anyhow::Result<Vec<Arc<dyn LlmClient>>> {
+        let profiles = llm_profiles::resolve(self.db.pool(), user_id).await?;
+        let mut clients: Vec<Arc<dyn LlmClient>> = Vec::with_capacity(profiles.len() + 1);
+        for profile in profiles {
+            let key = profile
+                .api_key_ciphertext
+                .as_deref()
+                .map(|ciphertext| self.cryptor.decrypt_str(ciphertext))
+                .transpose()
+                .map_err(|_| anyhow::anyhow!("managed AI credential could not be decrypted"))?;
+            clients.push(Arc::new(OpenAiCompatClient::new(
+                &profile.provider,
+                profile.base_url,
+                key,
+                profile.model,
+            )));
+        }
+        if let Some(environment) = &self.environment {
+            clients.push(environment.clone());
+        }
+        Ok(clients)
+    }
+}
+
+/// Summarize through the configured cascade, stopping on the first successful
+/// provider. A shared summary is still written at most once.
+pub async fn summarize_article_with_cascade(
+    cascade: &ProviderCascade,
+    user_id: Option<Uuid>,
+    article: &Article,
+) -> anyhow::Result<(bool, String)> {
+    let clients = cascade.clients(user_id).await?;
+    if clients.is_empty() {
+        anyhow::bail!("no AI summary provider is configured");
+    }
+    let mut failures = Vec::new();
+    for client in clients {
+        match summarize_article(&cascade.db, client.as_ref(), user_id, article).await {
+            Ok(written) => return Ok((written, client.model().to_string())),
+            Err(error) => {
+                tracing::warn!(
+                    provider = client.provider(),
+                    model = client.model(),
+                    error = %error,
+                    "AI provider failed; trying the next configured provider"
+                );
+                failures.push(format!("{}/{}", client.provider(), client.model()));
+            }
+        }
+    }
+    anyhow::bail!(
+        "all configured AI summary providers failed ({})",
+        failures.join(", ")
+    )
+}
+
 /// A parsed article summary.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Summary {
@@ -226,7 +309,8 @@ pub async fn summarize_article(
         return Ok(false);
     }
 
-    let (summary, completion) = summarize(client, &article.title, &article.content).await?;
+    let markdown = article_html_to_markdown(&article.content, &article.url);
+    let (summary, completion) = summarize(client, &article.title, &markdown).await?;
     let written = articles::set_summary(
         db.pool(),
         article.id,

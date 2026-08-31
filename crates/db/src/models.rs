@@ -67,6 +67,7 @@ pub struct Article {
     pub id: Uuid,
     pub feed_id: Uuid,
     pub url: String,
+    pub original_url: String,
     pub comments_url: Option<String>,
     pub guid: Option<String>,
     pub title: String,
@@ -77,6 +78,14 @@ pub struct Article {
     pub feed_content: Option<String>,
     pub feed_excerpt: Option<String>,
     pub feed_content_hash: Option<String>,
+    pub feed_blocked_tracking_pixels: i32,
+    pub article_page_content: Option<String>,
+    pub article_page_excerpt: Option<String>,
+    pub article_page_content_hash: Option<String>,
+    pub article_page_fetched_at: Option<OffsetDateTime>,
+    pub article_page_expires_at: Option<OffsetDateTime>,
+    pub article_page_processing_version: i32,
+    pub article_page_blocked_tracking_pixels: i32,
     pub content_source: String,
     pub content_revision: i64,
     pub image_url: Option<String>,
@@ -95,8 +104,10 @@ pub struct Article {
 
 /// Columns for `articles` (deliberately excludes the generated `search_vector`).
 pub(crate) const ARTICLE_COLUMNS: &str =
-    "id, feed_id, url, comments_url, guid, title, author, content, excerpt, \
-    content_hash, feed_content, feed_excerpt, feed_content_hash, content_source, content_revision, \
+    "id, feed_id, url, original_url, comments_url, guid, title, author, content, excerpt, \
+    content_hash, feed_content, feed_excerpt, feed_content_hash, feed_blocked_tracking_pixels, article_page_content, \
+    article_page_excerpt, article_page_content_hash, article_page_fetched_at, \
+    article_page_expires_at, article_page_processing_version, article_page_blocked_tracking_pixels, content_source, content_revision, \
     image_url, published_at, extraction_status, extraction_error, summary, key_points, topics, \
     summarized_at, summary_model, created_at, updated_at";
 
@@ -166,6 +177,7 @@ pub(crate) const DOMAIN_STATE_COLUMNS: &str =
 #[derive(Debug, Clone, FromRow)]
 pub struct Job {
     pub id: Uuid,
+    pub queue_name: String,
     pub kind: String,
     pub payload: serde_json::Value,
     pub attempts: i32,
@@ -201,6 +213,33 @@ pub struct ApiToken {
 pub(crate) const API_TOKEN_COLUMNS: &str =
     "id, user_id, name, token_hash, scopes, last_used_at, created_at, revoked_at";
 
+/// Personal authorization state for one public view of a shared article.
+#[derive(Debug, Clone, FromRow)]
+pub struct PublicArticleShare {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub article_id: Uuid,
+    pub token_hash: String,
+    pub token_ciphertext: String,
+    pub slug: String,
+    pub content_source: String,
+    pub show_title: bool,
+    pub show_metadata: bool,
+    pub show_source_link: bool,
+    pub include_images: bool,
+    pub expires_at: Option<OffsetDateTime>,
+    pub revoked_at: Option<OffsetDateTime>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+pub(crate) const PUBLIC_ARTICLE_SHARE_COLUMNS: &str = "id, user_id, article_id, token_hash, \
+    token_ciphertext, slug, content_source, show_title, show_metadata, show_source_link, \
+    include_images, expires_at, revoked_at, created_at, updated_at";
+
+/// Maximum number of feed-provided attachments retained for one shared article.
+pub const MAX_ARTICLE_ENCLOSURES: usize = 64;
+
 /// Input for ingesting an article (before content hashing / persistence).
 #[derive(Debug, Clone)]
 pub struct NewArticle {
@@ -213,7 +252,52 @@ pub struct NewArticle {
     pub content: String,
     pub excerpt: Option<String>,
     pub image_url: Option<String>,
+    pub enclosures: Vec<NewArticleEnclosure>,
     pub published_at: Option<OffsetDateTime>,
+}
+
+/// Feed-provided attachment metadata before it is associated with a stored article.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewArticleEnclosure {
+    pub url: String,
+    /// One of `audio`, `video`, `image`, or `file`.
+    pub media_kind: String,
+    pub mime_type: Option<String>,
+    pub title: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub duration_seconds: Option<i64>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+}
+
+/// Ordered attachment metadata stored once with a shared article.
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct ArticleEnclosure {
+    pub article_id: Uuid,
+    pub position: i32,
+    pub url: String,
+    /// One of `audio`, `video`, `image`, or `file`.
+    pub media_kind: String,
+    pub mime_type: Option<String>,
+    pub title: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub duration_seconds: Option<i64>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+}
+
+/// One shared positive or negative media-proxy cache entry.
+#[derive(Debug, Clone, FromRow)]
+pub struct MediaCacheEntry {
+    pub cache_key: String,
+    pub source_url: String,
+    /// `ready` or `failed`.
+    pub status: String,
+    pub content_type: Option<String>,
+    pub body: Option<Vec<u8>>,
+    pub failure_kind: Option<String>,
+    pub fetched_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
 }
 
 /// The result of [`crate::articles::upsert`].

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <title>{{ browser_title }} · Shared with RustSS</title>
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body class="public-share-page">
+    <main class="public-share-shell">
+      <article class="reader public-share-article">
+        <p class="eyebrow">Shared article</p>
+        {% if show_title %}<h1>{{ title }}</h1>{% endif %}
+        {% if show_metadata %}
+        <p class="reader-meta">
+          <span>{{ feed_name }}</span>
+          {% if let Some(author) = author %}<span>By {{ author }}</span>{% endif %}
+          {% if let Some(published) = published %}<span>{{ published }}</span>{% endif %}
+        </p>
+        {% endif %}
+        {% if let Some(url) = source_url %}<p><a href="{{ url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open privacy-clean source</a></p>{% endif %}
+        {% if using_rss_fallback %}<p class="content-notice">The selected public-page copy is unavailable, so this link is showing the stored RSS copy.</p>{% endif %}
+        {% if images_omitted %}<p class="content-notice privacy-notice">External images were omitted by the person who shared this article.</p>{% endif %}
+        <div class="article-body">{{ content|safe }}</div>
+      </article>
+      <footer class="public-share-footer">Shared from a private RustSS reader. No account or reading state is exposed.</footer>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+{% extends "app_base.html" %}
+{% block title %}Passkeys{% endblock %}
+{% block body_class %}page-settings{% endblock %}
+{% block content %}
+<div class="page-header"><div><p class="eyebrow">Security</p><h1>Passkeys</h1><p class="muted">Use Touch ID, Windows Hello, a security key, or a password manager to sign in without sending a password.</p></div></div>
+{% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
+{% if !enabled %}<p class="alert">Passkeys are disabled by the instance administrator.</p>{% else %}
+<section class="panel"><h2>Add a passkey</h2><form data-passkey-register class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><label>Passkey name<input name="name" maxlength="80" placeholder="MacBook Touch ID" required /></label>{% if has_password %}<label>Current password<input type="password" name="password" autocomplete="current-password" required /></label>{% endif %}<button type="submit" class="primary">Add passkey</button><p class="muted" data-passkey-status role="status">The authenticator prompt opens only after you choose Add passkey.</p></form></section>
+{% endif %}
+<section class="panel"><h2>Your passkeys</h2>{% if credentials.is_empty() %}<p class="muted">No passkeys registered.</p>{% else %}<ul class="token-list">{% for credential in credentials %}<li class="token-row"><div><strong>{{ credential.name }}</strong><div class="meta">Added {{ credential.created }}{% if let Some(last_used) = credential.last_used %} · last used {{ last_used }}{% endif %}</div></div><form method="post" action="/settings/passkeys/{{ credential.id }}/delete" data-confirm="Revoke this passkey?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><button class="danger" type="submit">Revoke</button></form></li>{% endfor %}</ul>{% endif %}</section>
+<section class="panel"><h2>Recovery</h2><p>Keep at least one additional sign-in method or an administrator recovery path. Revoking a passkey does not reveal biometric data—RustSS stores only its public credential.</p><p><a href="/settings/sessions">Review signed-in devices</a></p></section>
+{% endblock %}

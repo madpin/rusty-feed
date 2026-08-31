@@ -1,6 +1,6 @@
 {% extends "app_base.html" %}
 {% block title %}{{ scope_label }}{% endblock %}
-{% block body_class %}page-articles{% endblock %}
+{% block body_class %}page-articles{% if side_panel %} side-panel-mode{% endif %}{% endblock %}
 {% block layout_class %}has-context-sidebar{% endblock %}
 {% block sidebar %}
 {% include "library_context.html" %}
@@ -34,6 +34,8 @@
       <div class="mobile-library-context-content">{% include "library_context.html" %}</div>
     </details>
 
+    {% if filtered_count > 0 %}<p class="notice" role="status">{{ filtered_count }} article(s) in this window were hidden by your subscription filters.</p>{% endif %}
+
     {% if articles.is_empty() %}
     <div class="empty-state">
       <p><strong>No articles yet.</strong></p>
@@ -43,7 +45,8 @@
     {% else %}
     <ul class="article-list" data-reading-mode="{% if side_panel %}side-panel{% else %}{{ reading_mode }}{% endif %}"{% if side_panel %} data-reading-panel="#reading-pane"{% endif %}>
       {% for a in articles %}
-      <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}">
+      <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}" data-article-card>
+        <button type="button" class="article-drag-handle" draggable="true" data-feed-drag data-feed-id="{{ a.feed_id }}" data-feed-name="{{ a.feed_name }}" aria-label="Move the {{ a.feed_name }} source feed to a folder" title="Drag to a folder, or select to choose one">⠿</button>
         {% if let Some(image_url) = a.image_url %}<img class="article-thumbnail" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
         <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if side_panel %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
         <div class="meta">
@@ -77,12 +80,14 @@
           <a href="/articles/{{ a.id }}" class="btn summary-card-link">View AI summary</a>
           {% else if a.can_summarize %}
           <form class="js-action" method="post" action="/articles/{{ a.id }}/summarize"
-                data-action="summarize" data-success-message="AI summary queued. Open this article shortly to read it.">
+                data-action="summarize" data-summary-status-url="/articles/{{ a.id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit" class="summary-button">Summarize with AI</button>
+            <span class="muted" data-summary-progress role="status"></span>
           </form>
           {% endif %}
+          <a href="/articles/{{ a.id }}/send" class="btn">Send to…</a>
           <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
                 data-target="#card-{{ a.id }}" data-feedback-value="up" data-success-message="RustSS will show you more articles like this.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
@@ -121,4 +126,50 @@
   </aside>
   {% endif %}
 </div>
+
+<dialog class="quick-settings-dialog" data-content-settings-dialog aria-labelledby="quick-content-title">
+  <form method="post" action="/feeds/placeholder/content-settings" class="stack" data-content-settings-form>
+    <div class="dialog-heading"><div><p class="eyebrow">Personal feed preference</p><h2 id="quick-content-title" data-content-settings-title>Content settings</h2></div><button type="button" class="button-quiet" data-quick-dialog-close aria-label="Close content settings">Close</button></div>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <fieldset>
+      <legend>What do you want to read?</legend>
+      <label class="radio-row"><input type="radio" name="content_mode" value="rss" /><span><strong>RSS content</strong><small>Always retained and immediately available.</small></span></label>
+      <label class="radio-row"><input type="radio" name="content_mode" value="article_page" /><span><strong>Public article page</strong><small>Use the shared public-page copy with RSS fallback.</small></span></label>
+    </fieldset>
+    <label>Public-page lifetime
+      <select name="content_lifetime">
+        <option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="365">1 year</option><option value="infinite">Infinite</option>
+      </select>
+    </label>
+    <div class="dialog-actions"><button type="button" data-quick-dialog-close>Cancel</button><button type="submit" class="primary">Save content settings</button></div>
+  </form>
+</dialog>
+
+<dialog class="quick-settings-dialog" data-tags-settings-dialog aria-labelledby="quick-tags-title">
+  <form method="post" action="/feeds/placeholder/organization" class="stack" data-tags-settings-form>
+    <div class="dialog-heading"><div><p class="eyebrow">Personal organization</p><h2 id="quick-tags-title" data-tags-settings-title>Feed tags</h2></div><button type="button" class="button-quiet" data-quick-dialog-close aria-label="Close tag settings">Close</button></div>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="folder_id" value="" data-tags-folder-id />
+    <label>Tags
+      <input type="text" name="tags" data-tags-settings-input maxlength="819" placeholder="technology, work" />
+      <small>Separate tags with commas. Existing tags for this feed are replaced.</small>
+    </label>
+    <div class="dialog-actions"><button type="button" data-quick-dialog-close>Cancel</button><button type="submit" class="primary">Save tags</button></div>
+  </form>
+</dialog>
+
+<dialog class="quick-settings-dialog" data-move-feed-dialog aria-labelledby="move-feed-title">
+  <form method="post" action="/feeds/placeholder/folder" class="stack" data-move-feed-form>
+    <div class="dialog-heading"><div><p class="eyebrow">Move source feed</p><h2 id="move-feed-title" data-move-feed-title>Choose a folder</h2></div><button type="button" class="button-quiet" data-move-feed-close aria-label="Close folder picker">Close</button></div>
+    <p class="muted">Folders organize feeds, so every article from this source moves together.</p>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Destination
+      <select name="folder_id" data-move-feed-folder>
+        <option value="">Unfiled</option>
+        {% for folder in folders %}<option value="{{ folder.id }}">{{ folder.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="dialog-actions"><button type="button" data-move-feed-close>Cancel</button><button type="submit" class="primary">Move feed</button></div>
+  </form>
+</dialog>
 {% endblock %}

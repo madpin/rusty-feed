@@ -2,7 +2,7 @@
 //! home page. Server-rendered with Askama; CSRF-protected form posts.
 
 use askama::Template;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
@@ -50,6 +50,7 @@ struct LoginTemplate {
     error: Option<String>,
     csrf_token: String,
     providers: Vec<ProviderButton>,
+    passkeys_enabled: bool,
 }
 
 #[derive(Template)]
@@ -58,6 +59,7 @@ struct RegisterTemplate {
     error: Option<String>,
     csrf_token: String,
     registration_open: bool,
+    invite_token: String,
     providers: Vec<ProviderButton>,
 }
 
@@ -74,7 +76,15 @@ pub struct RegisterForm {
     name: String,
     email: String,
     password: String,
+    #[serde(default)]
+    invite_token: String,
     csrf_token: String,
+}
+
+#[derive(Default, Deserialize)]
+pub struct RegisterQuery {
+    #[serde(default)]
+    invite: String,
 }
 
 #[derive(Deserialize)]
@@ -120,6 +130,7 @@ pub async fn login_page(
         error: None,
         csrf_token,
         providers: provider_buttons(&state),
+        passkeys_enabled: state.webauthn.is_some(),
     })?;
     Ok((jar, body).into_response())
 }
@@ -154,6 +165,7 @@ pub async fn login_submit(
         error: Some("Invalid email or password.".to_string()),
         csrf_token,
         providers: provider_buttons(&state),
+        passkeys_enabled: state.webauthn.is_some(),
     })?;
     Ok((jar, body).into_response())
 }
@@ -161,18 +173,21 @@ pub async fn login_submit(
 /// `GET /register` — show the registration form.
 pub async fn register_page(
     State(state): State<AppState>,
+    Query(query): Query<RegisterQuery>,
     jar: CookieJar,
     MaybeUser(user): MaybeUser,
 ) -> Result<Response, AppError> {
     if user.is_some() {
         return Ok((jar, Redirect::to("/")).into_response());
     }
-    let open = registration_open(&state).await?;
+    let invite_token = query.invite.trim().to_string();
+    let open = registration_open(&state, &invite_token).await?;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = render(&RegisterTemplate {
         error: None,
         csrf_token,
         registration_open: open,
+        invite_token,
         providers: provider_buttons(&state),
     })?;
     Ok((jar, body).into_response())
@@ -195,7 +210,18 @@ pub async fn register_submit(
 
     let user_count = users::count(state.db.pool()).await?;
     let bootstrap = user_count == 0; // first user always allowed + becomes admin
-    let allowed = matches!(state.settings.registration_mode, RegistrationMode::Open) || bootstrap;
+    let invite_token = form.invite_token.trim();
+    let invitation_allowed = matches!(state.settings.registration_mode, RegistrationMode::Invite)
+        && !invite_token.is_empty()
+        && rustss_db::invitations::is_valid(
+            state.db.pool(),
+            &crate::auth::token::hash(invite_token),
+            Some(form.email.trim()),
+        )
+        .await?;
+    let allowed = matches!(state.settings.registration_mode, RegistrationMode::Open)
+        || bootstrap
+        || invitation_allowed;
     let providers = provider_buttons(&state);
 
     // Helper to re-render the form with an error message.
@@ -205,6 +231,7 @@ pub async fn register_submit(
             error: Some(message.to_string()),
             csrf_token,
             registration_open: true,
+            invite_token: invite_token.to_string(),
             providers: providers.clone(),
         })?;
         Ok((jar, body).into_response())
@@ -216,6 +243,7 @@ pub async fn register_submit(
             error: None,
             csrf_token,
             registration_open: false,
+            invite_token: String::new(),
             providers: providers.clone(),
         })?;
         return Ok((jar, body).into_response());
@@ -247,15 +275,27 @@ pub async fn register_submit(
         }
     };
 
-    let user = users::create(
-        state.db.pool(),
-        email,
-        name,
-        None,
-        role,
-        Some(&password_hash),
-    )
-    .await?;
+    let user = if invitation_allowed && !bootstrap {
+        users::create_with_invitation(
+            state.db.pool(),
+            &crate::auth::token::hash(invite_token),
+            email,
+            name,
+            &password_hash,
+        )
+        .await?
+        .ok_or_else(|| AppError::Validation("This invitation is no longer available.".into()))?
+    } else {
+        users::create_with_default_feeds(
+            state.db.pool(),
+            email,
+            name,
+            None,
+            role,
+            Some(&password_hash),
+        )
+        .await?
+    };
 
     let jar = session::login(jar, &state.db, user.id, secure).await?;
     Ok((jar, Redirect::to("/")).into_response())
@@ -271,13 +311,32 @@ pub async fn logout_submit(
         return Err(AppError::Forbidden);
     }
     let jar = session::logout(jar, &state.db).await;
-    Ok((jar, Redirect::to("/login")).into_response())
+    let destination = state
+        .settings
+        .reverse_proxy_auth
+        .logout_url
+        .as_deref()
+        .unwrap_or("/login");
+    Ok((jar, Redirect::to(destination)).into_response())
 }
 
 /// Whether registration is currently possible (open, or no users yet).
-async fn registration_open(state: &AppState) -> Result<bool, AppError> {
+async fn registration_open(state: &AppState, invite_token: &str) -> Result<bool, AppError> {
     if matches!(state.settings.registration_mode, RegistrationMode::Open) {
         return Ok(true);
     }
-    Ok(users::count(state.db.pool()).await? == 0)
+    if users::count(state.db.pool()).await? == 0 {
+        return Ok(true);
+    }
+    if matches!(state.settings.registration_mode, RegistrationMode::Invite)
+        && !invite_token.is_empty()
+    {
+        return Ok(rustss_db::invitations::is_valid(
+            state.db.pool(),
+            &crate::auth::token::hash(invite_token),
+            None,
+        )
+        .await?);
+    }
+    Ok(false)
 }

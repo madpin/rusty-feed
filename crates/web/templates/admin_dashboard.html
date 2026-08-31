@@ -15,16 +15,129 @@
   <a class="admin-stat" href="/admin/feeds"><strong>{{ stats.feeds }}</strong><span>Shared feeds</span></a>
   <a class="admin-stat" href="/admin/catalog"><strong>{{ stats.catalog_entries }}</strong><span>Catalog entries</span></a>
   <span class="admin-stat"><strong>{{ stats.articles }}</strong><span>Articles</span></span>
-  <span class="admin-stat"><strong>{{ stats.active_jobs }}</strong><span>Active jobs</span></span>
+  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.workers_online }}</strong><span>Workers online · {{ stats.worker_capacity }} slots</span></a>
+  <a class="admin-stat" href="/admin/logs"><strong>{{ ui.format_number(stats.pending_jobs) }}</strong><span>Pending jobs</span></a>
+  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.running_jobs }}</strong><span>Running jobs</span></a>
+  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.stalled_jobs }}</strong><span>Stalled jobs</span></a>
+  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.dead_jobs }}</strong><span>Dead-letter jobs</span></a>
+  <span class="admin-stat"><strong>{{ stats.active_public_shares }}</strong><span>Active public shares</span></span>
 </div>
+<section class="panel">
+  <h2>Storage</h2>
+  <dl class="definition-list">
+    <div><dt>PostgreSQL database</dt><dd>{{ stats.database_size }}</dd></div>
+    <div><dt>Articles + indexes</dt><dd>{{ stats.article_storage }}</dd></div>
+    <div><dt>Embeddings + HNSW</dt><dd>{{ stats.embedding_storage }}</dd></div>
+    <div><dt>Shared media cache</dt><dd>{{ stats.media_storage }}</dd></div>
+  </dl>
+  <p class="muted">Process and container memory are exported through <a href="/metrics">Prometheus metrics</a>; use your runtime dashboard for historical capacity and alerts.</p>
+</section>
 <section class="panel admin-overview-actions">
   <h2>Quick administration</h2>
   <div class="row-actions">
     <a class="btn" href="/admin/catalog">Edit feed magazine</a>
     <a class="btn" href="/admin/feeds">Inspect shared feeds</a>
     <a class="btn" href="/admin/users">Manage user roles</a>
-    <a class="btn" href="/admin/logs">View logs</a>
+    <a class="btn" href="/admin/logs">View queue and logs</a>
     <a class="btn" href="/admin/costs">View AI costs</a>
+    <a class="btn" href="/admin/ai">Configure AI providers</a>
   </div>
+</section>
+<section class="panel">
+  <h2>Trusted reverse-proxy authentication</h2>
+  <dl class="definition-list">
+    <div><dt>Status</dt><dd>{% if reverse_proxy_auth_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+    <div><dt>Trusted networks</dt><dd>{{ reverse_proxy_trusted_networks }}</dd></div>
+    <div><dt>Auto-provision</dt><dd>{% if reverse_proxy_auto_provision %}Enabled{% else %}Existing accounts only{% endif %}</dd></div>
+    <div><dt>Allowed domains</dt><dd>{% if reverse_proxy_allowed_domains == 0 %}Any valid email domain{% else %}{{ reverse_proxy_allowed_domains }} configured{% endif %}</dd></div>
+    <div><dt>Admin mappings</dt><dd>{{ reverse_proxy_admin_mappings }}</dd></div>
+    <div><dt>Upstream logout</dt><dd>{% if reverse_proxy_logout_configured %}Configured{% else %}Local sign-in page{% endif %}</dd></div>
+  </dl>
+  <p class="muted">Identity headers are considered only when the immediate TCP peer is inside a configured CIDR. Header values from every other peer are ignored. Configure and audit this boundary at startup; roles remain database state after account creation.</p>
+</section>
+<section class="panel">
+  <h2>Installed app</h2>
+  <dl class="definition-list">
+    <div><dt>Name</dt><dd>{{ pwa_name }}</dd></div>
+    <div><dt>Home-screen label</dt><dd>{{ pwa_short_name }}</dd></div>
+    <div><dt>Theme color</dt><dd><code>{{ pwa_theme_color }}</code></dd></div>
+    <div><dt>Launch background</dt><dd><code>{{ pwa_background_color }}</code></dd></div>
+  </dl>
+  <p class="muted">Configure <code>PWA_NAME</code>, <code>PWA_SHORT_NAME</code>, <code>PWA_THEME_COLOR</code>, and <code>PWA_BACKGROUND_COLOR</code> at startup. <a href="/manifest.webmanifest">Inspect the effective manifest</a>.</p>
+</section>
+<section class="panel">
+  <h2>Publisher fetch policy</h2>
+  <dl class="definition-list">
+    <div><dt>User agent</dt><dd><code>{{ outbound_user_agent }}</code></dd></div>
+    <div><dt>Protocol</dt><dd>{{ outbound_protocol }}</dd></div>
+  </dl>
+  <p class="muted">This identity and protocol policy applies to the one shared SSRF-safe client used for feeds, public pages, robots, icons, Live View, and proxied media. Configure <code>OUTBOUND_USER_AGENT</code> and <code>OUTBOUND_HTTP1_ONLY</code> at startup.</p>
+</section>
+<section class="panel">
+  <h2>URL privacy policy</h2>
+  <dl class="definition-list">
+    <div><dt>Tracking-parameter cleanup</dt><dd>{% if tracking_url_cleanup_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+    <div><dt>Effective parameter rules</dt><dd>{{ tracking_url_rule_count }}</dd></div>
+    <div><dt>Domain exceptions</dt><dd>{{ tracking_url_exception_count }}</dd></div>
+  </dl>
+  <p class="muted">The same immutable policy covers ingestion, extraction, reader links, Live View, public shares, GReader responses, and the native API. Audit legacy keys with <code>rustss-cli canonicalize-urls</code>; <code>--apply</code> updates only collision-free rows.</p>
+</section>
+<section class="panel">
+  <h2>Client APIs</h2>
+  <dl class="definition-list">
+    <div><dt>Native v1 API</dt><dd>{% if api_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+    <div><dt>Google Reader API</dt><dd>{% if greader_api_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+    <div><dt>Fever API</dt><dd>{% if fever_api_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+  </dl>
+  <p class="muted">Each adapter reuses tenant-scoped repositories. Native automation is rate limited per revocable token and documented at <a href="/api/v1/openapi.json">OpenAPI JSON</a>. Fever credentials are created and revoked with API tokens.</p>
+  {% if !api_audit_events.is_empty() %}
+  <details class="admin-log-section">
+    <summary><strong>Recent native API mutations</strong><span class="muted">Latest {{ api_audit_events.len() }} attempts</span></summary>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Operation</th><th>User</th><th>Token</th><th>When</th></tr></thead>
+      <tbody>{% for event in api_audit_events %}<tr><td><code>{{ event.operation }}</code></td><td>{{ event.user }}</td><td>{{ event.token }}</td><td>{{ event.occurred_at }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% endif %}
+</section>
+<section class="panel">
+  <h2>Privacy media policy</h2>
+  <dl class="definition-list">
+    <div><dt>Media proxy</dt><dd>{% if media_proxy_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+    <div><dt>Object limit</dt><dd>{{ media_proxy_max_bytes }} bytes</dd></div>
+    <div><dt>Shared cache budget</dt><dd>{{ media_proxy_cache_budget_bytes }} bytes</dd></div>
+    <div><dt>Positive cache lifetime</dt><dd>{{ media_proxy_cache_ttl_hours }} hours</dd></div>
+    <div><dt>Additional passive MIME types</dt><dd>{{ media_proxy_extra_mime_types }}</dd></div>
+    <div><dt>YouTube embeds</dt><dd>{% if youtube_embeds_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+    <div><dt>Approved source domains</dt><dd>{{ youtube_source_host_count }}</dd></div>
+    <div><dt>Built-in player origin</dt><dd><code>youtube-nocookie.com</code> (fixed)</dd></div>
+    <div><dt>Alternative player</dt><dd>{{ youtube_alternative_player }}</dd></div>
+  </dl>
+  <p class="muted">Attachment cache misses are coalesced across processes with PostgreSQL advisory locks. The configurable MIME extension list accepts only documented passive audio, video, and raster-image types; active document types cannot be enabled. Users may inherit or override delivery and loading per subscription.</p>
+</section>
+<section class="panel">
+  <h2>Public article sharing</h2>
+  <dl class="definition-list">
+    <div><dt>Sharing</dt><dd>{% if public_article_sharing_enabled %}Enabled{% else %}Disabled{% endif %}</dd></div>
+    <div><dt>Default lifetime</dt><dd>{{ public_share_default_lifetime_days }} days</dd></div>
+    <div><dt>Maximum finite lifetime</dt><dd>{{ public_share_max_lifetime_days }} days</dd></div>
+    <div><dt>Infinite links</dt><dd>{% if public_share_allow_infinite %}Allowed{% else %}Disabled{% endif %}</dd></div>
+  </dl>
+  <p class="muted">Public links use encrypted, revocable bearer tokens and render only stored sanitized content. Configure <code>PUBLIC_ARTICLE_SHARING_ENABLED</code> and <code>PUBLIC_SHARE_*</code> at startup.</p>
+  {% if !public_share_events.is_empty() %}
+  <details class="admin-log-section">
+    <summary><strong>Recent token-free audit</strong><span class="muted">Latest {{ public_share_events.len() }} changes</span></summary>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Action</th><th>User</th><th>Article</th><th>Policy</th><th>When</th></tr></thead>
+        <tbody>
+          {% for event in public_share_events %}
+          <tr><td>{{ event.action }}</td><td>{{ event.user_email }}</td><td>{{ event.article_title }}</td><td class="admin-log-details">{{ event.policy }}</td><td>{{ event.occurred_at }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
 </section>
 {% endblock %}

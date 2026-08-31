@@ -4,12 +4,23 @@
 //! -> content hash (feed-scoped). [`upsert`] creates, updates, or skips, keeping
 //! exactly one row per article regardless of how many users/feeds reference it.
 
-use rustss_core::{hash::content_hash, html::sanitize_article_html};
+use rustss_core::{
+    feed_content::ContentLifetime,
+    hash::content_hash,
+    html::{
+        sanitize_article_html_with_policies, SanitizedArticleHtml, ARTICLE_PAGE_PROCESSING_VERSION,
+    },
+    tracking_pixel::TrackingPixelPolicy,
+    tracking_url::TrackingUrlPolicy,
+};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::{DbError, Result};
-use crate::models::{Article, NewArticle, UpsertAction, ARTICLE_COLUMNS};
+use crate::models::{
+    Article, ArticleEnclosure, NewArticle, NewArticleEnclosure, UpsertAction, ARTICLE_COLUMNS,
+    MAX_ARTICLE_ENCLOSURES,
+};
 
 /// A content revision queued for extraction or embedding.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -25,15 +36,38 @@ pub async fn set_extracted_content(
     expected_revision: i64,
     content: &str,
     excerpt: Option<&str>,
+    lifetime: ContentLifetime,
+) -> Result<Option<i64>> {
+    set_extracted_content_with_privacy(pool, id, expected_revision, content, excerpt, lifetime, 0)
+        .await
+}
+
+/// Store extracted full content and its shared tracker-cleanup count.
+pub async fn set_extracted_content_with_privacy(
+    pool: &PgPool,
+    id: Uuid,
+    expected_revision: i64,
+    content: &str,
+    excerpt: Option<&str>,
+    lifetime: ContentLifetime,
+    blocked_tracking_pixels: u32,
 ) -> Result<Option<i64>> {
     let content_hash = rustss_core::hash::content_hash(content);
+    let lifetime_days = lifetime.days().map(i32::from);
     Ok(sqlx::query_scalar(
         "UPDATE articles SET content = $3, content_hash = $4, \
          excerpt = COALESCE($5, excerpt), content_source = 'article_page', \
+         article_page_content = $3, article_page_content_hash = $4, \
+         article_page_excerpt = $5, article_page_fetched_at = now(), \
+         article_page_expires_at = CASE WHEN $6::int IS NULL THEN NULL \
+              ELSE now() + make_interval(days => $6) END, \
+         article_page_processing_version = $7, article_page_blocked_tracking_pixels = $8, \
          content_revision = content_revision + 1, extraction_status = 'success', \
          extraction_error = NULL, summary = NULL, key_points = NULL, topics = '{}', \
          summarized_at = NULL, summary_model = NULL, updated_at = now() \
-         WHERE id = $1 AND content_revision = $2 AND extraction_status = 'none' \
+         WHERE id = $1 AND content_revision = $2 \
+           AND (article_page_content IS NULL OR article_page_expires_at <= now() \
+                OR article_page_processing_version < $7) \
          RETURNING content_revision",
     )
     .bind(id)
@@ -41,11 +75,14 @@ pub async fn set_extracted_content(
     .bind(content)
     .bind(content_hash)
     .bind(excerpt)
+    .bind(lifetime_days)
+    .bind(ARTICLE_PAGE_PROCESSING_VERSION)
+    .bind(i32::try_from(blocked_tracking_pixels).unwrap_or(i32::MAX))
     .fetch_optional(pool)
     .await?)
 }
 
-/// Article revisions in a feed that have not been extraction-processed yet.
+/// Article revisions whose shared public-page copy is absent or expired.
 pub async fn list_needing_extraction(
     pool: &PgPool,
     feed_id: Uuid,
@@ -53,11 +90,14 @@ pub async fn list_needing_extraction(
 ) -> Result<Vec<ArticleRevision>> {
     Ok(sqlx::query_as(
         "SELECT id, content_revision FROM articles \
-         WHERE feed_id = $1 AND extraction_status = 'none' \
+         WHERE feed_id = $1 AND (article_page_content IS NULL \
+              OR article_page_expires_at <= now() \
+              OR article_page_processing_version < $3) \
          ORDER BY created_at DESC LIMIT $2",
     )
     .bind(feed_id)
     .bind(limit)
+    .bind(ARTICLE_PAGE_PROCESSING_VERSION)
     .fetch_all(pool)
     .await?)
 }
@@ -77,6 +117,61 @@ pub async fn list_needing_embedding(
     )
     .bind(feed_id)
     .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Shared article revisions lacking the configured model. UUID cursoring keeps
+/// memory bounded and remains stable while workers consume the queued jobs.
+pub async fn list_needing_embedding_space(
+    pool: &PgPool,
+    model: &str,
+    after: Option<Uuid>,
+    limit: i64,
+) -> Result<Vec<ArticleRevision>> {
+    Ok(sqlx::query_as(
+        "SELECT a.id, a.content_revision FROM articles a \
+         LEFT JOIN article_embeddings e ON e.article_id = a.id \
+           AND e.model = $1 AND e.content_revision = a.content_revision \
+         WHERE e.article_id IS NULL AND ($2::uuid IS NULL OR a.id > $2) \
+         ORDER BY a.id LIMIT $3",
+    )
+    .bind(model)
+    .bind(after)
+    .bind(limit.clamp(1, 5_000))
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Recent shared article revisions without a current summary.
+pub async fn list_needing_summary(
+    pool: &PgPool,
+    feed_id: Uuid,
+    limit: i64,
+) -> Result<Vec<ArticleRevision>> {
+    Ok(sqlx::query_as(
+        "SELECT id, content_revision FROM articles WHERE feed_id = $1 \
+         AND summarized_at IS NULL ORDER BY created_at DESC LIMIT $2",
+    )
+    .bind(feed_id)
+    .bind(limit.clamp(1, 5_000))
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Page-mode articles whose extraction has completed or fallen back to RSS.
+pub async fn list_ready_for_summary(
+    pool: &PgPool,
+    feed_id: Uuid,
+    limit: i64,
+) -> Result<Vec<ArticleRevision>> {
+    Ok(sqlx::query_as(
+        "SELECT id, content_revision FROM articles WHERE feed_id = $1 \
+         AND summarized_at IS NULL AND extraction_status <> 'none' \
+         ORDER BY created_at DESC LIMIT $2",
+    )
+    .bind(feed_id)
+    .bind(limit.clamp(1, 5_000))
     .fetch_all(pool)
     .await?)
 }
@@ -110,41 +205,90 @@ pub async fn set_extraction_failed(
 ) -> Result<Option<i64>> {
     Ok(sqlx::query_scalar(
         "UPDATE articles SET extraction_status = 'failed', extraction_error = $3, updated_at = now() \
-         WHERE id = $1 AND content_revision = $2 AND extraction_status = 'none' \
+         WHERE id = $1 AND content_revision = $2 \
+           AND (article_page_content IS NULL OR article_page_expires_at <= now() \
+                OR article_page_processing_version < $4) \
          RETURNING content_revision",
     )
     .bind(id)
     .bind(expected_revision)
     .bind(error)
+    .bind(ARTICLE_PAGE_PROCESSING_VERSION)
     .fetch_optional(pool)
     .await?)
 }
 
-pub async fn reset_extraction_for_feed(pool: &PgPool, feed_id: Uuid) -> Result<u64> {
+/// Apply the current union of subscriber lifetime requests to existing public
+/// page copies. `None` means nobody currently requests page content, so the
+/// copies become eligible for immediate cleanup.
+pub async fn apply_article_page_lifetime(
+    pool: &PgPool,
+    feed_id: Uuid,
+    lifetime: Option<ContentLifetime>,
+) -> Result<u64> {
+    let lifetime_days = lifetime.and_then(ContentLifetime::days).map(i32::from);
+    let requested = lifetime.is_some();
     let result = sqlx::query(
-        "UPDATE articles SET extraction_status = 'none', extraction_error = NULL, updated_at = now() \
-         WHERE feed_id = $1 AND content_source = 'feed' AND extraction_status = 'failed'",
+        "UPDATE articles SET article_page_expires_at = CASE \
+             WHEN NOT $2 THEN now() \
+             WHEN $3::int IS NULL THEN NULL \
+             ELSE article_page_fetched_at + make_interval(days => $3) END, updated_at = now() \
+         WHERE feed_id = $1 AND article_page_content IS NOT NULL",
     )
     .bind(feed_id)
+    .bind(requested)
+    .bind(lifetime_days)
     .execute(pool)
     .await?;
     Ok(result.rows_affected())
 }
 
-pub async fn restore_feed_content(pool: &PgPool, feed_id: Uuid) -> Result<u64> {
+/// Remove expired public-page copies while retaining the RSS body. Returns the
+/// number of shared articles restored to their RSS representation.
+pub async fn clear_expired_article_page_content(pool: &PgPool) -> Result<u64> {
     let result = sqlx::query(
-        "UPDATE articles SET content = feed_content, excerpt = feed_excerpt, \
+        "UPDATE articles SET content = COALESCE(feed_content, ''), excerpt = feed_excerpt, \
          content_hash = feed_content_hash, content_source = 'feed', \
-         content_revision = content_revision + 1, extraction_status = 'none', \
-         extraction_error = NULL, summary = NULL, key_points = NULL, topics = '{}', \
-         summarized_at = NULL, summary_model = NULL, updated_at = now() \
-         WHERE feed_id = $1 AND content_source = 'article_page' \
-           AND feed_content IS NOT NULL AND feed_content_hash IS NOT NULL",
+         article_page_content = NULL, article_page_excerpt = NULL, \
+         article_page_content_hash = NULL, article_page_fetched_at = NULL, \
+         article_page_expires_at = NULL, article_page_processing_version = 0, \
+         article_page_blocked_tracking_pixels = 0, \
+         content_revision = content_revision + 1, \
+         extraction_status = 'none', extraction_error = NULL, summary = NULL, \
+         key_points = NULL, topics = '{}', summarized_at = NULL, summary_model = NULL, \
+         updated_at = now() WHERE article_page_content IS NOT NULL \
+           AND article_page_expires_at <= now()",
     )
-    .bind(feed_id)
     .execute(pool)
     .await?;
     Ok(result.rows_affected())
+}
+
+/// Delete old shared article rows while preserving anything bookmarked by any
+/// user. The age-basis enum is validated configuration, never request input.
+pub async fn delete_expired_unbookmarked(
+    pool: &PgPool,
+    retention_days: u32,
+    age_basis: rustss_core::config::RetentionAgeBasis,
+) -> Result<u64> {
+    if retention_days == 0 {
+        return Ok(0);
+    }
+    let age = match age_basis {
+        rustss_core::config::RetentionAgeBasis::Published => {
+            "COALESCE(a.published_at, a.created_at)"
+        }
+        rustss_core::config::RetentionAgeBasis::Created => "a.created_at",
+    };
+    let sql = format!(
+        "DELETE FROM articles a WHERE {age} < now() - make_interval(days => $1::int) \
+         AND NOT EXISTS (SELECT 1 FROM bookmarks b WHERE b.article_id = a.id)"
+    );
+    Ok(sqlx::query(&sql)
+        .bind(i32::try_from(retention_days).unwrap_or(i32::MAX))
+        .execute(pool)
+        .await?
+        .rows_affected())
 }
 
 /// A stored article summary for display.
@@ -234,6 +378,35 @@ pub async fn user_can_access(pool: &PgPool, user_id: Uuid, article_id: Uuid) -> 
     Ok(exists.is_some())
 }
 
+/// List feed-provided attachments in their stored order.
+pub async fn list_enclosures(pool: &PgPool, article_id: Uuid) -> Result<Vec<ArticleEnclosure>> {
+    Ok(sqlx::query_as(
+        "SELECT article_id, position, url, media_kind, mime_type, title, size_bytes, \
+         duration_seconds, width, height FROM article_enclosures \
+         WHERE article_id = $1 ORDER BY position",
+    )
+    .bind(article_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Find one feed-provided attachment by its stable article-local position.
+pub async fn find_enclosure(
+    pool: &PgPool,
+    article_id: Uuid,
+    position: i32,
+) -> Result<Option<ArticleEnclosure>> {
+    Ok(sqlx::query_as(
+        "SELECT article_id, position, url, media_kind, mime_type, title, size_bytes, \
+         duration_seconds, width, height FROM article_enclosures \
+         WHERE article_id = $1 AND position = $2",
+    )
+    .bind(article_id)
+    .bind(position)
+    .fetch_optional(pool)
+    .await?)
+}
+
 /// Find an article by its globally-unique URL.
 pub async fn find_by_url(pool: &PgPool, url: &str) -> Result<Option<Article>> {
     let sql = format!("SELECT {ARTICLE_COLUMNS} FROM articles WHERE url = $1");
@@ -271,12 +444,17 @@ async fn find_by_feed_and_hash(
         .await?)
 }
 
-fn feed_content(new: &NewArticle) -> String {
-    sanitize_article_html(&new.content, &new.url)
+fn feed_content(new: &NewArticle) -> SanitizedArticleHtml {
+    sanitize_article_html_with_policies(
+        &new.content,
+        &new.url,
+        &TrackingUrlPolicy::default(),
+        &TrackingPixelPolicy::default(),
+    )
 }
 
 fn feed_content_hash(new: &NewArticle) -> String {
-    content_hash(&feed_content(new))
+    content_hash(&feed_content(new).html)
 }
 
 fn feed_content_changed(existing: &Article, feed_hash: &str) -> bool {
@@ -310,12 +488,43 @@ pub async fn find_duplicate(pool: &PgPool, new: &NewArticle) -> Result<Option<Ar
 /// Whether an existing article should be updated from `new`: source content or
 /// metadata changed, or the feed-source baseline is not known yet.
 pub fn should_update(existing: &Article, new: &NewArticle) -> bool {
-    let feed_hash = feed_content_hash(new);
-    if existing.feed_content_hash.is_none() || feed_content_changed(existing, &feed_hash) {
+    should_update_with_original_url(existing, new, None)
+}
+
+fn should_update_with_original_url(
+    existing: &Article,
+    new: &NewArticle,
+    original_url: Option<&str>,
+) -> bool {
+    let feed = feed_content(new);
+    let feed_hash = content_hash(&feed.html);
+    should_update_fields(
+        existing,
+        new,
+        original_url,
+        &feed_hash,
+        feed.blocked_tracking_pixels,
+    )
+}
+
+fn should_update_fields(
+    existing: &Article,
+    new: &NewArticle,
+    original_url: Option<&str>,
+    feed_hash: &str,
+    blocked_tracking_pixels: u32,
+) -> bool {
+    if existing.feed_content_hash.is_none() || feed_content_changed(existing, feed_hash) {
+        return true;
+    }
+    if existing.feed_blocked_tracking_pixels
+        != i32::try_from(blocked_tracking_pixels).unwrap_or(i32::MAX)
+    {
         return true;
     }
     if existing.title != new.title
         || existing.author != new.author
+        || existing.original_url != original_url.unwrap_or(&new.url)
         || existing.comments_url != new.comments_url
         || existing.feed_excerpt != new.excerpt
         || existing.image_url != new.image_url
@@ -332,42 +541,158 @@ pub fn should_update(existing: &Article, new: &NewArticle) -> bool {
 
 /// Insert, update, or skip an article. Returns the row and which action ran.
 pub async fn upsert(pool: &PgPool, new: &NewArticle) -> Result<(Article, UpsertAction)> {
-    if let Some(existing) = find_duplicate(pool, new).await? {
-        if should_update(&existing, new) {
-            let updated = update(pool, &existing, new).await?;
-            return Ok((updated, UpsertAction::Updated));
-        }
-        return Ok((existing, UpsertAction::Skipped));
-    }
-
-    match create(pool, new).await {
-        Ok(article) => Ok((article, UpsertAction::Created)),
-        // Lost a race on the unique URL: another writer created it first.
-        Err(DbError::Sqlx(sqlx::Error::Database(db_err))) if db_err.is_unique_violation() => {
-            let article = find_by_url(pool, &new.url)
-                .await?
-                .ok_or(DbError::NotFound)?;
-            Ok((article, UpsertAction::Skipped))
-        }
-        Err(e) => Err(e),
-    }
+    upsert_internal(pool, new, None, 0).await
 }
 
-async fn create(pool: &PgPool, new: &NewArticle) -> Result<Article> {
-    let feed_content = feed_content(new);
+/// Insert, update, or skip an article while preserving the publisher-provided
+/// URL separately from the canonical shared deduplication URL.
+pub async fn upsert_with_original_url(
+    pool: &PgPool,
+    new: &NewArticle,
+    original_url: Option<&str>,
+) -> Result<(Article, UpsertAction)> {
+    upsert_internal(pool, new, original_url, 0).await
+}
+
+/// Upsert feed content while preserving shared tracker-cleanup metadata.
+pub async fn upsert_with_original_url_and_privacy(
+    pool: &PgPool,
+    new: &NewArticle,
+    original_url: Option<&str>,
+    blocked_tracking_pixels: u32,
+) -> Result<(Article, UpsertAction)> {
+    upsert_internal(pool, new, original_url, blocked_tracking_pixels).await
+}
+
+async fn upsert_internal(
+    pool: &PgPool,
+    new: &NewArticle,
+    original_url: Option<&str>,
+    blocked_tracking_pixels: u32,
+) -> Result<(Article, UpsertAction)> {
+    let (article, mut action) = if let Some(existing) = find_duplicate(pool, new).await? {
+        let feed = feed_content(new);
+        let total_blocked = blocked_tracking_pixels.saturating_add(feed.blocked_tracking_pixels);
+        let feed_hash = content_hash(&feed.html);
+        if should_update_fields(&existing, new, original_url, &feed_hash, total_blocked) {
+            let updated = update(pool, &existing, new, original_url, feed, total_blocked).await?;
+            (updated, UpsertAction::Updated)
+        } else {
+            (existing, UpsertAction::Skipped)
+        }
+    } else {
+        match create(pool, new, original_url, blocked_tracking_pixels).await {
+            Ok(article) => (article, UpsertAction::Created),
+            // Lost a race on the unique URL: another writer created it first.
+            Err(DbError::Sqlx(sqlx::Error::Database(db_err))) if db_err.is_unique_violation() => {
+                let article = find_by_url(pool, &new.url)
+                    .await?
+                    .ok_or(DbError::NotFound)?;
+                (article, UpsertAction::Skipped)
+            }
+            Err(e) => return Err(e),
+        }
+    };
+
+    if sync_enclosures(pool, article.id, &new.enclosures).await? && action == UpsertAction::Skipped
+    {
+        action = UpsertAction::Updated;
+    }
+    Ok((article, action))
+}
+
+async fn sync_enclosures(
+    pool: &PgPool,
+    article_id: Uuid,
+    enclosures: &[NewArticleEnclosure],
+) -> Result<bool> {
+    let enclosures = &enclosures[..enclosures.len().min(MAX_ARTICLE_ENCLOSURES)];
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT id FROM articles WHERE id = $1 FOR UPDATE")
+        .bind(article_id)
+        .execute(&mut *tx)
+        .await?;
+    let current: Vec<ArticleEnclosure> = sqlx::query_as(
+        "SELECT article_id, position, url, media_kind, mime_type, title, size_bytes, \
+         duration_seconds, width, height FROM article_enclosures \
+         WHERE article_id = $1 ORDER BY position",
+    )
+    .bind(article_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let unchanged = current.len() == enclosures.len()
+        && current
+            .iter()
+            .zip(enclosures)
+            .enumerate()
+            .all(|(position, (stored, incoming))| {
+                stored.position == position as i32
+                    && stored.url == incoming.url
+                    && stored.media_kind == incoming.media_kind
+                    && stored.mime_type == incoming.mime_type
+                    && stored.title == incoming.title
+                    && stored.size_bytes == incoming.size_bytes
+                    && stored.duration_seconds == incoming.duration_seconds
+                    && stored.width == incoming.width
+                    && stored.height == incoming.height
+            });
+    if unchanged {
+        tx.commit().await?;
+        return Ok(false);
+    }
+
+    sqlx::query("DELETE FROM article_enclosures WHERE article_id = $1")
+        .bind(article_id)
+        .execute(&mut *tx)
+        .await?;
+    for (position, enclosure) in enclosures.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO article_enclosures \
+             (article_id, position, url, media_kind, mime_type, title, size_bytes, \
+              duration_seconds, width, height) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(article_id)
+        .bind(position as i32)
+        .bind(&enclosure.url)
+        .bind(&enclosure.media_kind)
+        .bind(&enclosure.mime_type)
+        .bind(&enclosure.title)
+        .bind(enclosure.size_bytes)
+        .bind(enclosure.duration_seconds)
+        .bind(enclosure.width)
+        .bind(enclosure.height)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(true)
+}
+
+async fn create(
+    pool: &PgPool,
+    new: &NewArticle,
+    original_url: Option<&str>,
+    blocked_tracking_pixels: u32,
+) -> Result<Article> {
+    let feed = feed_content(new);
+    let feed_content = feed.html;
     let feed_hash = content_hash(&feed_content);
+    let blocked_tracking_pixels =
+        blocked_tracking_pixels.saturating_add(feed.blocked_tracking_pixels);
     let sql = format!(
         "INSERT INTO articles \
-         (id, feed_id, url, comments_url, guid, title, author, content, excerpt, content_hash, \
-          feed_content, feed_excerpt, feed_content_hash, content_source, content_revision, \
+         (id, feed_id, url, original_url, comments_url, guid, title, author, content, excerpt, content_hash, \
+          feed_content, feed_excerpt, feed_content_hash, feed_blocked_tracking_pixels, content_source, content_revision, \
           image_url, published_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $8, $9, $10, 'feed', 1, $11, $12) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $9, $10, $11, $12, 'feed', 1, $13, $14) \
          RETURNING {ARTICLE_COLUMNS}"
     );
     Ok(sqlx::query_as::<_, Article>(&sql)
         .bind(Uuid::now_v7())
         .bind(new.feed_id)
         .bind(&new.url)
+        .bind(original_url.unwrap_or(&new.url))
         .bind(&new.comments_url)
         .bind(&new.guid)
         .bind(&new.title)
@@ -375,44 +700,61 @@ async fn create(pool: &PgPool, new: &NewArticle) -> Result<Article> {
         .bind(&feed_content)
         .bind(&new.excerpt)
         .bind(&feed_hash)
+        .bind(i32::try_from(blocked_tracking_pixels).unwrap_or(i32::MAX))
         .bind(&new.image_url)
         .bind(new.published_at)
         .fetch_one(pool)
         .await?)
 }
 
-async fn update(pool: &PgPool, existing: &Article, new: &NewArticle) -> Result<Article> {
-    let feed_content = feed_content(new);
+async fn update(
+    pool: &PgPool,
+    existing: &Article,
+    new: &NewArticle,
+    original_url: Option<&str>,
+    feed: SanitizedArticleHtml,
+    blocked_tracking_pixels: u32,
+) -> Result<Article> {
+    let feed_content = feed.html;
     let feed_hash = content_hash(&feed_content);
     let source_changed = feed_content_changed(existing, &feed_hash);
     let fallback_changed = source_changed
         || (existing.content_source == "feed" && existing.feed_excerpt != new.excerpt);
     let effective_changed = fallback_changed || existing.title != new.title;
     let sql = format!(
-        "UPDATE articles SET title = $2, author = $3, comments_url = $4, feed_content = $5, \
-         feed_excerpt = $6, feed_content_hash = $7, image_url = $8, published_at = $9, \
-         content = CASE WHEN $10 THEN $5 ELSE content END, \
-         excerpt = CASE WHEN $10 THEN $6 ELSE excerpt END, \
-         content_hash = CASE WHEN $10 THEN $7 ELSE content_hash END, \
-         content_source = CASE WHEN $10 THEN 'feed' ELSE content_source END, \
-         extraction_status = CASE WHEN $10 THEN 'none' ELSE extraction_status END, \
-         extraction_error = CASE WHEN $10 THEN NULL ELSE extraction_error END, \
-         content_revision = CASE WHEN $11 THEN content_revision + 1 ELSE content_revision END, \
-         summary = CASE WHEN $11 THEN NULL ELSE summary END, \
-         key_points = CASE WHEN $11 THEN NULL ELSE key_points END, \
-         topics = CASE WHEN $11 THEN '{{}}' ELSE topics END, \
-         summarized_at = CASE WHEN $11 THEN NULL ELSE summarized_at END, \
-         summary_model = CASE WHEN $11 THEN NULL ELSE summary_model END, updated_at = now() \
+        "UPDATE articles SET title = $2, author = $3, original_url = $4, comments_url = $5, feed_content = $6, \
+         feed_excerpt = $7, feed_content_hash = $8, feed_blocked_tracking_pixels = $9, image_url = $10, published_at = $11, \
+         content = CASE WHEN $12 THEN $6 ELSE content END, \
+         excerpt = CASE WHEN $12 THEN $7 ELSE excerpt END, \
+         content_hash = CASE WHEN $12 THEN $8 ELSE content_hash END, \
+         content_source = CASE WHEN $12 THEN 'feed' ELSE content_source END, \
+         article_page_content = CASE WHEN $12 THEN NULL ELSE article_page_content END, \
+         article_page_excerpt = CASE WHEN $12 THEN NULL ELSE article_page_excerpt END, \
+         article_page_content_hash = CASE WHEN $12 THEN NULL ELSE article_page_content_hash END, \
+         article_page_fetched_at = CASE WHEN $12 THEN NULL ELSE article_page_fetched_at END, \
+         article_page_expires_at = CASE WHEN $12 THEN NULL ELSE article_page_expires_at END, \
+         article_page_processing_version = CASE WHEN $12 THEN 0 ELSE article_page_processing_version END, \
+         article_page_blocked_tracking_pixels = CASE WHEN $12 THEN 0 ELSE article_page_blocked_tracking_pixels END, \
+         extraction_status = CASE WHEN $12 THEN 'none' ELSE extraction_status END, \
+         extraction_error = CASE WHEN $12 THEN NULL ELSE extraction_error END, \
+         content_revision = CASE WHEN $13 THEN content_revision + 1 ELSE content_revision END, \
+         summary = CASE WHEN $13 THEN NULL ELSE summary END, \
+         key_points = CASE WHEN $13 THEN NULL ELSE key_points END, \
+         topics = CASE WHEN $13 THEN '{{}}' ELSE topics END, \
+         summarized_at = CASE WHEN $13 THEN NULL ELSE summarized_at END, \
+         summary_model = CASE WHEN $13 THEN NULL ELSE summary_model END, updated_at = now() \
          WHERE id = $1 RETURNING {ARTICLE_COLUMNS}"
     );
     Ok(sqlx::query_as::<_, Article>(&sql)
         .bind(existing.id)
         .bind(&new.title)
         .bind(&new.author)
+        .bind(original_url.unwrap_or(&new.url))
         .bind(&new.comments_url)
         .bind(&feed_content)
         .bind(&new.excerpt)
         .bind(&feed_hash)
+        .bind(i32::try_from(blocked_tracking_pixels).unwrap_or(i32::MAX))
         .bind(&new.image_url)
         .bind(new.published_at)
         .bind(fallback_changed)
@@ -434,6 +776,24 @@ pub async fn list_for_feed(pool: &PgPool, feed_id: Uuid, limit: i64) -> Result<V
         .await?)
 }
 
+/// Mark existing shared public-page copies for one deduplicated re-extraction
+/// after administrator-owned processing rules change. RSS fallbacks remain
+/// available while the queue catches up.
+pub async fn invalidate_article_page_processing_for_feed(
+    pool: &PgPool,
+    feed_id: Uuid,
+) -> Result<u64> {
+    Ok(sqlx::query(
+        "UPDATE articles SET article_page_processing_version = 0, updated_at = now() \
+         WHERE feed_id = $1 AND article_page_content IS NOT NULL \
+         AND article_page_processing_version <> 0",
+    )
+    .bind(feed_id)
+    .execute(pool)
+    .await?
+    .rows_affected())
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LibraryFilter<'a> {
     pub feed_id: Option<Uuid>,
@@ -447,8 +807,10 @@ pub struct LibraryFilter<'a> {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ArticleListItem {
     pub id: Uuid,
+    pub feed_id: Uuid,
     pub title: String,
     pub url: String,
+    pub author: Option<String>,
     pub excerpt: Option<String>,
     pub image_url: Option<String>,
     pub published_at: Option<time::OffsetDateTime>,
@@ -457,6 +819,7 @@ pub struct ArticleListItem {
     pub is_bookmarked: bool,
     pub has_summary: bool,
     pub feedback_value: Option<f64>,
+    pub subscription_settings: Option<serde_json::Value>,
 }
 
 /// List a user's reading feed: articles from their subscribed feeds, newest
@@ -478,12 +841,12 @@ pub async fn list_for_user(
              JOIN category_scope scope ON child.parent_id = scope.id \
              WHERE child.user_id = $1 \
          ) \
-         SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
+         SELECT a.id, a.feed_id, a.title, a.url, a.author, a.excerpt, a.image_url, a.published_at, \
                 coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
                 (b.article_id IS NOT NULL) AS is_bookmarked, \
                 (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL) AS has_summary, \
-                af.feedback_value \
+                af.feedback_value, uf.settings AS subscription_settings \
          FROM articles a \
          JOIN feeds f ON f.id = a.feed_id \
          JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \

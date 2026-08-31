@@ -91,7 +91,7 @@ pub async fn search_for_user(
 ) -> Result<Vec<SearchResult>> {
     let sql = "SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
                       f.name AS feed_name, \
-                      1 - (e.embedding <=> $2::vector) AS similarity \
+                      1 - ((e.embedding <=> $2::vector) / 2) AS similarity \
                FROM article_embeddings e \
                JOIN articles a ON a.id = e.article_id \
                JOIN feeds f ON f.id = a.feed_id \
@@ -127,7 +127,8 @@ pub async fn candidates_for_query(
     since_days: i64,
     limit: i64,
 ) -> Result<Vec<Candidate>> {
-    let sql = "SELECT a.id, a.title, a.content, 1 - (e.embedding <=> $2::vector) AS similarity \
+    let sql = "SELECT a.id, a.title, a.content, \
+                      1 - ((e.embedding <=> $2::vector) / 2) AS similarity \
                FROM article_embeddings e \
                JOIN articles a ON a.id = e.article_id \
                JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
@@ -156,7 +157,7 @@ pub async fn related_for_user(
 ) -> Result<Vec<SearchResult>> {
     let sql = "SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
                       f.name AS feed_name, \
-                      1 - (e.embedding <=> q.embedding) AS similarity \
+                      1 - ((e.embedding <=> q.embedding) / 2) AS similarity \
                FROM article_embeddings e \
                JOIN articles a ON a.id = e.article_id \
                JOIN feeds f ON f.id = a.feed_id \

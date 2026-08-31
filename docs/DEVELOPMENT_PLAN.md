@@ -3,6 +3,7 @@
 **Audience:** an autonomous (or human) engineer implementing RustSS from the PRD + Architecture.
 **Companion docs:** `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/FINDINGS.md`.
 **Golden rule to never violate:** *content is shared, state is personal* (PRD §6, ARCH §7). Every schema/agent/query decision must preserve O(1) shared work for N subscribers.
+**Status:** all v1 implementation milestones complete; release-candidate audit performed on **2026-08-31**. Public release publication still requires a maintainer-created version tag.
 
 ---
 
@@ -15,12 +16,12 @@
 - Prefer many small commits within a milestone over one giant commit.
 
 ### Global Definition of Done (applies to every milestone)
-- [ ] `cargo fmt --all --check` clean
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` clean
-- [ ] `cargo test` (workspace) green
-- [ ] Public items documented (`///`); no `unwrap()`/`expect()` on fallible paths outside tests/bins startup
-- [ ] New env/config documented in `.env.example` + ARCH §16
-- [ ] New findings/risks recorded in `docs/FINDINGS.md`
+- [x] `cargo fmt --all --check` clean
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` clean
+- [x] `cargo test` (workspace) green
+- [x] Public items documented (`///`); no `unwrap()`/`expect()` on fallible paths outside tests/bins startup
+- [x] New env/config documented in `.env.example` + ARCH §16
+- [x] New findings/risks recorded in `docs/FINDINGS.md`
 - [ ] Conventional Commit with a body explaining **why**
 
 ### Conventions
@@ -34,24 +35,34 @@
 
 ## Milestone map
 
-| M | Title | Outcome | Key crates |
+| M | Status | Title | Evidence and remaining gate |
 |---|---|---|---|
-| M0 | Workspace & CI scaffold | Builds, lints, tests, CI green | all (skeletons) |
-| M1 | Config, errors, telemetry | Typed config, error taxonomy, tracing/metrics | `core` |
-| M2 | Database & migrations | Full schema, repos, pgvector, testcontainers | `db` |
-| M3 | Cache layer | moka L1 + Redis L2, key/TTL/invalidation | `cache` |
-| M4 | Auth & sessions | OAuth + local, sessions, RBAC, CSRF | `web` |
-| M5 | Web shell & reading UI | Askama+HTMX layout, article list/read, prefs | `web` |
-| M6 | Feeds: fetch/parse/dedup + SafeFetch | Add feed, ingest, conditional GET, SSRF | `feeds` |
-| M7 | AGENTS framework | Scheduler, queue, locks, run records, outbox | `agents` |
-| M8 | Content extraction | Readability + Chromium, rate limit, robots, sanitize | `extract` |
-| M9 | Embeddings & semantic search | Local ONNX (download-on-first-run), pgvector search | `embed`, `search` |
-| M10 | Personalization | Patterns, feedback, scoring, decay | `search` |
-| M11 | Saved searches | DSL/AST, matcher agent, notifications | `search`, `agents` |
-| M12 | LLM summarization + cost ledger | Summaries, provider cascade, durable costs | `llm` |
-| M13 | Admin, OPML, feed health, bulk ops, GReader API | Ops surface + client interop | `web`, `agents` |
+| M0 | ✅ | Workspace & CI scaffold | Workspace, containers, CI, Rust and browser suites are operational. |
+| M1 | ✅ | Config, errors, telemetry | Typed environment/TOML configuration, secret-safe diagnostics, safe web errors, tracing, bounded HTTP metrics, readiness, and narrow feature-owned interfaces are implemented and tested. |
+| M2 | ✅ | Database & migrations | 41 migrations, runtime SQLx repositories, pgvector, protocol aliases, managed AI/integration/acquisition profiles, passkeys, rewrite history, and database-backed dedup/tenant tests are present. Integration tests use an explicit test database instead of hidden build-time SQL. |
+| M3 | ✅ | Cache layer | moka L1, namespace-isolated optional Redis L2, bounded TTLs, typed keys, `SCAN` invalidation, versioned cross-instance Pub/Sub coherence, and graceful degradation are implemented and tested. |
+| M4 | ✅ | Auth & sessions | Local/OAuth/passkey accounts, invitation lifecycle, trusted-proxy boundary, first-admin/bootstrap CLI, default subscriptions, opaque session listing/revocation, RBAC, CSRF, rate limiting, and API tokens are implemented and tested. |
+| M5 | ✅ | Web shell & reading UI | The strict-CSP responsive reader, three modes, preferences, versioned CSS/managed opt-in JavaScript with Safe Mode, 20 locale/format profiles, live/batched notifications, PWA shell, no-JS fallbacks, and desktop/tablet/mobile accessibility matrix are implemented and tested. Complete translation coverage remains a separate parity row. |
+| M6 | ✅ | Feeds: fetch/parse/dedup + SafeFetch | Safe redirects/DNS, RSS/Atom/JSON Feed, conditional GET, shared dedup, feed UI, and administrator-owned host-pinned cookie/proxy/certificate acquisition profiles are covered by unit and PostgreSQL tests. |
+| M7 | ✅ | AGENTS framework | Durable lane-isolated workers, shared agents, leases, retries, heartbeats, sanitized run records, UTC cron schedules, and transactional outbox dispatch are implemented and tested. |
+| M8 | ✅ | Content extraction | Shared Readability, selectors, ordered/versioned rewrite rules, personal bounded entry filters, robots/rate limits, sanitization, access/rule refresh, content lifetimes, cleanup, and a bounded remote-CDP fallback are wired. Chromium receives only HTML already obtained through `SafeFetchClient`; integration tests prove inline rendering and graceful isolation. |
+| M9 | ✅ | Embeddings & semantic search | Fixed-space pgvector, production local BGE/fastembed with offline cache seeding, OpenAI-compatible embeddings, explicit hash fallback, guarded reindex/model migration, semantic/related/hybrid search, agents, and native API are implemented and tested. |
+| M10 | ✅ | Personalization | Explicit/implicit feedback, exact scoring/decay, caching, agent scheduling, ranking, explanations, and reset are implemented and tested. |
+| M11 | ✅ | Saved searches | Property-tested DSL, hybrid matcher, durable matches/notifications, agents, full CRUD, pagination, retention/rematch controls, and native resources are implemented and tested. |
+| M12 | ✅ | LLM summarization + cost ledger | OpenAI/Ollama-compatible summaries, user → admin → environment provider cascade, encrypted managed keys, shared first-writer storage, reserved interactive lane, live UI, automatic policy, sanitized errors, and durable costs are implemented and tested. |
+| M13 | ✅ | Admin, OPML, feed health, bulk ops, client APIs | Discovery, OPML, organization, public shares, health/pause/bulk controls, retention, storage/queue maintenance, YouTube duration metadata, webhook/destination delivery, native resources, and GReader/Fever subsets with replay tests are implemented. |
 
-Post-v1: v1.1 (bookmarks/seen/hybrid/OPML fixes), v2 (clustering+digests, shortcuts, i18n, ADHD mode).
+All fourteen milestones meet their v1 product outcome and verification bar.
+The repository is a release candidate; pushing the intended `vX.Y.Z` tag is a
+separate maintainer-controlled publication action.
+
+Post-v1: a distinct seen state remains optional; clustering/digests and ADHD mode remain v2 work. The expanded Miniflux audit is 65/67 complete, with full translation coverage and exact turnkey adapters for all advertised providers still partial.
+
+Miniflux ecosystem parity is tracked across milestones in
+[`docs/MINIFLUX_PARITY.md`](MINIFLUX_PARITY.md). Any task that implements or
+changes a parity capability must update that row's status and evidence in the
+same change; the tracker's recommended delivery order guides new milestone
+planning after M13.
 
 ---
 
@@ -60,11 +71,11 @@ Post-v1: v1.1 (bookmarks/seen/hybrid/OPML fixes), v2 (clustering+digests, shortc
 **Refs:** ARCH §5, §18.
 
 Tasks:
-- [ ] Root `Cargo.toml` workspace; `rust-toolchain.toml` (pin stable); `.rustfmt.toml`, `clippy` config.
-- [ ] Create crates (lib skeletons): `core`, `db`, `cache`, `feeds`, `extract`, `embed`, `llm`, `search`, `agents`, `web`; bins: `server`, `worker`, `cli`.
-- [ ] `.env.example`, `docker/Dockerfile`, `docker/compose.yaml` (postgres+pgvector, redis, chromium, app), `docker/entrypoint.sh`.
-- [ ] GitHub Actions CI: fmt + clippy(-D warnings) + test + build; cache cargo; Postgres+pgvector service for DB integration tests.
-- [ ] `AGENTS.md`, `CLAUDE.md` present (done in docs phase).
+- [x] Root `Cargo.toml` workspace; `rust-toolchain.toml` (pin stable); `rustfmt.toml`; CI-enforced clippy configuration.
+- [x] Create crates: `core`, `db`, `cache`, `feeds`, `extract`, `embed`, `llm`, `search`, `agents`, `web`; bins: `server`, `worker`, `cli`.
+- [x] `.env.example`, `docker/Dockerfile`, `docker/compose.yaml` (postgres+pgvector, redis, chromium, app), `docker/entrypoint.sh`.
+- [x] GitHub Actions CI: fmt + clippy (`-D warnings`) + database-backed tests + release build + Playwright; cached Cargo and PostgreSQL/pgvector/Redis services.
+- [x] `AGENTS.md` and compatibility pointers present.
 
 Verification: `cargo build` + `cargo clippy` + `cargo test` green; `docker build` succeeds.
 DoD commit: `chore: scaffold cargo workspace, tooling, and CI`.
@@ -76,12 +87,12 @@ DoD commit: `chore: scaffold cargo workspace, tooling, and CI`.
 **Refs:** ARCH §16, §17, §19; FND-107.
 
 Tasks:
-- [ ] `core::config::AppConfig` via `figment` (env + optional file), typed + validated at startup; fail-fast on missing required. Cover all env groups in ARCH §16 (DB, Redis, auth, embeddings incl. `EMBEDDING_MODEL`/`MODEL_CACHE_DIR`, LLM, extraction/Chromium, jobs, crypto, server).
-- [ ] `core::error` — domain error enums (`thiserror`); `web::error::AppError: IntoResponse` mapping (400/401/403/404/409/429/500) with safe messages.
-- [ ] `core::telemetry` — `tracing-subscriber` init (JSON/pretty), `tower-http::TraceLayer` wiring helper, request-id, `metrics` + Prometheus `/metrics` exporter.
-- [ ] `core::ports` — define the trait "ports" (Repos, `Cache`, `VectorStore`, `Embedder`, `LlmClient`, `FetchClient`, `Queue`, `Clock`) as stubs for later crates to implement.
+- [x] `core::config::AppConfig` via `figment`, typed and validated at startup. Environment values override an optional TOML file, every group is documented in `.env.example` and `docs/CONFIGURATION.md`, and an explicitly missing file fails clearly.
+- [x] `core::error` domain errors plus the single safe `web::error::AppError: IntoResponse` mapping.
+- [x] `core::telemetry` tracing, request tracing, readiness/health, metrics, and Prometheus `/metrics`.
+- [x] Narrow substitution interfaces live with their domain types (`Embedder`, `LlmClient`, `Extractor`, and `Agent`); concrete repositories/cache/queue remain direct adapters until a real second implementation or test seam exists. This deliberately replaces the obsolete catch-all `core::ports` stub proposal (FND-160).
 
-Verification: unit tests for config parse (valid/invalid); a tiny bin prints resolved config with secrets masked.
+Verification: unit tests cover valid/invalid configuration, missing optional files, and diagnostic redaction; `rustss-cli config-check` prints only a secret-safe resolved summary. HTTP request metrics use route templates rather than raw paths.
 DoD commit: `feat(core): typed config, error taxonomy, tracing + metrics`.
 
 ---
@@ -91,17 +102,17 @@ DoD commit: `feat(core): typed config, error taxonomy, tracing + metrics`.
 **Refs:** ARCH §6, §7; PRD §6; FND-002/005/009/011.
 
 Tasks:
-- [ ] SQL migrations (`crates/db/migrations`) implementing ARCH §6 groups: users/auth (incl. `api_tokens`), feeds (shared) + `feed_error_log` + `domain_extraction_state`, articles (shared) + `article_embeddings` (fixed dim from `EMBEDDING_MODEL`; HNSW `vector_cosine_ops`), subscriptions/categories, per-user state (`read_articles`, `seen_articles`, `bookmarks`, `article_feedback`, `user_patterns`), saved searches (+matches), preferences, notifications, ops (`admin_settings`, `cost_ledger`, `agent_runs`, `agent_locks`, `job_queue`, `outbox_events`).
-- [ ] Enable extensions: `CREATE EXTENSION vector`. Generated `tsvector` column + GIN on articles.
-- [ ] Indexes per ARCH §6.2 (unique URLs, `(feed_id, published_at DESC)`, HNSW, GIN tags, job_queue partial index).
-- [ ] Repositories (`crates/db`, one module per aggregate) with runtime `query_as` + `FromRow`; **idempotent upserts** for feeds/articles (ON CONFLICT) proving FND dedup.
-- [ ] `rustss-cli migrate` (apply) + entrypoint hook.
-- [ ] Test infra: `sqlx::test` + testcontainers Postgres/pgvector helper.
+- [x] SQL migrations implement the shared, personal, auth, search, notification, operations, media, catalog, and public-share schema groups.
+- [x] Enable pgvector and generated weighted `tsvector` columns with GIN indexes.
+- [x] Required uniqueness, feed/article, vector, tag, and queue indexes.
+- [x] Runtime SQLx repositories with typed rows and idempotent shared upserts.
+- [x] `rustss-cli migrate` plus entrypoint migration hook.
+- [x] Explicit `TEST_DATABASE_URL` PostgreSQL/pgvector integration-test infrastructure; CI supplies the real service. This intentionally replaces a hidden testcontainers dependency.
 
 Verification (critical):
-- [ ] Integration test: creating the same feed URL twice yields **one** `feeds` row + two `user_feeds` rows.
-- [ ] Integration test: ingesting the same article (GUID→URL→hash order) is idempotent; `should_update` logic matches ARCH §11.1.
-- [ ] Unsubscribe removes only per-user rows; shared content remains.
+- [x] Integration test: creating the same feed URL twice yields **one** `feeds` row + two `user_feeds` rows.
+- [x] Integration test: ingesting the same article (GUID→URL→hash order) is idempotent; `should_update` logic matches ARCH §11.1.
+- [x] Unsubscribe removes only per-user rows; shared content remains.
 DoD commit: `feat(db): schema + repositories with shared/per-user dedup model`.
 
 ---
@@ -111,12 +122,12 @@ DoD commit: `feat(db): schema + repositories with shared/per-user dedup model`.
 **Refs:** ARCH §10; FND-008.
 
 Tasks:
-- [ ] `cache::Cache` impl: moka L1 + `fred` Redis L2; `cache_get_or_set`, typed (serde) values, per-namespace TTLs from ARCH §10.
-- [ ] `SCAN`-based prefix/tag invalidation (never `KEYS`); Redis pub/sub to drop L1 across instances.
-- [ ] Graceful degradation: Redis down ⇒ L1+source still work (feature-tested).
-- [ ] Key builders with **shared vs per-user** separation (compile-time helpers).
+- [x] `cache::Cache`: moka L1 + optional Redis L2, cache-aside typed values, and bounded per-key TTLs.
+- [x] `SCAN`-based prefix invalidation (never `KEYS`) plus versioned Redis Pub/Sub invalidates exact keys and prefixes in sibling instances; sender IDs avoid redundant local work (FND-114).
+- [x] Graceful degradation: Redis down ⇒ L1 + source of truth still work.
+- [x] Key builders separate shared and per-user namespaces; validated `CACHE_NAMESPACE` values isolate Redis keys and channels between RustSS installations.
 
-Verification: unit tests for get/set/ttl/invalidation; a test simulating Redis outage.
+Verification: unit tests cover get/set/TTL/local invalidation and unavailable-Redis fallback; Redis integration tests prove L2 round trips, two-instance exact/prefix invalidation, and installation namespace isolation. A disconnected subscriber clears and bypasses L1 until a bounded, successful resubscription.
 DoD commit: `feat(cache): moka L1 + redis L2 with SCAN invalidation`.
 
 ---
@@ -126,13 +137,13 @@ DoD commit: `feat(cache): moka L1 + redis L2 with SCAN invalidation`.
 **Refs:** ARCH §15, §9; PRD §5.1; FND-110.
 
 Tasks:
-- [ ] `tower-sessions` + Postgres store; secure cookie config.
-- [ ] Local accounts: register/login, Argon2id; `REGISTRATION_MODE` (open/invite/closed); first-user-becomes-admin bootstrap.
-- [ ] OAuth (`oauth2`): Google, GitHub, Generic OIDC; account linking (`oauth_accounts`).
-- [ ] RBAC extractor (`ADMIN|USER|GUEST`); admin-route guard.
-- [ ] CSRF middleware for cookie-auth mutations; `tower_governor` rate limit on auth endpoints.
-- [ ] `api_tokens`: create/revoke app tokens (foundation for GReader in M13).
-- [ ] On user create: subscribe to default feeds (idempotent) — depends on M6 feed create; stub then wire.
+- [x] Secure opaque-token sessions backed by PostgreSQL. This deliberate, documented implementation replaces `tower-sessions` (FND-116).
+- [x] Local accounts: register/login, Argon2id, open/invite/closed policy, first-user-admin bootstrap, one-use invitation issuance/acceptance, and CLI admin creation.
+- [x] Google, GitHub, and Generic OIDC authorization-code flow with PKCE/state plus account linking. Direct `reqwest` is a documented deviation (FND-117).
+- [x] RBAC extractor and admin-route guard.
+- [x] CSRF protection for cookie-auth mutations and per-IP auth rate limiting.
+- [x] Create/list/revoke API tokens as the GReader/REST foundation.
+- [x] New users receive the featured default-feed set idempotently without duplicating shared feeds.
 
 Verification: handler tests for register/login/logout, role gating, CSRF rejection, rate limiting.
 DoD commit: `feat(web): oauth + local auth, sessions, rbac, csrf`.
@@ -140,17 +151,18 @@ DoD commit: `feat(web): oauth + local auth, sessions, rbac, csrf`.
 ---
 
 ## M5 — Web shell & reading UI
-**Goal:** the server-rendered HTMX experience for reading.
+**Goal:** the server-rendered, progressively enhanced reading experience.
 **Refs:** ARCH §9; PRD §5.10, §4.3.
 
 Tasks:
-- [ ] Askama base layout; Tailwind build pipeline (standalone CLI at build); `rust-embed` assets; HTMX + Alpine included.
-- [ ] Theme + typography applied **server-side** from `user_preferences` (14 themes → CSS variables).
-- [ ] Article list (filter by feed/category/unread/search; sort by date/relevance; pagination + infinite scroll partial).
-- [ ] Reading modes: side panel (resizable via Alpine), inline (accordion), standalone page.
-- [ ] Mark-as-read (auto + manual), read/unread toggle; feedback buttons (👍/👎) posting to per-user tables.
-- [ ] Preferences page (all 30+ fields) with progressive-enhanced forms.
-- [ ] Notification bell + list (polling partial).
+- [x] Askama base layout, embedded local assets, and dependency-light progressive JavaScript. Curated CSS deliberately replaces the proposed Tailwind pipeline (FND-118).
+- [x] Theme and typography applied server-side from personal preferences.
+- [x] Article list with personal feed/folder/tag/unread filters, date/relevance ordering, and bounded pagination.
+- [x] Side-panel, inline, and standalone reading modes, including independent side-panel scrolling.
+- [x] Automatic/manual read state, read/unread toggles, bookmarks, and explicit/implicit feedback in personal tables.
+- [x] Progressive preferences UI for the implemented display, content, search, media, YouTube, shortcut, and install settings.
+- [x] Notification navigation/list/read flows, live counts, polling, and batched feed-health notifications.
+- [x] Installable web-app manifest, platform icons, standalone shortcuts, browser-native install UI, and a static-only service-worker cache boundary.
 
 Verification: handler/template tests; snapshot a couple of rendered partials; no-JS smoke (form posts work).
 DoD commit: `feat(web): htmx reading UI, reading modes, preferences`.
@@ -162,12 +174,12 @@ DoD commit: `feat(web): htmx reading UI, reading modes, preferences`.
 **Refs:** ARCH §11.1, §12; PRD §5.2/§5.3; FND-001/006/011.
 
 Tasks:
-- [ ] `feeds::SafeFetchClient` (reqwest + rustls): scheme allow-list, DNS + private/loopback/link-local block (v4/v6), redirect re-validation, size cap, timeouts. **Unit-test the SSRF matrix.**
-- [ ] Feed URL normalization + `isSafeFeedUrl` equivalent; create-feed dedup by normalized URL (shared) + `user_feeds` subscribe.
-- [ ] `feed-rs` parsing (RSS/Atom/JSON Feed); map to `ParsedArticle`.
-- [ ] **Conditional GET**: send/store/reuse `ETag`/`Last-Modified`; handle 304 (FND-001).
-- [ ] Dedup + upsert (`article-deduplication` + `article-service` equivalents) per ARCH §11.1; `content_hash = sha256(trim(content))`.
-- [ ] Feed add/remove/list UI + native API endpoints.
+- [x] `feeds::SafeFetchClient` with scheme, credential, DNS/private-range, redirect, size, timeout, and implicit-proxy defenses plus SSRF tests.
+- [x] Feed URL normalization and shared-feed/personal-subscription dedup.
+- [x] `feed-rs` parsing for RSS/Atom/JSON Feed plus media-type-aware content normalization and enclosures.
+- [x] Conditional GET sends/stores/reuses `ETag`/`Last-Modified` and handles 304.
+- [x] GUID→URL→content-hash article upsert is shared and idempotent.
+- [x] Feed add/remove/list/refresh/settings UI with server-rendered endpoints.
 
 Verification: `wiremock` feed server tests (200 with items, 304, redirects, malformed); SSRF unit tests; dedup integration test (N users ⇒ 1 fetch path).
 DoD commit: `feat(feeds): safe fetch, parse, conditional GET, dedup ingest`.
@@ -179,13 +191,13 @@ DoD commit: `feat(feeds): safe fetch, parse, conditional GET, dedup ingest`.
 **Refs:** ARCH §8, §7.3; PRD §5.12; FND-007/101.
 
 Tasks:
-- [ ] `agents::Agent` trait + `AgentContext` (injected ports) + typed `Job` + `AgentOutcome`.
-- [ ] Runtime: cron scheduler (apalis/tokio-cron), Postgres queue consumer (`SKIP LOCKED`/apalis), bounded concurrency.
-- [ ] Singleton locks via `agent_locks` lease + advisory locks (`JOB_LOCK_TIMEOUT` default 10m).
-- [ ] Run tracking → `agent_runs` (status/duration/stats/logs/trigger); `JobLogger` ring buffer.
-- [ ] Outbox dispatcher: `outbox_events` → queue jobs (+ optional Redis nudge).
-- [ ] Wire **FeedRefreshAgent** (compute due feeds, dedup, enqueue) + **FetchFeedAgent** (uses M6) into the runtime; emit `ArticlesIngested`.
-- [ ] `rustss-worker` bin; `RUN_EMBEDDED_WORKER` in `rustss-server`.
+- [x] `agents::Agent` trait, `AgentContext`, typed durable jobs, registry, and structured outcomes.
+- [x] Runtime: durable Postgres `SKIP LOCKED` consumers with bounded, lane-isolated concurrency; user-triggered summaries use reserved low-latency capacity while scheduled/bulk work stays in the background lane. Validated five-field UTC cron expressions control singleton schedules.
+- [x] Singleton lease locking for scheduled shared work plus transactional advisory locking where required.
+- [x] Run tracking → `agent_runs` (status/duration/stats/trigger) with bounded sanitized errors in the wide, live admin queue view. A per-run `JobLogger` ring buffer remains optional future depth.
+- [x] Transactional outbox dispatcher: committed `outbox_events` become deduplicated jobs; unknown deployment-skew events remain pending safely.
+- [x] **FeedRefreshAgent** and **FetchFeedAgent** are wired into one deduplicated shared pipeline; downstream enrichment jobs are revision-keyed.
+- [x] Standalone `rustss-worker` and `RUN_EMBEDDED_WORKER` server mode.
 
 Verification: test that a feed subscribed by N users enqueues **one** fetch; lock prevents double-run; a failing job is retried/backed-off and recorded.
 DoD commit: `feat(agents): scheduler, durable queue, locks, run records, outbox`.
@@ -197,12 +209,14 @@ DoD commit: `feat(agents): scheduler, durable queue, locks, run records, outbox`
 **Refs:** ARCH §12; PRD §5.4; FND-006/104/108/015.
 
 Tasks:
-- [ ] `extract::Extractor` trait + registry (priority + fallback).
-- [ ] Readability via `article_scraper`; Chromium via `chromiumoxide` (separate compose service, pooled, `CHROMIUM_ENABLED`).
-- [ ] Per-domain rate limiter (`domain_extraction_state`): base 3s, robots.txt crawl-delay (cache 24h/1h-err), adaptive 429 backoff 10/30/60/120 honoring `Retry-After`.
-- [ ] Per-feed extraction settings (method/headers/**encrypted cookies**/selector/timeout/merge strategy).
-- [ ] `ammonia` sanitization before store + at render; media handling.
-- [ ] **ExtractContentAgent** (event-driven on `ArticlesIngested`, new articles only, once per shared article).
+- [x] `extract::Extractor` trait + registry (priority + fallback).
+- [x] Local Mozilla-Readability-compatible extraction via `dom_smoothie`, with configurable CSS selection and a density-scored malformed-document fallback.
+- [x] Chromium via `chromiumoxide` (separate compose service, semaphore-bounded, `CHROMIUM_ENABLED`): renders a CSP-isolated copy of HTML already fetched through `SafeFetchClient`, then reruns extraction; it never navigates Chromium around the SSRF boundary and degrades to local extraction.
+- [x] Per-domain limiter with shared state, robots.txt crawl delay/Disallow, bounded caches, adaptive failure backoff, and `Retry-After` handling.
+- [x] Per-subscription content choice and finite/infinite public-page lifetime, aggregated into one shared acquisition; admin-owned selector/robots/delay/rewrite controls plus separately audited host/path-pinned encrypted acquisition profiles for explicitly authorized cookie/proxy/certificate cases.
+- [x] Media-type-aware feed normalization plus `ammonia` sanitization before store and at render; semantic HTML/Markdown fidelity, lazy/responsive media handling, article-specific typography, and configurable no-network tracking-image removal with shared source-specific reports.
+- [x] Bounded no-network YouTube recognition plus a reversible on-demand `youtube-nocookie.com` player with linked-time preservation, explicit connection state, instance/user/subscription policy, and link-only fallback.
+- [x] **ExtractContentAgent** (event/access-driven, absent-or-expired public pages only, once per shared article revision) plus RSS fallback and access-triggered fast refresh.
 
 Verification: `wiremock` extraction tests (html, 429+Retry-After, robots crawl-delay); sanitizer XSS tests; SSRF applies to extraction fetches.
 DoD commit: `feat(extract): readability + chromium, rate limiting, sanitize`.
@@ -214,13 +228,13 @@ DoD commit: `feat(extract): readability + chromium, rate limiting, sanitize`.
 **Refs:** ARCH §13, §11.3; PRD §5.5; FND-002/103/106.
 
 Tasks:
-- [ ] `embed::Embedder`: local `fastembed` (BGE-small-384) with **download-on-first-run** into `MODEL_CACHE_DIR`; OpenAI-compatible via `async-openai`. `rustss-cli fetch-model`.
-- [ ] `VectorStore` (pg): insert into `article_embeddings` (fixed dim, model guard, `ON CONFLICT DO NOTHING`); KNN query with HNSW.
-- [ ] Text prep `title\n\nexcerpt\n\ncontent[..2000]`; batch (default 10).
-- [ ] `search::semantic`: similarity `1 - dist/2`; optional recency blend `(1-w)*sim + w*exp(-age/decay)`; filters; related-articles.
-- [ ] Hybrid keyword via `tsvector` (P1).
-- [ ] **EmbedArticleAgent** (event-driven, once per article) + backfill mode.
-- [ ] Search UI + native API.
+- [x] `embed::Embedder` supports production local BGE-small-en-v1.5 through `fastembed`, explicit online/offline cache preparation, OpenAI-compatible providers, and an explicit deterministic hash fallback for tests/emergencies.
+- [x] PostgreSQL vector store with a fixed dimension/model/revision guard, idempotent writes, and HNSW KNN queries.
+- [x] Bounded `title\n\nexcerpt\n\ncontent[..2000]` text preparation and batch-capable provider API.
+- [x] Semantic and related search use `1 - distance/2`, tenant filters, and configurable hybrid/recency weighting.
+- [x] Hybrid keyword via dual weighted `tsvector` GIN indexes, safe web-search operators, explainable score blending, and keyword fallback (P1).
+- [x] **EmbedArticleAgent** is revision-deduplicated and supports queued backfill.
+- [x] Search UI and versioned native resources provide keyword/semantic/hybrid modes, guarded vectors, pagination, and graceful keyword fallback.
 
 Verification: embedding determinism test (local); model-guard rejects wrong dim (FND-002); search returns expected ordering on a seeded corpus; first-run download smoke (network) + clear error when weights missing offline (FND-103).
 DoD commit: `feat(embed,search): single-space embeddings + semantic search`.
@@ -232,12 +246,12 @@ DoD commit: `feat(embed,search): single-space embeddings + semantic search`.
 **Refs:** ARCH §11.2; PRD §5.6.
 
 Tasks:
-- [ ] `search::patterns`: TF keyword extraction (stop-words, len>2, heuristic weights) exactly per ARCH §11.2.
-- [ ] Feedback service: explicit ±1.0, implicit completion +0.5 / bounce −0.5 (user `bounce_threshold`); explicit never overwritten.
-- [ ] Pattern update `Δw = fb·rel·0.1`; decay `0.9^floor(days/30)`; prune `|w|<0.1`; top 100.
-- [ ] Scoring: sigmoid `1/(1+e^(-5·Σ))`, neutral 0.5; cache `score:{user}:{article}` 1h + explanations; batch scoring.
-- [ ] **PatternDecayAgent** (scheduled, tracked+locked — fixes FND-007).
-- [ ] Wire ranking/filter into the article list (M5); "Reset Learning".
+- [x] TF keyword extraction with the documented stop-word, length, and heuristic constants.
+- [x] Explicit ±1.0 and implicit completion/bounce feedback; explicit feedback wins.
+- [x] Exact pattern update, decay, prune, and top-100 behavior.
+- [x] Sigmoid scoring, neutral fallback, personal cache namespace, and explanations.
+- [x] Scheduled and tracked **PatternDecayAgent**.
+- [x] Relevance ranking/filtering and **Reset Learning** UI.
 
 Verification: unit tests with exact expected values for extraction/update/decay/prune/sigmoid (regression vs. reference constants).
 DoD commit: `feat(search): personalization patterns, feedback, scoring`.
@@ -249,10 +263,10 @@ DoD commit: `feat(search): personalization patterns, feedback, scoring`.
 **Refs:** ARCH §11.4, §8; PRD §5.7; FND-105 (adjacent).
 
 Tasks:
-- [ ] `search::dsl`: parser → AST (OR `,`, AND `+`, NOT `-`, phrase `"..."`, group `()`); `proptest` coverage.
-- [ ] Executor: boolean filter + keyword score (`1+ln(occ)`, ×2 title) + semantic; combined `0.6·sem+0.4·kw`; threshold 0.6.
-- [ ] **SavedSearchMatchAgent** (event-driven on new/embedded articles): pre-embed query per batch (100 articles × concurrency 5); upsert matches; notify ≥ 0.85; rematch (90d); cleanup (90d); templates.
-- [ ] CRUD UI + native API; results with pagination.
+- [x] Saved-search DSL parser/AST for OR, AND, NOT, phrases, and groups has regression and property-based totality coverage.
+- [x] Boolean execution plus documented keyword/semantic score blending.
+- [x] Idempotent **SavedSearchScanAgent**/**SavedSearchMatchAgent**, durable matches, threshold notifications, and bounded candidate windows.
+- [x] Server-rendered create/edit/list/delete, manual rematch, paginated results, retention controls, notification UI, and native resources.
 
 Verification: parser property tests; matcher integration test (throughput sanity ≥ target); notification on high-relevance.
 DoD commit: `feat(search,agents): saved searches DSL + matcher`.
@@ -264,12 +278,12 @@ DoD commit: `feat(search,agents): saved searches DSL + matcher`.
 **Refs:** ARCH §14, §11; PRD §5.8; FND-003/004/013.
 
 Tasks:
-- [ ] `llm::LlmClient`: OpenAI-compatible (`async-openai`) + Ollama; provider cascade user→admin→env.
-- [ ] Secrets: XChaCha20-Poly1305 + HKDF-SHA256 unified AEAD (fixes FND-004); encrypt user/system API keys + feed cookies; masking; key-version in AAD (FND-110).
-- [ ] Summarize → JSON {summary,key_points,topics}; robust parse + fallback; store once on shared article (first-writer-wins) with short lock.
-- [ ] `cost_ledger` durable accounting (per user/provider/model/day); pricing map incl. `gpt-4o-mini` (FND-013).
-- [ ] **SummarizeArticleAgent** (on-demand + optional admin-gated auto on refresh, min content length).
-- [ ] Summary UI (on article) + admin cost views.
+- [x] OpenAI/Ollama-compatible clients resolve the enabled user → administrator → environment provider cascade and retry the next profile on provider failure.
+- [x] Domain-separated XChaCha20-Poly1305 + HKDF-SHA256 AEAD, masking, versioned AAD, and managed user/admin credential profiles. Delete-and-recreate provides explicit credential rotation without ever redisplaying key material.
+- [x] Structured summary/key-points/topics parsing with fallback and first-writer-wins storage on the shared article revision.
+- [x] Durable per-user/provider/model/day cost ledger and pricing calculations.
+- [x] Low-latency, revision-deduplicated **SummarizeArticleAgent** works on demand and through the administrator-gated automatic refresh policy.
+- [x] Live article summary UI, actionable safe failures, and admin cost/queue views.
 
 Verification: `wiremock` LLM tests; AEAD round-trip + tamper-detection tests; first-writer-wins concurrency test; cost math test.
 DoD commit: `feat(llm): summarization + durable cost ledger + unified secrets`.
@@ -281,26 +295,51 @@ DoD commit: `feat(llm): summarization + durable cost ledger + unified secrets`.
 **Refs:** ARCH §9.1, §17; PRD §5.2/§5.9/§5.11/§5.13; FND-105.
 
 Tasks:
-- [x] Curated feed magazine: 97 starter sources, country/category/language facets, automatic facet filtering, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
+- [x] Curated feed magazine: 200 verified starter sources, country/category/language facets, automatic facet filtering, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
 - [x] Configurable keyboard shortcuts: arrow-key-first defaults, capture/reset controls, server-side validation, and safe Library article/feed actions.
 - [x] Personal feed organization: stable hierarchical navigation, one current folder per feed, an Unfiled scope, normalized multi-valued tags, scoped Library/mark-all-read filters, cached source icons, and a persisted reduced sidebar.
-- [x] Feed health baseline: structured safe failure history, one-attempt health cycles, daily checks after three failures, weekly checks after 14 failing days, manual-disabled preservation, an admin operations viewer, and an active-source schedule reset/queue action. Notifications and explicit pause/resume controls remain.
-- [~] Bulk personal feed operations: folder/Unfiled moves, add/remove/replace tags, and queue refresh for selected subscriptions are scoped and implemented, with progressive drag-to-folder support. Shared settings/enable-disable and destructive bulk-unsubscribe actions remain.
-- [ ] OPML import/export (categories preserved; category-selection import — fixes reference bug).
-- [ ] CleanupAgent (retention, **preserve bookmarks**, configurable age basis; VACUUM/ANALYZE) — FND-005/009.
-- [~] Admin dashboard: overview counts, user/admin-role management, shared-feed inventory/cadence, curated feed magazine editing, safe operations activity, and cost visibility are implemented. Storage/memory, manual triggers, provider config, constraints, and maintenance actions remain.
-- [ ] **GReader API adapter** under `/api/greader/` (ARCH §9.1): ClientLogin + T token (via `api_tokens`), subscription/list+edit, tag/list, stream/contents + items/ids + items/contents, edit-tag, mark-all-as-read, user-info. Map read→`read_articles`, star→`bookmarks`, labels→categories.
-- [ ] GReader integration tests replaying real client request sequences (FND-105).
+- [x] Feed health: structured safe failure history, one-attempt health cycles, daily checks after three failures, weekly checks after 14 failing days, batched notifications, explicit pause/resume, manual-disabled preservation, and reset/queue actions.
+- [x] Bulk personal feed operations: folder/Unfiled moves, add/remove/replace tags, queue refresh, pause/resume, and confirmed unsubscribe are tenant-scoped, partially failure-tolerant, and progressively enhanced with drag-to-folder.
+- [x] OPML 2.0 file/URL import with bounded dry-run preview, new/existing detection, per-feed and folder-group selection, keep/replace policy, partial result reporting, shared refresh dedup, and hierarchy-preserving export.
+- [x] Revocable public article links with encrypted 256-bit bearer tokens, finite/infinite lifetime policy, rotate/revoke, title/metadata/source/image controls, RSS fallback, and anonymous no-store/noindex rendering without visitor-driven work.
+- [x] **ContentCleanupAgent** enforces shared public-page lifetimes without deleting RSS content and applies configurable article retention while preserving every user's bookmarks (FND-005/009).
+- [x] Admin dashboard: overview/storage counts, user roles, shared-feed inventory/cadence, magazine editing, managed provider configuration, worker/lane/queue visibility, safe wide errors, recent completions, costs, and bounded maintenance actions for refresh, cleanup, stalled recovery, and dead-letter retry.
+- [x] **GReader API adapter** exposes ClientLogin + T token, subscription/list+edit, tag/list, stream/contents, items/ids, items/contents, edit-tag, mark-all-as-read, and user-info. Stable numeric aliases are assigned once by database triggers; reads/stars/labels stay personal.
+- [x] GReader integration tests replay authentication, subscription, stream, read, and star client request sequences (FND-105).
 
 Verification: admin handler tests; OPML round-trip; health-state transitions; GReader conformance tests (subset).
 DoD commit(s): `feat(web): admin, opml, feed health, bulk ops` + `feat(api): greader-compatible client API`.
 
 ---
 
+## v1 completion gates
+
+The roadmap was not considered complete merely because the application ran.
+All M0–M13 rows and the following cross-cutting implementation/evidence gates
+now meet the release-candidate bar:
+
+- [x] Production local ONNX embedding download/offline-seed/reindex workflow.
+- [x] Chromium extraction fallback with bounded pooling and graceful degradation.
+- [x] GReader and Fever compatibility subsets plus client replay tests; cohesive native API documented.
+- [x] Invite, feed-health/bulk/admin, retention, and outbox controls.
+- [x] Desktop/tablet/mobile accessibility matrix and strict-CSP completion.
+- [x] Performance targets on the documented 100k reference corpus/host.
+- [x] Redis/LLM/Chromium/worker failure injection and recovery exercises.
+- [x] Upgrade, migration, backup, and restore rehearsal.
+- [x] Versioned multi-architecture artifact/container workflow with checksums, SBOM/provenance, and keyless signatures. Actual publication is intentionally tag-triggered and was not performed from this worktree.
+- [x] Complete configuration, migration, operations, API, user, and release-evidence references.
+
+The Miniflux compatibility program is a broader release train, not a synonym
+for the first RustSS v1. Its 67 independently testable outcomes remain tracked
+in [`docs/MINIFLUX_PARITY.md`](MINIFLUX_PARITY.md); 65 are complete and two are
+explicitly partial rather than silently overstated.
+
+---
+
 ## Post-v1
 
-- **v1.1:** bookmarks/favorites UI polish, "seen" state, hybrid search UX, OPML category-selection, batched health notifications, media proxy, registration invites.
-- **v2:** ClusterAgent (group related articles) + DigestAgent (LLM event/daily digests, optional email), i18n/message catalogs, ADHD reading formatting, touch gestures, date-format prefs, auto-link bare URLs, YouTube embeds, storage and richer log-admin tooling.
+- **v1.1:** bookmarks, hybrid search, media proxy, public sharing, invitations, and batched health notifications landed in v1. A dedicated "seen" state distinct from read remains optional product work.
+- **v2:** configurable keyboard shortcuts, privacy-enhanced and alternative YouTube players, touch gestures, date/number/locale profiles, duration enrichment, Fever compatibility, UI customization, and deeper storage/log administration landed early. ClusterAgent (related events), DigestAgent (LLM event/daily digests, optional email), ADHD reading formatting, full translated-string coverage, remaining turnkey integration adapters, and auto-linking bare text remain.
 
 ---
 

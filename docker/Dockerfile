@@ -1,11 +1,16 @@
 # syntax=docker/dockerfile:1
 
 # ── Builder ──────────────────────────────────────────────────────────────────
-FROM rust:1-slim-bookworm AS builder
+FROM rust:1-slim-trixie AS builder
 WORKDIR /app
 
-# Build dependencies first for better layer caching.
-# (rustls is used for TLS, so no OpenSSL/pkg-config needed.)
+# fastembed/ONNX links C++ support. WebAuthn attestation verification uses the
+# platform OpenSSL library; outbound application HTTP remains rustls-only.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends g++ pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy build inputs after system dependencies for better layer caching.
 COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
 COPY bins ./bins
@@ -20,10 +25,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && cp target/release/rustss-server target/release/rustss-worker target/release/rustss-cli /out/
 
 # ── Runtime ──────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
-# ca-certificates for outbound TLS; tini for proper signal handling / reaping.
+FROM debian:trixie-slim AS runtime
+# ca-certificates for outbound TLS; libstdc++ for ONNX; libssl for WebAuthn
+# attestation verification; tini for signal handling.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates tini \
+ && apt-get install -y --no-install-recommends ca-certificates libstdc++6 libssl3t64 tini \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --create-home --uid 10001 rustss \
  && mkdir -p /var/lib/rustss/models \

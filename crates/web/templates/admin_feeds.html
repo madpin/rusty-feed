@@ -27,7 +27,19 @@
         <td>{{ feed.subscriber_count }}</td>
         <td>{{ feed.article_count }}</td>
         <td>{{ feed.last_post }}</td>
-        <td><a href="/feeds/{{ feed.id }}/settings">Source policy</a></td>
+        <td>
+          <a href="/feeds/{{ feed.id }}/settings">Source policy</a>
+          <form method="post" action="/admin/feeds/{{ feed.id }}/status">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            {% if feed.health == "disabled" %}
+            <input type="hidden" name="status" value="active" />
+            <button type="submit">Resume</button>
+            {% else %}
+            <input type="hidden" name="status" value="paused" />
+            <button type="submit" data-confirm="Pause this shared source for every subscriber? Stored articles remain available.">Pause</button>
+            {% endif %}
+          </form>
+        </td>
       </tr>
     {% endfor %}
     </tbody>

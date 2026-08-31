@@ -8,8 +8,11 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use rustss_db::models::NewArticle;
-use rustss_db::{articles, cost_ledger, feeds, users, Db};
-use rustss_llm::{summarize, summarize_article, LlmClient, OpenAiCompatClient};
+use rustss_db::{articles, cost_ledger, feeds, llm_profiles, users, Db};
+use rustss_llm::{
+    summarize, summarize_article, summarize_article_with_cascade, LlmClient, OpenAiCompatClient,
+    ProviderCascade,
+};
 
 async fn mock_llm(content: &str) -> (MockServer, OpenAiCompatClient) {
     let server = MockServer::start().await;
@@ -69,6 +72,7 @@ async fn seed_article(db: &Db) -> rustss_db::Article {
             content: "Some article content to summarize.".into(),
             excerpt: None,
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )
@@ -152,4 +156,90 @@ async fn summarize_article_is_first_writer_wins_under_concurrency() {
         }
     }
     assert_eq!(wrote, 1, "exactly one concurrent writer should win");
+}
+
+#[tokio::test]
+async fn managed_provider_cascade_prefers_user_then_falls_back_to_admin() {
+    let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&url).await.unwrap();
+    db.migrate().await.unwrap();
+    let user = users::create(
+        db.pool(),
+        &format!("cascade-{}@ex.com", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let failing = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount(&failing)
+        .await;
+    let working = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{ "message": { "content": "{\"summary\":\"Fallback worked\",\"key_points\":[],\"topics\":[]}" } }],
+            "usage": { "prompt_tokens": 10, "completion_tokens": 10 }
+        })))
+        .expect(1)
+        .mount(&working)
+        .await;
+    let secret = b"cascade-test-encryption-secret";
+    let cryptor = rustss_core::crypto::Cryptor::new_with_context(
+        secret,
+        b"rustss/llm-provider-credentials/v1",
+    );
+    let encrypted = cryptor.encrypt_str("test-key").unwrap();
+    llm_profiles::create(
+        db.pool(),
+        Some(user.id),
+        "user",
+        "Unavailable user provider",
+        "openai",
+        "user-model",
+        &failing.uri(),
+        Some(&encrypted),
+        true,
+        10,
+    )
+    .await
+    .unwrap();
+    llm_profiles::create(
+        db.pool(),
+        None,
+        "admin",
+        "Working instance provider",
+        "openai",
+        "admin-model",
+        &working.uri(),
+        Some(&encrypted),
+        true,
+        10,
+    )
+    .await
+    .unwrap();
+    let article = seed_article(&db).await;
+    let cascade = ProviderCascade::new(db.clone(), secret, None);
+    let (written, model) = summarize_article_with_cascade(&cascade, Some(user.id), &article)
+        .await
+        .unwrap();
+    assert!(written);
+    assert_eq!(model, "admin-model");
+    assert_eq!(
+        articles::get_summary(db.pool(), article.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .summary,
+        "Fallback worked"
+    );
 }

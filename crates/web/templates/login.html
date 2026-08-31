@@ -13,6 +13,17 @@
   </label>
   <button type="submit" class="primary">Sign in</button>
 </form>
+{% if passkeys_enabled %}
+<div class="auth-separator"><span>or</span></div>
+<form data-passkey-login class="stack">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <label>Email
+    <input type="email" name="email" autocomplete="username webauthn" required />
+  </label>
+  <button type="submit">Sign in with a passkey</button>
+  <p class="muted" data-passkey-status role="status"></p>
+</form>
+{% endif %}
 {% if !providers.is_empty() %}
 <p class="muted">or</p>
 {% for p in providers %}

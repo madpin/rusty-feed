@@ -20,6 +20,22 @@
   <div class="token-secret"><code id="new-token-value">{{ raw }}</code></div>
   <button type="button" data-copy-token="new-token-value">Copy token</button>
 </section>
+
+<section class="panel">
+  <h2>Fever-compatible client</h2>
+  {% if fever_api_enabled %}
+  <p class="muted">Use this for clients that support Fever but not Google Reader. RustSS stores only a one-way hash of the protocol key; your password cannot be recovered.</p>
+  <form method="post" action="/settings/fever" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Credential name<input type="text" name="name" placeholder="Unread on my phone" required /></label>
+    <label>Fever username<input type="text" name="username" autocomplete="username" required /></label>
+    <label>Fever password<input type="password" name="password" minlength="12" maxlength="256" autocomplete="new-password" required /></label>
+    <div class="form-actions"><button type="submit" class="primary">Create Fever credential</button></div>
+  </form>
+  {% else %}
+  <p class="notice">The instance administrator disabled the Fever API.</p>
+  {% endif %}
+</section>
 {% endif %}
 
 <section class="panel">
@@ -52,7 +68,7 @@
       {% if !t.revoked %}
       <div class="row-actions">
         <form method="post" action="/settings/tokens/{{ t.id }}/revoke"
-              onsubmit="return confirm('Revoke this token? Connected clients using it will stop working.');">
+              data-confirm="Revoke this token? Connected clients using it will stop working.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <button type="submit" class="danger">Revoke token</button>
         </form>

@@ -1,10 +1,102 @@
+// @ts-check
 // RustSS progressive enhancement (M5). The UI works fully without JS; this just
 // makes actions in-place and enables inline reading. Vanilla JS, no dependencies.
 (function () {
   "use strict";
 
+  document.documentElement.classList.add("js");
+
   var status = document.getElementById("action-status");
   var statusTimer;
+  var installPrompt = null;
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form || !form.getAttribute) return;
+    var message = form.getAttribute("data-confirm");
+    if (!message && event.submitter && event.submitter.getAttribute) {
+      message = event.submitter.getAttribute("data-confirm");
+    }
+    if (message && !window.confirm(message)) event.preventDefault();
+  });
+
+  document.addEventListener("click", function (event) {
+    var field = event.target.closest ? event.target.closest("[data-select-on-click]") : null;
+    if (field && typeof field.select === "function") field.select();
+  });
+
+  function installedDisplayMode() {
+    return window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+  }
+
+  function updateInstallApp(mode) {
+    var panel = document.querySelector("[data-install-app]");
+    if (!panel) return;
+    var button = panel.querySelector("[data-install-app-button]");
+    var help = panel.querySelector("[data-install-app-help]");
+    var installStatus = panel.querySelector("[data-install-app-status]");
+    var appName = panel.getAttribute("data-install-app-name") || "RustSS";
+    if (mode === "installed") {
+      if (button) button.hidden = true;
+      if (help) help.hidden = true;
+      if (installStatus) installStatus.textContent = appName + " is installed on this device and opens in its own window.";
+      return;
+    }
+    if (mode === "prompt") {
+      if (button) {
+        button.hidden = false;
+        button.disabled = false;
+      }
+      if (help) help.hidden = true;
+      if (installStatus) installStatus.textContent = "This browser is ready to install RustSS as an app.";
+      return;
+    }
+    if (button) button.hidden = true;
+    if (help) help.hidden = false;
+  }
+
+  window.addEventListener("beforeinstallprompt", function (event) {
+    event.preventDefault();
+    installPrompt = event;
+    updateInstallApp("prompt");
+  });
+
+  window.addEventListener("appinstalled", function () {
+    installPrompt = null;
+    updateInstallApp("installed");
+    var panel = document.querySelector("[data-install-app]");
+    var appName = panel ? panel.getAttribute("data-install-app-name") || "RustSS" : "RustSS";
+    announce(appName + " was installed on this device.", false);
+  });
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-install-app-button]") : null;
+    if (!button || !installPrompt) return;
+    var prompt = installPrompt;
+    installPrompt = null;
+    button.disabled = true;
+    prompt.prompt();
+    prompt.userChoice.then(function (choice) {
+      if (choice.outcome === "accepted") {
+        var installStatus = document.querySelector("[data-install-app-status]");
+        if (installStatus) installStatus.textContent = "Finishing installation…";
+      } else {
+        updateInstallApp("manual");
+        announce("Installation was cancelled. You can use the browser menu whenever you are ready.", false);
+      }
+    }).catch(function () {
+      updateInstallApp("manual");
+    });
+  });
+
+  if (installedDisplayMode()) updateInstallApp("installed");
+
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+    navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(function () {});
+  }
+  if (document.readyState === "complete") registerServiceWorker();
+  else window.addEventListener("load", registerServiceWorker, { once: true });
 
   function announce(message, isError) {
     if (!status) return;
@@ -136,6 +228,237 @@
       });
       window.addEventListener("pagehide", report);
     });
+  }
+
+  function initializePendingContent(root) {
+    Array.prototype.forEach.call(root.querySelectorAll("[data-content-pending='true']"), function (node) {
+      if (node.dataset.contentPoll === "true") return;
+      node.dataset.contentPoll = "true";
+      var attempts = 0;
+      var deadline = Date.now() + (5 * 60 * 1000);
+      function markDelayed() {
+        node.removeAttribute("data-content-pending");
+        var article = node.closest("article");
+        var notice = article ? article.querySelector(".content-notice") : null;
+        if (notice) notice.textContent = "The public-page update is taking longer than usual. Stored RSS content remains available while the background queue continues.";
+      }
+      var poll = function () {
+        var url = node.getAttribute("data-content-url");
+        if (!url || !node.isConnected) return;
+        fetch(url, { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
+          .then(function (response) {
+            if (!response.ok) throw new Error("content refresh failed");
+            var contentStatus = response.headers.get("x-rustss-content-status") || "ready";
+            return response.text().then(function (html) { return { html: html, status: contentStatus }; });
+          })
+          .then(function (result) {
+            if (result.status === "ready") {
+              node.innerHTML = result.html;
+              node.removeAttribute("data-content-pending");
+              var article = node.closest("article");
+              var notice = article ? article.querySelector(".content-notice") : null;
+              if (notice) notice.remove();
+              announce("Public-page content is ready.", false);
+              return;
+            }
+            if (result.status === "failed") {
+              node.removeAttribute("data-content-pending");
+              var failedArticle = node.closest("article");
+              var failedNotice = failedArticle ? failedArticle.querySelector(".content-notice") : null;
+              if (failedNotice) failedNotice.textContent = "The public page could not be updated. Stored RSS content remains available; RustSS will retry later.";
+              announce("The public page could not be updated. Stored RSS content remains available.", true);
+              return;
+            }
+            attempts += 1;
+            if (Date.now() < deadline) {
+              window.setTimeout(poll, Math.min(750 * attempts, 5000));
+            } else {
+              markDelayed();
+            }
+          })
+          .catch(function () {
+            attempts += 1;
+            if (Date.now() < deadline) {
+              window.setTimeout(poll, Math.min(1000 * attempts, 5000));
+            } else {
+              markDelayed();
+            }
+          });
+      };
+      window.setTimeout(poll, 500);
+    });
+  }
+
+  function finishSummary(form) {
+    var panel = form.closest(".article-inline") || form.closest(".reading-pane");
+    var panelUrl = form.getAttribute("data-panel-url");
+    if (panel && panelUrl) {
+      return loadPanel(panel, panelUrl, null).then(function () {
+        var panelArticle = panel.querySelector("[data-panel-article]");
+        var card = panelArticle ? document.getElementById("card-" + panelArticle.getAttribute("data-panel-article")) : null;
+        syncCardState(card, panelArticle);
+      });
+    }
+    var card = form.closest("[data-article-card]");
+    if (card) {
+      var articleId = card.getAttribute("data-article-id");
+      var link = document.createElement("a");
+      link.href = "/articles/" + articleId;
+      link.className = "btn summary-card-link";
+      link.textContent = "View AI summary";
+      form.replaceWith(link);
+      return Promise.resolve();
+    }
+    window.location.reload();
+    return new Promise(function () {});
+  }
+
+  function startSummaryPolling(form) {
+    if (form._rustssSummaryPromise) return form._rustssSummaryPromise;
+    var statusUrl = form.getAttribute("data-summary-status-url");
+    if (!statusUrl) return Promise.resolve();
+    var progress = form.querySelector("[data-summary-progress]");
+    var deadline = Date.now() + (5 * 60 * 1000);
+    var attempts = 0;
+    setPending(form, true);
+
+    form._rustssSummaryPromise = new Promise(function (resolve) {
+      function finish(message, error) {
+        if (progress) {
+          progress.textContent = message;
+          progress.classList.toggle("error", Boolean(error));
+        }
+        if (error) announce(message, true);
+        resolve();
+      }
+
+      function poll() {
+        if (!form.isConnected) {
+          resolve();
+          return;
+        }
+        fetch(statusUrl, {
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "fetch" },
+          cache: "no-store",
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error("summary status failed");
+            return response.json();
+          })
+          .then(function (result) {
+            if (progress) {
+              progress.textContent = result.message || "Generating the AI summary…";
+              progress.classList.remove("error");
+            }
+            if (result.state === "ready") {
+              announce("AI summary ready.", false);
+              finishSummary(form).then(resolve, function () {
+                finish("The summary is ready, but this view could not refresh. Reload the page.", true);
+              });
+              return;
+            }
+            if (result.state === "failed") {
+              finish(result.message || "The AI summary could not be generated.", true);
+              return;
+            }
+            if (result.state === "idle") {
+              resolve();
+              return;
+            }
+            attempts += 1;
+            if (Date.now() >= deadline) {
+              finish("The summary is taking longer than expected. It remains in the priority queue.", false);
+              return;
+            }
+            window.setTimeout(poll, Math.min(250 + attempts * 150, 2000));
+          })
+          .catch(function () {
+            attempts += 1;
+            if (Date.now() >= deadline) {
+              finish("Live status is unavailable. Reload later or ask an administrator to check the queue.", true);
+              return;
+            }
+            window.setTimeout(poll, Math.min(500 + attempts * 250, 3000));
+          });
+      }
+      poll();
+    }).finally(function () {
+      delete form._rustssSummaryPromise;
+      if (form.isConnected) setPending(form, false);
+    });
+    return form._rustssSummaryPromise;
+  }
+
+  function initializeSummaryActions(root) {
+    var forms = [];
+    if (root.matches && root.matches(".summary-action[data-action='summarize']")) forms.push(root);
+    Array.prototype.push.apply(forms, root.querySelectorAll(".summary-action[data-action='summarize']"));
+    forms.forEach(function (form) {
+      if (form.dataset.summaryInitialized === "true") return;
+      form.dataset.summaryInitialized = "true";
+      startSummaryPolling(form).catch(function () {});
+    });
+  }
+
+  function initializeAdminQueueRefresh() {
+    var snapshot = document.querySelector("[data-admin-queue-snapshot]");
+    var button = document.querySelector("[data-admin-queue-refresh]");
+    var refreshStatus = document.querySelector("[data-admin-refresh-status]");
+    if (!snapshot || !button) return;
+    var pending = false;
+
+    function refresh(manual) {
+      if (pending || document.visibilityState === "hidden") return;
+      if (!manual && snapshot.contains(document.activeElement)) return;
+      pending = true;
+      button.disabled = true;
+      if (refreshStatus) refreshStatus.textContent = "Updating…";
+      fetch(window.location.pathname, {
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "fetch" },
+        cache: "no-store",
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error("queue refresh failed");
+          return response.text();
+        })
+        .then(function (html) {
+          var parsed = new DOMParser().parseFromString(html, "text/html");
+          var replacement = parsed.querySelector("[data-admin-queue-snapshot]");
+          if (!replacement) throw new Error("queue snapshot missing");
+          var disclosureState = {};
+          var horizontalScroll = {};
+          Array.prototype.forEach.call(snapshot.querySelectorAll("[data-admin-section]"), function (section) {
+            var key = section.getAttribute("data-admin-section");
+            if (!key) return;
+            disclosureState[key] = section.open;
+            var table = section.querySelector(".table-wrap");
+            if (table) horizontalScroll[key] = table.scrollLeft;
+          });
+          var pageScroll = window.scrollY;
+          snapshot.innerHTML = replacement.innerHTML;
+          Array.prototype.forEach.call(snapshot.querySelectorAll("[data-admin-section]"), function (section) {
+            var key = section.getAttribute("data-admin-section");
+            if (!key || disclosureState[key] === undefined) return;
+            section.open = disclosureState[key];
+            var table = section.querySelector(".table-wrap");
+            if (table && horizontalScroll[key] !== undefined) table.scrollLeft = horizontalScroll[key];
+          });
+          window.scrollTo({ top: pageScroll, behavior: "auto" });
+          if (refreshStatus) refreshStatus.textContent = "Updated just now · refreshes every 10 seconds";
+        })
+        .catch(function () {
+          if (refreshStatus) refreshStatus.textContent = "Update failed · retrying automatically";
+        })
+        .finally(function () {
+          pending = false;
+          button.disabled = false;
+        });
+    }
+
+    button.addEventListener("click", function () { refresh(true); });
+    window.setInterval(function () { refresh(false); }, 10000);
   }
 
   function sidePanelAvailable(workspace) {
@@ -299,7 +622,7 @@
     Array.prototype.forEach.call(handles, function (handle) {
       handle.addEventListener("dragstart", function (event) {
         draggingId = handle.getAttribute("data-feed-id");
-        draggingRow = handle.closest("[data-feed-row]");
+        draggingRow = handle.closest("[data-feed-row],[data-article-card]");
         if (!draggingId || !event.dataTransfer) return;
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", draggingId);
@@ -346,6 +669,222 @@
             announce("Could not move that feed. Please try the folder picker.", true);
           })
           .finally(clearTargets);
+      });
+    });
+  }
+
+  function initializeFeedMoveDialog() {
+    var dialog = document.querySelector("[data-move-feed-dialog]");
+    var form = dialog ? dialog.querySelector("[data-move-feed-form]") : null;
+    if (!dialog || !form || typeof dialog.showModal !== "function") return;
+    var title = dialog.querySelector("[data-move-feed-title]");
+    var movedByDrag = false;
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-feed-drag]"), function (handle) {
+      handle.addEventListener("dragstart", function () { movedByDrag = true; });
+      handle.addEventListener("dragend", function () {
+        window.setTimeout(function () { movedByDrag = false; }, 0);
+      });
+      handle.addEventListener("click", function () {
+        if (movedByDrag) return;
+        var feedId = handle.getAttribute("data-feed-id");
+        var feedName = handle.getAttribute("data-feed-name") || "source feed";
+        if (!feedId) return;
+        form.action = "/feeds/" + encodeURIComponent(feedId) + "/folder";
+        form.setAttribute("data-feed-id", feedId);
+        if (title) title.textContent = "Move " + feedName;
+        dialog.showModal();
+      });
+    });
+
+    Array.prototype.forEach.call(dialog.querySelectorAll("[data-move-feed-close]"), function (button) {
+      button.addEventListener("click", function () { if (dialog.open) dialog.close(); });
+    });
+    dialog.addEventListener("click", function (event) {
+      if (event.target === dialog) dialog.close();
+    });
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (form.dataset.pending === "true") return;
+      setPending(form, true);
+      fetch(form.action, {
+        method: "POST",
+        body: encodedForm(form),
+        headers: { "X-Requested-With": "fetch" },
+        credentials: "same-origin",
+      }).then(function (response) {
+        if (!response.ok) throw new Error("feed move failed");
+        var folder = form.querySelector("[data-move-feed-folder]");
+        var destination = folder && folder.selectedOptions.length ? folder.selectedOptions[0].textContent : "the selected folder";
+        dialog.close();
+        announce("Feed moved to " + destination + ".", false);
+        window.setTimeout(function () { window.location.reload(); }, 120);
+      }).catch(function () {
+        announce("Could not move that feed. Please try again.", true);
+      }).finally(function () { setPending(form, false); });
+    });
+  }
+
+  function initializeFolderCollapse() {
+    var buttons = document.querySelectorAll("[data-folder-collapse]");
+    if (!buttons.length) return;
+
+    /** @param {string} folderId @param {boolean} collapsed */
+    function apply(folderId, collapsed) {
+      Array.prototype.forEach.call(buttons, function (button) {
+        if (button.getAttribute("data-folder-collapse") !== folderId) return;
+        var folder = button.closest(".folder-tree-node");
+        var feeds = folder ? folder.querySelector(".folder-tree-feeds") : null;
+        var name = folder ? folder.getAttribute("data-folder-label") || "folder" : "folder";
+        if (folder) folder.classList.toggle("folder-collapsed", collapsed);
+        button.setAttribute("aria-expanded", String(!collapsed));
+        button.setAttribute("aria-label", (collapsed ? "Expand " : "Reduce ") + name);
+        var glyph = button.querySelector("span");
+        if (glyph) glyph.textContent = collapsed ? "›" : "⌄";
+        if (feeds) feeds.hidden = collapsed;
+      });
+    }
+
+    Array.prototype.forEach.call(buttons, function (button) {
+      var folderId = button.getAttribute("data-folder-collapse");
+      var folder = button.closest(".folder-tree-node");
+      var initial = folder && folder.getAttribute("data-folder-collapsed") === "true";
+      apply(folderId, initial);
+      button.addEventListener("click", function () {
+        var collapsed = button.getAttribute("aria-expanded") === "true";
+        apply(folderId, collapsed);
+        var csrf = document.documentElement.getAttribute("data-csrf-token");
+        if (!csrf) return;
+        var body = new URLSearchParams();
+        body.set("csrf_token", csrf);
+        body.set("collapsed", String(collapsed));
+        fetch("/feeds/categories/" + encodeURIComponent(folderId) + "/collapse", {
+          method: "POST",
+          body: body,
+          headers: { "X-Requested-With": "fetch" },
+          credentials: "same-origin",
+        }).then(function (response) {
+          if (!response.ok) throw new Error("folder state save failed");
+        }).catch(function () {
+          apply(folderId, !collapsed);
+          announce("Could not save that folder state.", true);
+        });
+      });
+    });
+  }
+
+  function initializeSidebarQuickTools() {
+    var toggles = document.querySelectorAll("[data-sidebar-quick-toggle]");
+    if (!toggles.length) return;
+    var active = false;
+    /** @param {boolean} next */
+    function apply(next) {
+      active = next;
+      document.documentElement.classList.toggle("sidebar-quick-tools-active", active);
+      Array.prototype.forEach.call(toggles, function (toggle) {
+        toggle.setAttribute("aria-pressed", String(active));
+      });
+    }
+    Array.prototype.forEach.call(toggles, function (toggle) {
+      toggle.addEventListener("click", function () {
+        apply(!active);
+        announce(active ? "Quick feed tools shown." : "Quick feed tools hidden.", false);
+      });
+    });
+  }
+
+  function initializeQuickSettingsDialogs() {
+    var contentDialog = document.querySelector("[data-content-settings-dialog]");
+    var contentForm = contentDialog ? contentDialog.querySelector("[data-content-settings-form]") : null;
+    var tagsDialog = document.querySelector("[data-tags-settings-dialog]");
+    var tagsForm = tagsDialog ? tagsDialog.querySelector("[data-tags-settings-form]") : null;
+    if (!contentDialog || !contentForm || !tagsDialog || !tagsForm || typeof contentDialog.showModal !== "function") return;
+
+    /** @param {HTMLDialogElement} dialog */
+    function close(dialog) {
+      if (dialog.open) dialog.close();
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-feed-content-trigger]"), function (trigger) {
+      trigger.addEventListener("click", function () {
+        var feedId = trigger.getAttribute("data-feed-id");
+        var mode = trigger.getAttribute("data-content-mode") || "rss";
+        var lifetime = trigger.getAttribute("data-content-lifetime") || "7";
+        var title = contentDialog.querySelector("[data-content-settings-title]");
+        contentForm.action = "/feeds/" + encodeURIComponent(feedId) + "/content-settings";
+        contentForm.setAttribute("data-feed-id", feedId);
+        var modeControl = contentForm.querySelector("input[name='content_mode'][value='" + mode + "']");
+        var lifetimeControl = contentForm.querySelector("select[name='content_lifetime']");
+        if (modeControl) modeControl.checked = true;
+        if (lifetimeControl) lifetimeControl.value = lifetime;
+        if (title) title.textContent = "Content settings · " + (trigger.getAttribute("data-feed-name") || "feed");
+        contentDialog.showModal();
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-feed-tags-trigger]"), function (trigger) {
+      trigger.addEventListener("click", function () {
+        var feedId = trigger.getAttribute("data-feed-id");
+        var title = tagsDialog.querySelector("[data-tags-settings-title]");
+        var tags = tagsForm.querySelector("[data-tags-settings-input]");
+        var folder = tagsForm.querySelector("[data-tags-folder-id]");
+        tagsForm.action = "/feeds/" + encodeURIComponent(feedId) + "/organization";
+        tagsForm.setAttribute("data-feed-id", feedId);
+        if (tags) tags.value = trigger.getAttribute("data-feed-tags") || "";
+        if (folder) folder.value = trigger.getAttribute("data-feed-folder-id") || "";
+        if (title) title.textContent = "Tags · " + (trigger.getAttribute("data-feed-name") || "feed");
+        tagsDialog.showModal();
+      });
+    });
+
+    /** @param {HTMLFormElement} form @param {HTMLDialogElement} dialog @param {string} message */
+    function submit(form, dialog, message) {
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (form.dataset.pending === "true") return;
+        setPending(form, true);
+        fetch(form.action, {
+          method: "POST",
+          body: encodedForm(form),
+          headers: { "X-Requested-With": "fetch" },
+          credentials: "same-origin",
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error("quick settings save failed");
+            var feedId = form.getAttribute("data-feed-id");
+            Array.prototype.forEach.call(document.querySelectorAll("[data-feed-id='" + feedId + "']"), function (trigger) {
+              if (form === contentForm && trigger.hasAttribute("data-feed-content-trigger")) {
+                var mode = contentForm.querySelector("input[name='content_mode']:checked");
+                var lifetime = contentForm.querySelector("select[name='content_lifetime']");
+                if (mode) trigger.setAttribute("data-content-mode", mode.value);
+                if (lifetime) trigger.setAttribute("data-content-lifetime", lifetime.value);
+              }
+              if (form === tagsForm && trigger.hasAttribute("data-feed-tags-trigger")) {
+                var tags = tagsForm.querySelector("[data-tags-settings-input]");
+                if (tags) trigger.setAttribute("data-feed-tags", tags.value);
+              }
+            });
+            close(dialog);
+            announce(message, false);
+          })
+          .catch(function () {
+            announce("Could not save those feed settings.", true);
+          })
+          .finally(function () { setPending(form, false); });
+      });
+    }
+
+    submit(contentForm, contentDialog, "Content settings saved.");
+    submit(tagsForm, tagsDialog, "Tags saved.");
+    Array.prototype.forEach.call(document.querySelectorAll("[data-quick-dialog-close]"), function (button) {
+      button.addEventListener("click", function () {
+        var dialog = button.closest("dialog");
+        if (dialog) close(dialog);
+      });
+    });
+    [contentDialog, tagsDialog].forEach(function (dialog) {
+      dialog.addEventListener("click", function (event) {
+        if (event.target === dialog) close(dialog);
       });
     });
   }
@@ -478,6 +1017,8 @@
         panel.innerHTML = html;
         panel.removeAttribute("aria-busy");
         initializeReadingTracking(panel);
+        initializePendingContent(panel);
+        initializeSummaryActions(panel);
         if (trigger) {
           var list = trigger.closest(".article-list");
           if (list) {
@@ -509,67 +1050,130 @@
       });
   }
 
-  function toggleLiveView(button) {
-    var article = button.closest("article");
+  /**
+   * Switch an article between its stored reader content and isolated Live View.
+   * @param {HTMLElement} control
+   * @param {boolean=} closeOnly
+   */
+  function toggleLiveView(control, closeOnly) {
+    var article = control.closest("article");
     var reader = article ? article.querySelector("[data-reader-view-content]") : null;
     var live = article ? article.querySelector("[data-live-view]") : null;
     var frame = live ? live.querySelector("[data-live-view-frame]") : null;
-    var fallback = live ? live.querySelector("[data-live-view-fallback]") : null;
+    var liveStatus = live ? live.querySelector("[data-live-view-status]") : null;
+    var button = article ? article.querySelector("[data-live-view-toggle]") : null;
     if (!reader || !live || !frame) return;
-    var showLive = button.getAttribute("aria-expanded") !== "true";
-    var mixedContent = false;
+    var showLive = !closeOnly && (!button || button.getAttribute("aria-expanded") !== "true");
     if (showLive) {
+      var ticketUrl = frame.getAttribute("data-live-ticket-url");
       var source = frame.getAttribute("data-live-src");
-      if (!source) return;
-      try {
-        mixedContent = window.location.protocol === "https:" && new URL(source).protocol === "http:";
-      } catch (_) {
-        return;
-      }
+      if (!ticketUrl && !source) return;
+      article.classList.add("live-view-active");
       live.hidden = false;
       reader.hidden = true;
-      if (fallback) fallback.hidden = !mixedContent;
-      frame.hidden = mixedContent;
-      if (mixedContent) {
-        if (fallback) fallback.textContent = "This HTTP publisher page cannot be shown inside a secure RustSS page. Open original instead.";
-      } else {
-        live.setAttribute("aria-busy", "true");
-        frame.addEventListener("load", function () {
-          if (!live.hidden) live.removeAttribute("aria-busy");
-        }, { once: true });
-        frame.addEventListener("error", function () {
-          if (!live.hidden) {
+      live.setAttribute("aria-busy", "true");
+      if (liveStatus) {
+        liveStatus.hidden = false;
+        liveStatus.classList.remove("error");
+        liveStatus.textContent = "Loading the current publisher page…";
+      }
+      if (frame._rustssLiveController) frame._rustssLiveController.abort();
+      var controller = window.AbortController ? new AbortController() : null;
+      frame._rustssLiveController = controller;
+      var listenerOptions = controller ? { once: true, signal: controller.signal } : { once: true };
+      var loadTimeout = window.setTimeout(function () {
+        if (live.hidden || !liveStatus) return;
+        live.removeAttribute("aria-busy");
+        liveStatus.hidden = false;
+        liveStatus.classList.add("error");
+        liveStatus.textContent = "The publisher is taking longer than expected. You can keep waiting or open the original page.";
+      }, 35000);
+      frame._rustssLiveTimeout = loadTimeout;
+      frame.addEventListener("load", function () {
+        window.clearTimeout(loadTimeout);
+        if (live.hidden) return;
+        live.removeAttribute("aria-busy");
+        if (liveStatus) liveStatus.hidden = true;
+        announce("Live publisher view is ready.", false);
+      }, listenerOptions);
+      frame.addEventListener("error", function () {
+        window.clearTimeout(loadTimeout);
+        if (live.hidden) return;
+        live.removeAttribute("aria-busy");
+        if (liveStatus) {
+          liveStatus.hidden = false;
+          liveStatus.classList.add("error");
+          liveStatus.textContent = "Live View could not load. The stored reader view remains available.";
+        }
+        announce("Live View could not load.", true);
+      }, listenerOptions);
+      if (ticketUrl) {
+        fetch(ticketUrl, {
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "fetch" },
+          signal: controller ? controller.signal : undefined,
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error("live ticket request failed");
+            return response.text();
+          })
+          .then(function (liveUrl) {
+            if (live.hidden || !liveUrl) return;
+            frame.setAttribute("src", liveUrl);
+          })
+          .catch(function (error) {
+            if (error && error.name === "AbortError") return;
+            window.clearTimeout(loadTimeout);
             live.removeAttribute("aria-busy");
-            announce("The publisher preview could not be loaded. Open the original article in a new tab.", true);
-          }
-        }, { once: true });
+            if (liveStatus) {
+              liveStatus.hidden = false;
+              liveStatus.classList.add("error");
+              liveStatus.textContent = "Live View could not start. The stored reader view remains available.";
+            }
+            announce("Live View could not start.", true);
+          });
+      } else {
         frame.setAttribute("src", source);
       }
     } else {
+      if (frame._rustssLiveController) frame._rustssLiveController.abort();
+      window.clearTimeout(frame._rustssLiveTimeout);
       frame.removeAttribute("src");
-      frame.hidden = false;
-      if (fallback) fallback.hidden = true;
       live.hidden = true;
       live.removeAttribute("aria-busy");
       reader.hidden = false;
+      article.classList.remove("live-view-active");
+      if (liveStatus) {
+        liveStatus.hidden = false;
+        liveStatus.classList.remove("error");
+        liveStatus.textContent = "Loading the current publisher page…";
+      }
     }
-    button.setAttribute("aria-expanded", String(showLive));
-    button.textContent = showLive ? "Reader view" : "Live view";
+    if (button) {
+      button.setAttribute("aria-expanded", String(showLive));
+      button.textContent = showLive ? "Reader view" : "Live view";
+    }
     announce(
       showLive
-        ? (mixedContent
-          ? "Your browser blocks HTTP publisher previews from this secure page."
-          : "Trying the publisher preview. Some publishers prohibit embedded pages.")
+        ? "Loading the current publisher page in an isolated Live View."
         : "Reader view restored.",
-      mixedContent
+      false
     );
+    if (!showLive && control.hasAttribute("data-live-view-close") && button) button.focus();
   }
 
   document.addEventListener("click", function (event) {
-    var button = event.target.closest ? event.target.closest("[data-live-view-toggle]") : null;
-    if (!button) return;
+    var control = event.target.closest ? event.target.closest("[data-live-view-toggle],[data-live-view-close]") : null;
+    if (!control) return;
     event.preventDefault();
-    toggleLiveView(button);
+    toggleLiveView(control, control.hasAttribute("data-live-view-close"));
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    var live = document.querySelector("[data-live-view]:not([hidden])");
+    var close = live ? live.querySelector("[data-live-view-close]") : null;
+    if (close) toggleLiveView(close, true);
   });
 
   // In-place article actions (mark read/unread, save/unsave, mark all read).
@@ -599,6 +1203,11 @@
           return null;
         }
 
+        if (form.getAttribute("data-action") === "summarize") {
+          announce(form.getAttribute("data-success-message") || "AI summary queued.", false);
+          return startSummaryPolling(form);
+        }
+
         var target = targetFor(form);
         var toggle = form.getAttribute("data-toggle-class");
         if (target && toggle) target.classList.toggle(toggle);
@@ -623,7 +1232,7 @@
         return null;
       })
       .then(function () {
-        if (form.getAttribute("data-action") !== "mark-all-read") {
+        if (form.getAttribute("data-action") !== "mark-all-read" && form.getAttribute("data-action") !== "summarize") {
           announce(form.getAttribute("data-success-message") || "Saved.", false);
         }
       })
@@ -652,14 +1261,67 @@
     announce("Source selected. Subscribe to add it to your library.", false);
   });
 
+  function initializeOpmlPreview() {
+    var form = document.querySelector("[data-opml-preview]");
+    if (!form) return;
+    var entries = function () {
+      return Array.prototype.slice.call(form.querySelectorAll("[data-opml-entry]"));
+    };
+    var update = function () {
+      var selected = entries().filter(function (entry) { return entry.checked; }).length;
+      var count = form.querySelector("[data-opml-selection-count]");
+      if (count) count.textContent = selected + " selected.";
+      var submit = form.querySelector("[data-opml-import]");
+      if (submit) submit.disabled = selected === 0;
+      Array.prototype.forEach.call(form.querySelectorAll("[data-opml-group-toggle]"), function (toggle) {
+        var group = document.getElementById(toggle.getAttribute("data-opml-group-id"));
+        var groupEntries = group ? Array.prototype.slice.call(group.querySelectorAll("[data-opml-entry]")) : [];
+        var checked = groupEntries.filter(function (entry) { return entry.checked; }).length;
+        toggle.checked = groupEntries.length > 0 && checked === groupEntries.length;
+        toggle.indeterminate = checked > 0 && checked < groupEntries.length;
+      });
+    };
+    form.addEventListener("change", function (event) {
+      var toggle = event.target.closest ? event.target.closest("[data-opml-group-toggle]") : null;
+      if (toggle) {
+        var group = document.getElementById(toggle.getAttribute("data-opml-group-id"));
+        if (group) {
+          Array.prototype.forEach.call(group.querySelectorAll("[data-opml-entry]"), function (entry) {
+            entry.checked = toggle.checked;
+          });
+        }
+      }
+      update();
+    });
+    var selectAll = form.querySelector("[data-opml-select-all]");
+    if (selectAll) selectAll.addEventListener("click", function () {
+      entries().forEach(function (entry) { entry.checked = true; });
+      update();
+    });
+    var selectNone = form.querySelector("[data-opml-select-none]");
+    if (selectNone) selectNone.addEventListener("click", function () {
+      entries().forEach(function (entry) { entry.checked = false; });
+      update();
+    });
+    update();
+  }
+
   // Implicit reading signal: on an article page, report time spent when the
   // reader leaves, so personalization can learn from completion/bounce.
   initializeReadingTracking(document);
+  initializePendingContent(document);
+  initializeSummaryActions(document);
   initializeFeedOrganizer();
   initializeBulkFeedActions();
   initializeFeedDragAndDrop();
+  initializeFeedMoveDialog();
+  initializeFolderCollapse();
+  initializeSidebarQuickTools();
+  initializeQuickSettingsDialogs();
+  initializeAdminQueueRefresh();
   initializeSidebarToggle();
   initializePanelResize();
+  initializeOpmlPreview();
 
   // Inline reading: expand article content in the list instead of navigating.
   document.addEventListener("click", function (event) {
@@ -719,6 +1381,82 @@
   });
 
   document.addEventListener("click", function (event) {
+    var loadMedia = event.target.closest ? event.target.closest("[data-enclosure-load]") : null;
+    if (!loadMedia) return;
+    var loader = loadMedia.closest("[data-enclosure-loader]");
+    var player = loader ? loader.querySelector("[data-enclosure-player]") : null;
+    var source = player ? player.getAttribute("data-src") : null;
+    if (!player || !source) return;
+    player.setAttribute("src", source);
+    player.removeAttribute("data-src");
+    player.setAttribute("tabindex", "-1");
+    player.hidden = false;
+    loadMedia.remove();
+    var explanation = loader.querySelector("span");
+    if (explanation) explanation.remove();
+    if (typeof player.load === "function" && player.tagName !== "IMG") player.load();
+    player.focus();
+    announce((loadMedia.getAttribute("data-enclosure-kind") || "Media") + " loaded.", false);
+  });
+
+  document.addEventListener("click", function (event) {
+    var loadYouTube = event.target.closest ? event.target.closest("[data-youtube-load]") : null;
+    if (!loadYouTube) return;
+    var loader = loadYouTube.closest("[data-youtube-loader]");
+    var frame = loader ? loader.querySelector("[data-youtube-frame]") : null;
+    var consent = loader ? loader.querySelector("[data-youtube-consent]") : null;
+    var player = loader ? loader.querySelector("[data-youtube-player]") : null;
+    var status = loader ? loader.querySelector("[data-youtube-status]") : null;
+    var source = frame ? frame.getAttribute("data-src") : null;
+    if (!loader || !frame || !consent || !player || !source || loader.getAttribute("data-youtube-state") !== "idle") return;
+    var attempt = String((Number(loader.getAttribute("data-youtube-attempt")) || 0) + 1);
+    loader.setAttribute("data-youtube-attempt", attempt);
+    loader.setAttribute("data-youtube-state", "loading");
+    loadYouTube.setAttribute("aria-expanded", "true");
+    consent.hidden = true;
+    player.hidden = false;
+    player.setAttribute("aria-busy", "true");
+    if (status) status.textContent = "Connecting to the privacy-enhanced player…";
+    frame.addEventListener("load", function () {
+      if (loader.getAttribute("data-youtube-attempt") !== attempt || loader.getAttribute("data-youtube-state") !== "loading" || frame.getAttribute("src") !== source) return;
+      loader.setAttribute("data-youtube-state", "ready");
+      player.setAttribute("aria-busy", "false");
+      if (status) status.textContent = "Privacy-enhanced player ready.";
+    }, { once: true });
+    frame.addEventListener("error", function () {
+      if (loader.getAttribute("data-youtube-attempt") !== attempt || loader.getAttribute("data-youtube-state") !== "loading") return;
+      loader.setAttribute("data-youtube-state", "error");
+      player.setAttribute("aria-busy", "false");
+      if (status) status.textContent = "The player could not load. Open the video on YouTube instead.";
+    }, { once: true });
+    frame.setAttribute("src", source);
+    frame.focus();
+    announce("Connecting to the privacy-enhanced YouTube player.", false);
+  });
+
+  document.addEventListener("click", function (event) {
+    var unloadYouTube = event.target.closest ? event.target.closest("[data-youtube-unload]") : null;
+    if (!unloadYouTube) return;
+    var loader = unloadYouTube.closest("[data-youtube-loader]");
+    var frame = loader ? loader.querySelector("[data-youtube-frame]") : null;
+    var consent = loader ? loader.querySelector("[data-youtube-consent]") : null;
+    var player = loader ? loader.querySelector("[data-youtube-player]") : null;
+    var loadYouTube = loader ? loader.querySelector("[data-youtube-load]") : null;
+    var status = loader ? loader.querySelector("[data-youtube-status]") : null;
+    if (!loader || !frame || !consent || !player || !loadYouTube) return;
+    loader.setAttribute("data-youtube-attempt", String((Number(loader.getAttribute("data-youtube-attempt")) || 0) + 1));
+    loader.setAttribute("data-youtube-state", "idle");
+    frame.removeAttribute("src");
+    player.hidden = true;
+    player.setAttribute("aria-busy", "false");
+    consent.hidden = false;
+    loadYouTube.setAttribute("aria-expanded", "false");
+    if (status) status.textContent = "Player unloaded.";
+    loadYouTube.focus();
+    announce("YouTube player unloaded. It is no longer displayed in this article.", false);
+  });
+
+  document.addEventListener("click", function (event) {
     var button = event.target.closest ? event.target.closest("[data-copy-token]") : null;
     if (!button) return;
     var value = document.getElementById(button.getAttribute("data-copy-token"));
@@ -742,6 +1480,36 @@
       announce("Could not copy the token. Select it manually.", true);
     }
     selection.removeAllRanges();
+  });
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-copy-share-link]") : null;
+    if (!button) return;
+    var scope = button.closest(".share-controls-body");
+    var input = scope ? scope.querySelector("[data-share-link]") : null;
+    if (!input) return;
+    input.select();
+    input.setSelectionRange(0, input.value.length);
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(input.value)
+        .then(function () { announce("Public link copied.", false); })
+        .catch(function () { announce("Could not copy the link. Select it manually.", true); });
+      return;
+    }
+    try {
+      document.execCommand("copy");
+      announce("Public link copied.", false);
+    } catch (_) {
+      announce("Could not copy the link. Select it manually.", true);
+    }
+  });
+
+  document.addEventListener("change", function (event) {
+    var infinite = event.target.matches ? event.target.matches("[data-share-infinite]") : false;
+    if (!infinite) return;
+    var form = event.target.closest(".share-form");
+    var lifetime = form ? form.querySelector("[data-share-lifetime]") : null;
+    if (lifetime) lifetime.disabled = event.target.checked;
   });
 
   function shortcutFromEvent(event) {
@@ -793,6 +1561,43 @@
     link.focus();
     link.click();
     return true;
+  }
+
+  function initializeTouchGestures() {
+    var root = document.documentElement;
+    if (root.getAttribute("data-touch-gestures-enabled") !== "true") return;
+    var thresholds = { low: 96, medium: 68, high: 44 };
+    var threshold = thresholds[root.getAttribute("data-touch-gesture-sensitivity")] || thresholds.medium;
+    var reversed = root.getAttribute("data-touch-gesture-direction") === "reversed";
+    var start = null;
+
+    document.addEventListener("touchstart", function (event) {
+      if (event.touches.length !== 1 || document.querySelector("dialog[open], .account-menu[open]")) return;
+      var target = event.target;
+      if (!target.closest || !target.closest(".reading-workspace, [data-current-article], [data-panel-article]")) return;
+      if (target.closest("a, button, input, select, textarea, label, summary, iframe, audio, video, [contenteditable], [role='button'], [role='textbox'], [role='combobox']")) return;
+      var touch = event.touches[0];
+      start = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+    }, { passive: true });
+
+    document.addEventListener("touchcancel", function () { start = null; }, { passive: true });
+    document.addEventListener("touchend", function (event) {
+      if (!start || event.changedTouches.length !== 1) {
+        start = null;
+        return;
+      }
+      var touch = event.changedTouches[0];
+      var dx = touch.clientX - start.x;
+      var dy = touch.clientY - start.y;
+      var elapsed = Date.now() - start.at;
+      start = null;
+      if (elapsed > 900 || Math.abs(dx) < threshold || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+      var direction = dx < 0 ? 1 : -1;
+      if (reversed) direction *= -1;
+      if (openAdjacentArticle(direction)) {
+        announce(direction > 0 ? "Next article opened." : "Previous article opened.", false);
+      }
+    }, { passive: true });
   }
 
   function submitCurrentAction(name) {
@@ -877,6 +1682,8 @@
     if (handled) event.preventDefault();
   });
 
+  initializeTouchGestures();
+
   document.addEventListener("click", function (event) {
     var button = event.target.closest ? event.target.closest("[data-reset-shortcuts]") : null;
     if (!button) return;
@@ -896,4 +1703,191 @@
     validateShortcutInputs();
     announce("Shortcut defaults restored. Save preferences to keep them.", false);
   });
+
+  var notificationTarget = document.querySelector("[data-notification-count]");
+  var notificationTimer = null;
+  function refreshNotificationCount() {
+    if (!notificationTarget || document.hidden) return;
+    fetch(notificationTarget.getAttribute("data-url"), {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Accept": "text/html" },
+    }).then(function (response) {
+      if (!response.ok) throw new Error("notification count unavailable");
+      return response.text();
+    }).then(function (html) {
+      notificationTarget.innerHTML = html;
+    }).catch(function () {
+      // Counts are optional polish; navigation remains fully functional.
+    });
+  }
+  if (notificationTarget) {
+    refreshNotificationCount();
+    notificationTimer = window.setInterval(refreshNotificationCount, 30000);
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) refreshNotificationCount();
+    });
+    window.addEventListener("pagehide", function () {
+      if (notificationTimer) window.clearInterval(notificationTimer);
+    }, { once: true });
+  }
+
+  var cssInput = document.querySelector("[data-css-customization]");
+  var cssPreview = document.querySelector("[data-css-preview]");
+  if (cssInput && cssPreview) {
+    var previewRoot = cssPreview.attachShadow ? cssPreview.attachShadow({ mode: "closed" }) : null;
+    var previewSheet = typeof CSSStyleSheet === "function" ? new CSSStyleSheet() : null;
+    if (previewRoot) {
+      var card = document.createElement("article");
+      card.innerHTML = "<strong>Preview card</strong><p>Article text, metadata, and actions appear here.</p><button type='button'>Example action</button>";
+      previewRoot.appendChild(card);
+      if (previewSheet && "adoptedStyleSheets" in previewRoot) previewRoot.adoptedStyleSheets = [previewSheet];
+    }
+    var updateCssPreview = function () {
+      var css = cssInput.value
+        .replace(/@import/gi, "")
+        .replace(/url\s*\(/gi, "blocked(");
+      if (previewSheet && previewSheet.replaceSync) {
+        try { previewSheet.replaceSync(css); } catch (_) { /* Keep the last valid preview. */ }
+      }
+    };
+    cssInput.addEventListener("input", updateCssPreview);
+    updateCssPreview();
+  }
+
+  function webauthnDecode(value) {
+    var base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) base64 += "=";
+    var binary = window.atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function webauthnEncode(value) {
+    var bytes = new Uint8Array(value);
+    var binary = "";
+    for (var i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+    return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function creationOptions(options) {
+    var publicKey = options.publicKey;
+    publicKey.challenge = webauthnDecode(publicKey.challenge);
+    publicKey.user.id = webauthnDecode(publicKey.user.id);
+    (publicKey.excludeCredentials || []).forEach(function (credential) {
+      credential.id = webauthnDecode(credential.id);
+    });
+    return publicKey;
+  }
+
+  function requestOptions(options) {
+    var publicKey = options.publicKey;
+    publicKey.challenge = webauthnDecode(publicKey.challenge);
+    (publicKey.allowCredentials || []).forEach(function (credential) {
+      credential.id = webauthnDecode(credential.id);
+    });
+    return publicKey;
+  }
+
+  function registrationCredential(credential) {
+    return {
+      id: credential.id,
+      rawId: webauthnEncode(credential.rawId),
+      type: credential.type,
+      response: {
+        attestationObject: webauthnEncode(credential.response.attestationObject),
+        clientDataJSON: webauthnEncode(credential.response.clientDataJSON),
+        transports: credential.response.getTransports ? credential.response.getTransports() : [],
+      },
+      extensions: credential.getClientExtensionResults(),
+    };
+  }
+
+  function authenticationCredential(credential) {
+    return {
+      id: credential.id,
+      rawId: webauthnEncode(credential.rawId),
+      type: credential.type,
+      response: {
+        authenticatorData: webauthnEncode(credential.response.authenticatorData),
+        clientDataJSON: webauthnEncode(credential.response.clientDataJSON),
+        signature: webauthnEncode(credential.response.signature),
+        userHandle: credential.response.userHandle ? webauthnEncode(credential.response.userHandle) : null,
+      },
+      extensions: credential.getClientExtensionResults(),
+    };
+  }
+
+  function jsonRequest(url, body) {
+    return fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "content-type": "application/json", "accept": "application/json" },
+      body: JSON.stringify(body),
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (payload) {
+        if (!response.ok) throw new Error(payload.error || payload.message || "The request could not be completed.");
+        return payload;
+      });
+    });
+  }
+
+  var passkeyRegistration = document.querySelector("[data-passkey-register]");
+  if (passkeyRegistration) {
+    passkeyRegistration.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var status = passkeyRegistration.querySelector("[data-passkey-status]");
+      var submit = passkeyRegistration.querySelector("button[type='submit']");
+      var values = new FormData(passkeyRegistration);
+      submit.disabled = true;
+      status.textContent = "Waiting for your authenticator…";
+      jsonRequest("/settings/passkeys/register/start", {
+        csrf_token: values.get("csrf_token"), name: values.get("name"), password: values.get("password") || "",
+      }).then(function (started) {
+        return navigator.credentials.create({ publicKey: creationOptions(started.options) }).then(function (credential) {
+          if (!credential) throw new Error("No credential was returned.");
+          return jsonRequest("/settings/passkeys/register/finish", {
+            csrf_token: values.get("csrf_token"), ceremony_id: started.ceremony_id,
+            name: values.get("name"), credential: registrationCredential(credential),
+          });
+        });
+      }).then(function () {
+        status.textContent = "Passkey added. Reloading…";
+        window.location.reload();
+      }).catch(function (error) {
+        status.textContent = error.name === "NotAllowedError" ? "The authenticator request was cancelled or timed out." : error.message;
+        submit.disabled = false;
+      });
+    });
+  }
+
+  var passkeyLogin = document.querySelector("[data-passkey-login]");
+  if (passkeyLogin) {
+    passkeyLogin.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var status = passkeyLogin.querySelector("[data-passkey-status]");
+      var submit = passkeyLogin.querySelector("button[type='submit']");
+      var values = new FormData(passkeyLogin);
+      submit.disabled = true;
+      status.textContent = "Waiting for your authenticator…";
+      jsonRequest("/auth/passkey/start", {
+        csrf_token: values.get("csrf_token"), email: values.get("email"),
+      }).then(function (started) {
+        return navigator.credentials.get({ publicKey: requestOptions(started.options) }).then(function (credential) {
+          if (!credential) throw new Error("No credential was returned.");
+          return jsonRequest("/auth/passkey/finish", {
+            csrf_token: values.get("csrf_token"), ceremony_id: started.ceremony_id,
+            credential: authenticationCredential(credential),
+          });
+        });
+      }).then(function (finished) {
+        window.location.assign(finished.redirect || "/articles");
+      }).catch(function (error) {
+        status.textContent = error.name === "NotAllowedError" ? "The authenticator request was cancelled or timed out." : error.message;
+        submit.disabled = false;
+      });
+    });
+  }
 })();

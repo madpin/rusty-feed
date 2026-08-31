@@ -55,6 +55,7 @@ async fn add_article(db: &Db, feed_id: Uuid, title: &str, body: &str) -> Uuid {
             content: body.into(),
             excerpt: Some(body.into()),
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )

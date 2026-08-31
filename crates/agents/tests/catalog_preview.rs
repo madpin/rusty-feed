@@ -40,6 +40,7 @@ async fn insert_article(db: &Db, feed_id: uuid::Uuid, url: String, title: &str) 
             content: "Short RSS excerpt".to_string(),
             excerpt: Some("Short RSS excerpt".to_string()),
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )

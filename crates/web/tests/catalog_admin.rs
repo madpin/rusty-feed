@@ -5,7 +5,10 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rustss_cache::Cache;
-use rustss_db::{articles, catalog, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle};
+use rustss_core::feed_content::ContentLifetime;
+use rustss_db::{
+    agent_runs, articles, catalog, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle,
+};
 use rustss_web::{router, AppSettings, AppState};
 use serde_json::json;
 
@@ -266,7 +269,10 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(body_string(response).await.contains("Instance overview"));
+    let body = body_string(response).await;
+    assert!(body.contains("Instance overview"));
+    assert!(body.contains("Installed app"));
+    assert!(body.contains("/manifest.webmanifest"));
     feeds::record_fetch_failure(state.db.pool(), feed.id, feeds::FetchFailure::Network)
         .await
         .unwrap();
@@ -288,6 +294,58 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     .execute(state.db.pool())
     .await
     .unwrap();
+    let worker_id = format!("admin-test-worker-{}", uuid::Uuid::now_v7());
+    jobs::register_worker(state.db.pool(), &worker_id, 3, 1, true)
+        .await
+        .unwrap();
+    let queue_kind = format!("admin_queue_test_{}", uuid::Uuid::now_v7());
+    jobs::enqueue(state.db.pool(), &queue_kind, json!({}), None, None, 2)
+        .await
+        .unwrap();
+    let failed = jobs::claim_next(
+        state.db.pool(),
+        &format!("{worker_id}#1"),
+        std::slice::from_ref(&queue_kind),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::fail(
+        state.db.pool(),
+        &failed,
+        "summary provider returned HTTP 401",
+        time::Duration::seconds(1),
+    )
+    .await
+    .unwrap();
+    let safe_run = agent_runs::start(state.db.pool(), "summarize_article", "interactive")
+        .await
+        .unwrap();
+    agent_runs::finish(
+        state.db.pool(),
+        safe_run,
+        "failed",
+        41,
+        None,
+        Some("summary provider returned HTTP 401"),
+    )
+    .await
+    .unwrap();
+    jobs::enqueue(state.db.pool(), &queue_kind, json!({}), None, None, 2)
+        .await
+        .unwrap();
+    let finished = jobs::claim_next(
+        state.db.pool(),
+        &format!("{worker_id}#0"),
+        std::slice::from_ref(&queue_kind),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::complete(state.db.pool(), finished.id).await.unwrap();
+    jobs::enqueue(state.db.pool(), &queue_kind, json!({}), None, None, 2)
+        .await
+        .unwrap();
     let response = app
         .clone()
         .oneshot(
@@ -301,13 +359,31 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["cache-control"], "no-store");
     let logs = body_string(response).await;
-    assert!(logs.contains("Logs"));
+    assert!(logs.contains("Queue &amp; logs"));
+    assert!(logs.contains("Workers online"));
+    assert!(logs.contains("Execution slots"));
+    assert!(logs.contains("Active queue"));
+    assert!(logs.contains("Queue by job type"));
+    assert!(logs.contains("Just finished"));
+    assert!(logs.contains(&worker_id));
+    assert!(logs.contains(&queue_kind));
     assert!(logs.contains("Network request failed"));
     assert!(logs.contains("fetch_feed"));
     assert!(logs.contains("created: 2"));
+    assert!(logs.contains("summary provider returned HTTP 401"));
+    assert!(logs.contains("Priority slots"));
+    assert!(logs.contains("Sanitized error"));
     assert!(!logs.contains("RAW_FEED_LOG_SENTINEL"));
     assert!(!logs.contains("RAW_RUN_LOG_SENTINEL"));
     assert!(!logs.contains("RAW_STATS_SENTINEL"));
+    sqlx::query("DELETE FROM job_queue WHERE kind = $1")
+        .bind(&queue_kind)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+    jobs::unregister_worker(state.db.pool(), &worker_id)
+        .await
+        .unwrap();
 
     let response = app
         .clone()
@@ -369,7 +445,9 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(body_string(response).await.contains("Shared source policy"));
+    assert!(body_string(response)
+        .await
+        .contains("Shared acquisition controls"));
 
     let member = users::create(
         state.db.pool(),
@@ -521,6 +599,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
                 content: (*content).to_string(),
                 excerpt: None,
                 image_url: None,
+                enclosures: Vec::new(),
                 published_at: None,
             },
         )
@@ -534,6 +613,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         articles_created[2].content_revision,
         "CATALOG_PRIVATE_PAGE_SENTINEL",
         None,
+        ContentLifetime::Days(30),
     )
     .await
     .unwrap();

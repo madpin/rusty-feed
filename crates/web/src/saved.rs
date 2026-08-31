@@ -1,7 +1,7 @@
 //! Saved-search management + results, and the notifications page (M11).
 
 use askama::Template;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
@@ -53,9 +53,13 @@ struct ResultsTemplate {
     csrf_token: String,
     ui: prefs::Preferences,
     is_admin: bool,
+    id: String,
     name: String,
     query: String,
+    notify: bool,
     results: Vec<ResultRow>,
+    previous_url: Option<String>,
+    next_url: Option<String>,
 }
 
 #[derive(Template)]
@@ -88,6 +92,25 @@ pub struct CreateForm {
 #[derive(Deserialize)]
 pub struct CsrfForm {
     csrf_token: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateForm {
+    csrf_token: String,
+    name: String,
+    query: String,
+    #[serde(default)]
+    notify: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+pub struct ResultsQuery {
+    #[serde(default = "first_page")]
+    page: u32,
+}
+
+fn first_page() -> u32 {
+    1
 }
 
 fn render<T: Template>(tpl: &T) -> Result<Html<String>, AppError> {
@@ -234,18 +257,95 @@ pub async fn run(
     Ok((jar, Redirect::to(&format!("/searches/{id}"))).into_response())
 }
 
+/// `POST /searches/{id}` — edit an owned saved search and enqueue a full
+/// rematch so results reflect the new expression immediately.
+pub async fn update(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<UpdateForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let name = form.name.trim();
+    let query = form.query.trim();
+    if name.is_empty() || query.is_empty() {
+        return Err(AppError::Validation("Name and query are required.".into()));
+    }
+    if !saved_searches::update(
+        state.db.pool(),
+        id,
+        user.id,
+        name,
+        query,
+        form.notify.is_some(),
+    )
+    .await?
+    {
+        return Err(AppError::NotFound);
+    }
+    saved_search_matches::clear_for_search(state.db.pool(), id).await?;
+    enqueue_match(&state, id).await?;
+    Ok((jar, Redirect::to(&format!("/searches/{id}"))).into_response())
+}
+
+/// `POST /searches/{id}/rematch` — clear stale matches and run from scratch.
+pub async fn rematch(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<CsrfForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if saved_searches::get_for_user(state.db.pool(), id, user.id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::NotFound);
+    }
+    saved_search_matches::clear_for_search(state.db.pool(), id).await?;
+    enqueue_match(&state, id).await?;
+    Ok((jar, Redirect::to(&format!("/searches/{id}"))).into_response())
+}
+
+async fn enqueue_match(state: &AppState, id: Uuid) -> Result<(), AppError> {
+    let dedup = format!("saved_search_match:{id}");
+    jobs::enqueue(
+        state.db.pool(),
+        "saved_search_match",
+        json!({ "saved_search_id": id }),
+        Some(&dedup),
+        None,
+        3,
+    )
+    .await?;
+    Ok(())
+}
+
 /// `GET /searches/{id}` — match results.
 pub async fn results(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     jar: CookieJar,
     Path(id): Path<Uuid>,
+    Query(params): Query<ResultsQuery>,
 ) -> Result<Response, AppError> {
     let ss = saved_searches::get_for_user(state.db.pool(), id, user.id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let results = saved_search_matches::list_for_search(state.db.pool(), id, 50, 0)
-        .await?
+    const PAGE_SIZE: i64 = 25;
+    let page = params.page.clamp(1, 10_000);
+    let offset = i64::from(page - 1) * PAGE_SIZE;
+    let mut matches =
+        saved_search_matches::list_for_search(state.db.pool(), id, PAGE_SIZE + 1, offset).await?;
+    let has_next = matches.len() > PAGE_SIZE as usize;
+    matches.truncate(PAGE_SIZE as usize);
+    let results = matches
         .into_iter()
         .map(|m| ResultRow {
             id: m.id.to_string(),
@@ -265,9 +365,13 @@ pub async fn results(
         csrf_token,
         ui,
         is_admin,
+        id: id.to_string(),
         name: ss.name,
         query: ss.query,
+        notify: ss.notify_on_match,
         results,
+        previous_url: (page > 1).then(|| format!("/searches/{id}?page={}", page - 1)),
+        next_url: has_next.then(|| format!("/searches/{id}?page={}", page + 1)),
     })?;
     Ok((jar, body).into_response())
 }
@@ -300,6 +404,32 @@ pub async fn notifications_page(
         notifications: items,
     })?;
     Ok((jar, body).into_response())
+}
+
+/// Small polling fragment used by the application shell. It carries no
+/// notification content and remains useful when HTMX is unavailable.
+pub async fn notification_count(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> Result<Html<String>, AppError> {
+    let count = notifications::unread_count(state.db.pool(), user.id).await?;
+    let label = if count == 0 {
+        "No unread alerts".to_string()
+    } else if count == 1 {
+        "1 unread alert".to_string()
+    } else {
+        format!("{count} unread alerts")
+    };
+    let value = if count == 0 {
+        String::new()
+    } else if count > 99 {
+        "99+".to_string()
+    } else {
+        count.to_string()
+    };
+    Ok(Html(format!(
+        "<span class=\"notification-badge\" aria-label=\"{label}\">{value}</span>"
+    )))
 }
 
 /// `POST /notifications/read` — mark all read.

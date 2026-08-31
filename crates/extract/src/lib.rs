@@ -2,11 +2,12 @@
 //!
 //! Full-text content extraction (M8): fetch an article page through the
 //! SSRF-safe client, respect per-domain politeness (base delay, robots.txt
-//! crawl-delay, adaptive backoff on 429/failures), run a Readability heuristic
-//! (with a raw fallback), and sanitize before returning. See
+//! crawl-delay, adaptive backoff on 429/failures), run local Readability with
+//! selector, density, and raw fallbacks, and sanitize before returning. See
 //! `docs/ARCHITECTURE.md` §12. Headless-Chrome extraction is a future extractor
 //! (FND-120).
 
+pub mod chromium;
 pub mod error;
 mod readability;
 pub mod robots;
@@ -20,9 +21,11 @@ use std::time::Duration as StdDuration;
 use futures_util::StreamExt;
 use time::OffsetDateTime;
 
+use rustss_core::tracking_pixel::TrackingPixelPolicy;
 use rustss_db::{domain_state, Db};
 use rustss_feeds::SafeFetchClient;
 
+use crate::chromium::{ChromiumConfig, ChromiumRenderer};
 use crate::robots::RobotsInfo;
 
 /// Tuning for extraction politeness and limits.
@@ -32,6 +35,7 @@ pub struct ExtractConfig {
     pub max_bytes: usize,
     pub robots_ttl: StdDuration,
     pub user_agent: String,
+    pub chromium: Option<ChromiumConfig>,
 }
 
 impl Default for ExtractConfig {
@@ -41,6 +45,7 @@ impl Default for ExtractConfig {
             max_bytes: 5 * 1024 * 1024,
             robots_ttl: StdDuration::from_secs(24 * 3600),
             user_agent: "RustSS/0.1".to_string(),
+            chromium: None,
         }
     }
 }
@@ -84,6 +89,7 @@ pub struct ExtractionService {
     extractors: Vec<Box<dyn Extractor>>,
     robots_cache: moka::future::Cache<String, Arc<RobotsInfo>>,
     config: ExtractConfig,
+    chromium: Option<ChromiumRenderer>,
 }
 
 impl ExtractionService {
@@ -92,10 +98,12 @@ impl ExtractionService {
             .time_to_live(config.robots_ttl)
             .max_capacity(10_000)
             .build();
+        let chromium = config.chromium.clone().map(ChromiumRenderer::new);
         Self {
             extractors: vec![Box::new(ReadabilityExtractor), Box::new(RawExtractor)],
             robots_cache,
             config,
+            chromium,
         }
     }
 
@@ -108,6 +116,30 @@ impl ExtractionService {
         selector: Option<&str>,
         respect_robots: bool,
         delay_override_ms: Option<u64>,
+    ) -> ExtractOutcome {
+        self.extract_with_tracking_policy(
+            db,
+            fetch,
+            url,
+            selector,
+            respect_robots,
+            delay_override_ms,
+            &TrackingPixelPolicy::default(),
+        )
+        .await
+    }
+
+    /// Extract using the instance's immutable tracking-image policy.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn extract_with_tracking_policy(
+        &self,
+        db: &Db,
+        fetch: &SafeFetchClient,
+        url: &str,
+        selector: Option<&str>,
+        respect_robots: bool,
+        delay_override_ms: Option<u64>,
+        tracking_pixel_policy: &TrackingPixelPolicy,
     ) -> ExtractOutcome {
         let parsed = match url::Url::parse(url) {
             Ok(u) => u,
@@ -132,12 +164,15 @@ impl ExtractionService {
         self.apply_politeness(db, &domain, robots_delay_ms, delay_override_ms)
             .await;
 
-        match self.fetch_html(fetch.client(), fetch, url).await {
+        match self.fetch_html(fetch, url, false).await {
             Ok(FetchResult::Html {
                 body,
                 final_url,
                 verified_html,
-            }) => match self.run_extractors(&body, selector, &final_url) {
+            }) => match self
+                .extract_document(&body, selector, &final_url, tracking_pixel_policy)
+                .await
+            {
                 Some(mut extracted) => {
                     extracted.verified_html = verified_html;
                     let cd = robots_delay_ms.map(|ms| ms as i32);
@@ -191,21 +226,23 @@ impl ExtractionService {
         }
         self.apply_politeness(db, &domain, robots.crawl_delay_ms, None)
             .await;
-        let outcome = match self
-            .fetch_html(fetch.client_without_redirects(), fetch, url)
-            .await
-        {
+        let outcome = match self.fetch_html(fetch, url, true).await {
             Ok(FetchResult::Html {
                 body,
                 final_url,
                 verified_html,
-            }) => match self.run_extractors(&body, None, &final_url) {
-                Some(mut extracted) => {
-                    extracted.verified_html = verified_html;
-                    ExtractOutcome::Extracted(extracted)
+            }) => {
+                match self
+                    .extract_document(&body, None, &final_url, &TrackingPixelPolicy::default())
+                    .await
+                {
+                    Some(mut extracted) => {
+                        extracted.verified_html = verified_html;
+                        ExtractOutcome::Extracted(extracted)
+                    }
+                    None => ExtractOutcome::ReaderFailed,
                 }
-                None => ExtractOutcome::ReaderFailed,
-            },
+            }
             Ok(FetchResult::RateLimited(retry_after)) => {
                 ExtractOutcome::RateLimited { retry_after }
             }
@@ -251,10 +288,48 @@ impl ExtractionService {
         html: &str,
         selector: Option<&str>,
         base_url: &str,
+        tracking_pixel_policy: &TrackingPixelPolicy,
     ) -> Option<Extracted> {
         self.extractors
             .iter()
-            .find_map(|ex| ex.extract(html, selector, base_url))
+            .find_map(|ex| ex.extract(html, selector, base_url, tracking_pixel_policy))
+    }
+
+    async fn extract_document(
+        &self,
+        html: &str,
+        selector: Option<&str>,
+        base_url: &str,
+        tracking_pixel_policy: &TrackingPixelPolicy,
+    ) -> Option<Extracted> {
+        let local = self.run_extractors(html, selector, base_url, tracking_pixel_policy);
+        if local
+            .as_ref()
+            .is_some_and(|extracted| extracted.extractor != "raw")
+        {
+            return local;
+        }
+        let Some(chromium) = &self.chromium else {
+            return local;
+        };
+        match chromium.render(html, base_url).await {
+            Ok(rendered) => {
+                if let Some(mut extracted) =
+                    self.run_extractors(&rendered, selector, base_url, tracking_pixel_policy)
+                {
+                    extracted.extractor = "chromium";
+                    Some(extracted)
+                } else {
+                    local
+                }
+            }
+            Err(_) => {
+                tracing::warn!("Chromium extraction fallback unavailable; using local result");
+                local.or_else(|| {
+                    readability::short_outage_fallback(html, base_url, tracking_pixel_policy)
+                })
+            }
+        }
     }
 
     async fn robots_for(&self, fetch: &SafeFetchClient, url: &url::Url) -> Arc<RobotsInfo> {
@@ -294,12 +369,10 @@ impl ExtractionService {
             host.to_string()
         };
         let robots_url = format!("{}://{host_for_url}:{port}/robots.txt", url.scheme());
-        if fetch.validate_url(&robots_url).is_err() {
-            return None;
-        }
         let response = fetch
-            .client_without_redirects()
-            .get(robots_url)
+            .get_without_redirects(&robots_url)
+            .await
+            .ok()?
             .send()
             .await
             .ok()?;
@@ -346,15 +419,17 @@ impl ExtractionService {
 
     async fn fetch_html(
         &self,
-        client: &reqwest::Client,
         fetch: &SafeFetchClient,
         url: &str,
+        no_redirect: bool,
     ) -> Result<FetchResult> {
-        fetch
-            .validate_url(url)
-            .map_err(|e| ExtractError::Url(e.to_string()))?;
-        let resp = client
-            .get(url)
+        let request = if no_redirect {
+            fetch.get_without_redirects(url).await
+        } else {
+            fetch.get(url).await
+        }
+        .map_err(|e| ExtractError::Url(e.to_string()))?;
+        let resp = request
             .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
             .send()
             .await
@@ -387,12 +462,10 @@ impl ExtractionService {
     }
 
     async fn fetch_text(&self, fetch: &SafeFetchClient, url: &str) -> Result<Option<String>> {
-        if fetch.validate_url(url).is_err() {
-            return Ok(None);
-        }
         let resp = fetch
-            .client()
             .get(url)
+            .await
+            .map_err(|error| ExtractError::Url(error.to_string()))?
             .send()
             .await
             .map_err(ExtractError::Http)?;

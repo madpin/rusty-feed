@@ -15,23 +15,29 @@
     <p class="sidebar-label">Folders</p>
     <div class="folder-tree">
       {% for folder in folders %}
-      <div class="folder-tree-node" style="padding-inline-start: {{ folder.depth }}rem">
-        <a href="{{ folder.href }}"{% if folder.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ folder.name }}"><span class="sidebar-nav-icon" aria-hidden="true">▣</span><span class="sidebar-text">{{ folder.name }}</span><span class="sidebar-count">{{ folder.feed_count }}</span></a>
+      <div class="folder-tree-node feed-folder-drop depth-{{ folder.depth }}" data-feed-drop data-folder-id="{{ folder.id }}" data-folder-label="{{ folder.name }}" data-folder-collapsed="{% if folder.collapsed %}true{% else %}false{% endif %}">
+        <div class="folder-tree-heading">
+          {% if !folder.feeds.is_empty() %}<button type="button" class="folder-collapse-toggle" data-folder-collapse="{{ folder.id }}" aria-expanded="{% if folder.collapsed %}false{% else %}true{% endif %}" aria-label="{% if folder.collapsed %}Expand{% else %}Reduce{% endif %} {{ folder.name }}"><span aria-hidden="true">{% if folder.collapsed %}›{% else %}⌄{% endif %}</span></button>{% endif %}
+          <a href="{{ folder.href }}"{% if folder.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ folder.name }}"><span class="sidebar-nav-icon" aria-hidden="true">▣</span><span class="sidebar-text">{{ folder.name }}</span><span class="sidebar-count">{{ folder.feed_count }}</span></a>
+        </div>
         {% if !folder.feeds.is_empty() %}
         <div class="folder-tree-feeds">
           {% for f in folder.feeds %}
-          <a href="{{ f.href }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ f.name }}"><span class="feed-nav-icon" aria-hidden="true"><span>{{ f.initial }}</span>{% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}</span><span class="sidebar-text">{{ f.name }}</span></a>
+          {% include "library_feed_nav.html" %}
           {% endfor %}
         </div>
         {% endif %}
       </div>
       {% endfor %}
-      <div class="folder-tree-node folder-tree-unfiled">
-        <a href="{{ unfiled_url }}"{% if unfiled_only %} class="nav-link active" aria-current="page"{% else %} class="folder-tree-label"{% endif %} aria-label="Unfiled feeds"><span class="sidebar-nav-icon" aria-hidden="true">□</span><span class="sidebar-text">Unfiled</span><span class="sidebar-count">{{ unfiled_feeds.len() }}</span></a>
+      <div class="folder-tree-node folder-tree-unfiled feed-folder-drop" data-feed-drop data-folder-id="" data-folder-label="Unfiled">
+        <div class="folder-tree-heading">
+          <button type="button" class="folder-collapse-toggle" data-folder-collapse="unfiled" aria-expanded="true" aria-label="Reduce Unfiled"><span aria-hidden="true">⌄</span></button>
+          <a href="{{ unfiled_url }}"{% if unfiled_only %} class="nav-link active" aria-current="page"{% else %} class="folder-tree-label"{% endif %} aria-label="Unfiled feeds"><span class="sidebar-nav-icon" aria-hidden="true">□</span><span class="sidebar-text">Unfiled</span><span class="sidebar-count">{{ unfiled_feeds.len() }}</span></a>
+        </div>
         <div class="folder-tree-feeds">
           {% if unfiled_feeds.is_empty() %}<p class="sidebar-empty">All feeds are filed.</p>{% endif %}
           {% for f in unfiled_feeds %}
-          <a href="{{ f.href }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ f.name }}"><span class="feed-nav-icon" aria-hidden="true"><span>{{ f.initial }}</span>{% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}</span><span class="sidebar-text">{{ f.name }}</span></a>
+          {% include "library_feed_nav.html" %}
           {% endfor %}
         </div>
       </div>
@@ -48,5 +54,6 @@
     </div>
   </div>
   {% endif %}
+  <button type="button" class="sidebar-quick-toggle" data-sidebar-quick-toggle aria-pressed="false"><span aria-hidden="true">⚙</span><span class="sidebar-text">Quick feed tools</span></button>
   <a href="/feeds" class="sidebar-link" aria-label="Manage feeds"><span class="sidebar-nav-icon" aria-hidden="true">+</span><span class="sidebar-text">Manage feeds</span></a>
 </div>

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use rustss_cache::Cache;
+use rustss_core::html::article_html_to_markdown;
 use rustss_db::{feedback, patterns, Article, Db, Result};
 
 use crate::{
@@ -26,11 +27,12 @@ fn score_key(user_id: Uuid, article_id: Uuid) -> String {
 }
 
 fn article_text(article: &Article) -> String {
+    let markdown = article_html_to_markdown(&article.content, &article.url);
     format!(
         "{} {} {}",
         article.title,
         article.excerpt.as_deref().unwrap_or(""),
-        article.content
+        markdown
     )
 }
 

@@ -31,7 +31,7 @@ pub async fn finish(
 ) -> Result<()> {
     sqlx::query(
         "UPDATE agent_runs SET status = $2, completed_at = now(), duration_ms = $3, \
-         stats = $4, error_message = $5 WHERE id = $1",
+         stats = $4, error_message = $5, error_message_is_safe = ($5 IS NOT NULL) WHERE id = $1",
     )
     .bind(id)
     .bind(status)
@@ -51,12 +51,15 @@ pub struct RecentAgentRun {
     pub duration_ms: Option<i64>,
     pub stats: Option<Json>,
     pub has_error: bool,
+    pub error_message: Option<String>,
 }
 
 pub async fn list_recent(pool: &PgPool, limit: i64) -> Result<Vec<RecentAgentRun>> {
     Ok(sqlx::query_as(
         "SELECT agent_name, status, started_at, duration_ms, stats, \
-         error_message IS NOT NULL AS has_error FROM agent_runs ORDER BY started_at DESC LIMIT $1",
+         error_message IS NOT NULL AS has_error, \
+         CASE WHEN error_message_is_safe THEN error_message END AS error_message \
+         FROM agent_runs ORDER BY started_at DESC LIMIT $1",
     )
     .bind(limit)
     .fetch_all(pool)

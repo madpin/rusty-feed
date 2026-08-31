@@ -8,7 +8,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use rustss_db::{user_preferences, Db, User};
@@ -190,6 +190,12 @@ fn normalize_shortcut_key(value: &str) -> Option<String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
+    pub locale: String,
+    pub fallback_locale: String,
+    pub timezone: String,
+    pub date_format: String,
+    pub number_format: String,
+    pub custom_script_enabled: bool,
     pub theme: String,
     pub articles_per_page: u32,
     pub show_read_articles: bool,
@@ -198,35 +204,134 @@ pub struct Preferences {
     /// Mark an article read automatically when opened.
     pub auto_mark_read: bool,
     pub article_density: String,
+    /// `sans` or `serif`, applied with every color theme.
+    pub font_family: String,
     pub reader_font_size: String,
     pub reader_line_height: String,
     pub sidebar_width: u8,
     pub sidebar_collapsed: bool,
     pub reader_panel_width: u8,
+    /// `clean` (default) or `original` publisher article links.
+    pub external_link_mode: String,
+    /// `new-tab` (default) or `same-tab`; privacy attributes are always fixed.
+    pub external_open_mode: String,
+    /// Show the per-article count of tracking images removed during shared cleanup.
+    pub show_blocked_tracking_notice: bool,
+    /// `instance`, `hybrid`, `keyword`, or `semantic`.
+    pub search_mode: String,
+    /// `instance`, `simple`, or `english` PostgreSQL text configuration.
+    pub search_text_config: String,
+    /// Personal semantic contribution to hybrid ranking; `None` inherits the instance.
+    pub search_semantic_weight_percent: Option<u8>,
+    /// `on-demand`, `metadata`, or `links-only`.
+    pub enclosure_load_mode: String,
+    /// `proxy`, `mixed-content`, or `direct`.
+    pub enclosure_delivery_mode: String,
+    /// Media kinds that may use an inline player after MIME safety checks.
+    pub enclosure_player_kinds: Vec<String>,
+    pub enclosure_show_links: bool,
+    /// `privacy` (youtube-nocookie.com) or `links_only`.
+    pub youtube_player_mode: String,
+    /// `privacy` or `alternative`; ignored when links-only mode is selected.
+    pub youtube_player_provider: String,
+    /// Start playback after the user explicitly loads the player.
+    pub youtube_autoplay: bool,
+    /// `default` or `on` (YouTube exposes no supported force-off parameter).
+    pub youtube_captions: String,
+    /// Enable horizontal swipe navigation on touch-first devices.
+    pub touch_gestures_enabled: bool,
+    /// `low`, `medium`, or `high`; higher sensitivity needs a shorter swipe.
+    pub touch_gesture_sensitivity: String,
+    /// `natural` or `reversed` article-navigation direction.
+    pub touch_gesture_direction: String,
     pub shortcuts: KeyboardShortcuts,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            locale: "en".to_string(),
+            fallback_locale: "en".to_string(),
+            timezone: "UTC".to_string(),
+            date_format: "mdy".to_string(),
+            number_format: "comma".to_string(),
+            custom_script_enabled: false,
             theme: "system".to_string(),
             articles_per_page: 20,
             show_read_articles: true,
             reading_mode: "side-panel".to_string(),
             auto_mark_read: true,
             article_density: "comfortable".to_string(),
+            font_family: "sans".to_string(),
             reader_font_size: "medium".to_string(),
             reader_line_height: "relaxed".to_string(),
             sidebar_width: 17,
             sidebar_collapsed: false,
             reader_panel_width: 56,
+            external_link_mode: "clean".to_string(),
+            external_open_mode: "new-tab".to_string(),
+            show_blocked_tracking_notice: true,
+            search_mode: "instance".to_string(),
+            search_text_config: "instance".to_string(),
+            search_semantic_weight_percent: None,
+            enclosure_load_mode: "on-demand".to_string(),
+            enclosure_delivery_mode: "proxy".to_string(),
+            enclosure_player_kinds: vec![
+                "audio".to_string(),
+                "video".to_string(),
+                "image".to_string(),
+            ],
+            enclosure_show_links: true,
+            youtube_player_mode: "privacy".to_string(),
+            youtube_player_provider: "privacy".to_string(),
+            youtube_autoplay: false,
+            youtube_captions: "default".to_string(),
+            touch_gestures_enabled: false,
+            touch_gesture_sensitivity: "medium".to_string(),
+            touch_gesture_direction: "natural".to_string(),
             shortcuts: KeyboardShortcuts::default(),
         }
     }
 }
 
 impl Preferences {
+    pub fn text(&self, key: &str) -> &'static str {
+        let translated = rustss_core::i18n::message(&self.locale, key);
+        if translated.is_empty() {
+            rustss_core::i18n::message(&self.fallback_locale, key)
+        } else {
+            translated
+        }
+    }
+
+    pub fn format_date(&self, value: time::OffsetDateTime) -> String {
+        rustss_core::i18n::format_date(value, &self.timezone, &self.date_format)
+    }
+
+    pub fn format_number(&self, value: &i64) -> String {
+        rustss_core::i18n::format_number(*value, &self.number_format)
+    }
+
+    pub fn text_direction(&self) -> &'static str {
+        rustss_core::i18n::text_direction(&self.locale)
+    }
+
     fn sanitized(mut self) -> Self {
+        if !rustss_core::i18n::is_supported_locale(&self.locale) {
+            self.locale = "en".to_string();
+        }
+        if !rustss_core::i18n::is_supported_locale(&self.fallback_locale) {
+            self.fallback_locale = "en".to_string();
+        }
+        if !rustss_core::i18n::is_supported_timezone(&self.timezone) {
+            self.timezone = "UTC".to_string();
+        }
+        if !matches!(self.date_format.as_str(), "mdy" | "dmy" | "ymd") {
+            self.date_format = "mdy".to_string();
+        }
+        if !matches!(self.number_format.as_str(), "comma" | "dot") {
+            self.number_format = "comma".to_string();
+        }
         if !matches!(
             self.theme.as_str(),
             "system" | "light" | "dark" | "ocean" | "forest" | "plum" | "sunset"
@@ -245,6 +350,9 @@ impl Preferences {
         ) {
             self.article_density = "comfortable".to_string();
         }
+        if !matches!(self.font_family.as_str(), "sans" | "serif") {
+            self.font_family = "sans".to_string();
+        }
         if !matches!(self.reader_font_size.as_str(), "small" | "medium" | "large") {
             self.reader_font_size = "medium".to_string();
         }
@@ -253,6 +361,67 @@ impl Preferences {
             "compact" | "relaxed" | "airy"
         ) {
             self.reader_line_height = "relaxed".to_string();
+        }
+        if !matches!(
+            self.enclosure_load_mode.as_str(),
+            "on-demand" | "metadata" | "links-only"
+        ) {
+            self.enclosure_load_mode = "on-demand".to_string();
+        }
+        if !matches!(self.external_link_mode.as_str(), "clean" | "original") {
+            self.external_link_mode = "clean".to_string();
+        }
+        if !matches!(self.external_open_mode.as_str(), "new-tab" | "same-tab") {
+            self.external_open_mode = "new-tab".to_string();
+        }
+        if !matches!(
+            self.search_mode.as_str(),
+            "instance" | "hybrid" | "keyword" | "semantic"
+        ) {
+            self.search_mode = "instance".to_string();
+        }
+        if !matches!(
+            self.search_text_config.as_str(),
+            "instance" | "simple" | "english"
+        ) {
+            self.search_text_config = "instance".to_string();
+        }
+        self.search_semantic_weight_percent = self
+            .search_semantic_weight_percent
+            .filter(|weight| *weight <= 100);
+        if !matches!(
+            self.enclosure_delivery_mode.as_str(),
+            "proxy" | "mixed-content" | "direct"
+        ) {
+            self.enclosure_delivery_mode = "proxy".to_string();
+        }
+        self.enclosure_player_kinds
+            .retain(|kind| matches!(kind.as_str(), "audio" | "video" | "image"));
+        self.enclosure_player_kinds.sort();
+        self.enclosure_player_kinds.dedup();
+        if !matches!(self.youtube_player_mode.as_str(), "privacy" | "links_only") {
+            self.youtube_player_mode = "privacy".to_string();
+        }
+        if !matches!(
+            self.youtube_player_provider.as_str(),
+            "privacy" | "alternative"
+        ) {
+            self.youtube_player_provider = "privacy".to_string();
+        }
+        if !matches!(self.youtube_captions.as_str(), "default" | "on") {
+            self.youtube_captions = "default".to_string();
+        }
+        if !matches!(
+            self.touch_gesture_sensitivity.as_str(),
+            "low" | "medium" | "high"
+        ) {
+            self.touch_gesture_sensitivity = "medium".to_string();
+        }
+        if !matches!(
+            self.touch_gesture_direction.as_str(),
+            "natural" | "reversed"
+        ) {
+            self.touch_gesture_direction = "natural".to_string();
         }
         self.articles_per_page = self.articles_per_page.clamp(5, 100);
         self.sidebar_width = self.sidebar_width.clamp(13, 24);
@@ -279,19 +448,77 @@ struct PreferencesTemplate {
     csrf_token: String,
     ui: Preferences,
     is_admin: bool,
+    pwa_name: String,
+    media_proxy_enabled: bool,
+    youtube_embeds_enabled: bool,
+    youtube_source_host_count: usize,
     prefs_theme: String,
     prefs_per_page: u32,
     prefs_show_read: bool,
     prefs_reading_mode: String,
     prefs_auto_mark_read: bool,
     prefs_density: String,
+    prefs_font_family: String,
     prefs_reader_font_size: String,
     prefs_reader_line_height: String,
     prefs_sidebar_width: u8,
     prefs_sidebar_collapsed: bool,
     prefs_reader_panel_width: u8,
+    prefs_external_link_mode: String,
+    prefs_external_open_mode: String,
+    external_links_new_tab_required: bool,
+    prefs_show_blocked_tracking_notice: bool,
+    tracking_pixel_strictness: String,
+    tracking_pixel_blocked_host_count: usize,
+    tracking_pixel_allowed_host_count: usize,
+    prefs_search_mode: String,
+    prefs_search_text_config: String,
+    prefs_search_semantic_weight_percent: String,
+    instance_search_mode: String,
+    instance_search_text_config: String,
+    instance_search_semantic_weight_percent: u8,
+    prefs_enclosure_load_mode: String,
+    prefs_enclosure_delivery_mode: String,
+    prefs_enclosure_audio: bool,
+    prefs_enclosure_video: bool,
+    prefs_enclosure_image: bool,
+    prefs_enclosure_show_links: bool,
+    prefs_youtube_player_mode: String,
+    prefs_youtube_player_provider: String,
+    youtube_alternative_player_name: Option<String>,
+    prefs_youtube_autoplay: bool,
+    prefs_youtube_captions: String,
+    prefs_touch_gestures_enabled: bool,
+    prefs_touch_gesture_sensitivity: String,
+    prefs_touch_gesture_direction: String,
     saved: bool,
     error: Option<String>,
+    locales: Vec<LocaleOption>,
+    prefs_locale: String,
+    prefs_fallback_locale: String,
+    prefs_timezone: String,
+    prefs_date_format: String,
+    prefs_number_format: String,
+    prefs_custom_script_enabled: bool,
+    custom_javascript_enabled: bool,
+}
+
+struct LocaleOption {
+    code: String,
+    name: String,
+}
+
+fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    let value = value.trim();
+    if value.is_empty() {
+        Ok(None)
+    } else {
+        value.parse().map(Some).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Deserialize)]
@@ -301,11 +528,25 @@ pub struct PrefsForm {
     articles_per_page: u32,
     reading_mode: String,
     #[serde(default)]
+    locale: Option<String>,
+    #[serde(default)]
+    fallback_locale: Option<String>,
+    #[serde(default)]
+    timezone: Option<String>,
+    #[serde(default)]
+    date_format: Option<String>,
+    #[serde(default)]
+    number_format: Option<String>,
+    #[serde(default)]
+    custom_script_enabled: Option<String>,
+    #[serde(default)]
     show_read_articles: Option<String>,
     #[serde(default)]
     auto_mark_read: Option<String>,
     #[serde(default)]
     article_density: Option<String>,
+    #[serde(default)]
+    font_family: Option<String>,
     #[serde(default)]
     reader_font_size: Option<String>,
     #[serde(default)]
@@ -316,6 +557,52 @@ pub struct PrefsForm {
     sidebar_collapsed: Option<String>,
     #[serde(default)]
     reader_panel_width: Option<u8>,
+    #[serde(default)]
+    external_link_mode: Option<String>,
+    #[serde(default)]
+    external_open_mode: Option<String>,
+    #[serde(default)]
+    privacy_settings_present: Option<String>,
+    #[serde(default)]
+    show_blocked_tracking_notice: Option<String>,
+    #[serde(default)]
+    search_settings_present: Option<String>,
+    #[serde(default)]
+    search_mode: Option<String>,
+    #[serde(default)]
+    search_text_config: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    search_semantic_weight_percent: Option<u8>,
+    #[serde(default)]
+    enclosure_settings_present: Option<String>,
+    #[serde(default)]
+    enclosure_load_mode: Option<String>,
+    #[serde(default)]
+    enclosure_delivery_mode: Option<String>,
+    #[serde(default)]
+    enclosure_audio: Option<String>,
+    #[serde(default)]
+    enclosure_video: Option<String>,
+    #[serde(default)]
+    enclosure_image: Option<String>,
+    #[serde(default)]
+    enclosure_show_links: Option<String>,
+    #[serde(default)]
+    youtube_settings_present: Option<String>,
+    #[serde(default)]
+    youtube_player_mode: Option<String>,
+    #[serde(default)]
+    youtube_player_provider: Option<String>,
+    #[serde(default)]
+    youtube_autoplay: Option<String>,
+    #[serde(default)]
+    youtube_captions: Option<String>,
+    #[serde(default)]
+    touch_gestures_enabled: Option<String>,
+    #[serde(default)]
+    touch_gesture_sensitivity: Option<String>,
+    #[serde(default)]
+    touch_gesture_direction: Option<String>,
     #[serde(default)]
     shortcuts_enabled: Option<String>,
     #[serde(default)]
@@ -350,6 +637,7 @@ fn render(tpl: &PreferencesTemplate) -> Result<Html<String>, AppError> {
 }
 
 fn preferences_template(
+    state: &AppState,
     user: &User,
     csrf_token: String,
     prefs: Preferences,
@@ -362,17 +650,99 @@ fn preferences_template(
         csrf_token,
         ui: prefs.clone(),
         is_admin: user.role == "admin",
+        pwa_name: state.settings.pwa_name.clone(),
+        media_proxy_enabled: state.settings.media_proxy_enabled,
+        youtube_embeds_enabled: state.settings.youtube_policy.enabled(),
+        youtube_source_host_count: state.settings.youtube_policy.source_host_count(),
         prefs_theme: prefs.theme,
         prefs_per_page: prefs.articles_per_page,
         prefs_show_read: prefs.show_read_articles,
         prefs_reading_mode: prefs.reading_mode,
         prefs_auto_mark_read: prefs.auto_mark_read,
         prefs_density: prefs.article_density,
+        prefs_font_family: prefs.font_family,
         prefs_reader_font_size: prefs.reader_font_size,
         prefs_reader_line_height: prefs.reader_line_height,
         prefs_sidebar_width: prefs.sidebar_width,
         prefs_sidebar_collapsed: prefs.sidebar_collapsed,
         prefs_reader_panel_width: prefs.reader_panel_width,
+        prefs_external_link_mode: prefs.external_link_mode.clone(),
+        prefs_external_open_mode: if state.settings.external_links_new_tab_required {
+            "new-tab".to_string()
+        } else {
+            prefs.external_open_mode.clone()
+        },
+        external_links_new_tab_required: state.settings.external_links_new_tab_required,
+        prefs_show_blocked_tracking_notice: prefs.show_blocked_tracking_notice,
+        tracking_pixel_strictness: state
+            .settings
+            .tracking_pixel_policy
+            .strictness()
+            .as_str()
+            .to_string(),
+        tracking_pixel_blocked_host_count: state
+            .settings
+            .tracking_pixel_policy
+            .blocked_host_count(),
+        tracking_pixel_allowed_host_count: state
+            .settings
+            .tracking_pixel_policy
+            .allowed_host_count(),
+        prefs_search_mode: prefs.search_mode.clone(),
+        prefs_search_text_config: prefs.search_text_config.clone(),
+        prefs_search_semantic_weight_percent: prefs
+            .search_semantic_weight_percent
+            .map(|weight| weight.to_string())
+            .unwrap_or_default(),
+        instance_search_mode: state.settings.search_mode.as_str().to_string(),
+        instance_search_text_config: state.settings.search_text_config.as_str().to_string(),
+        instance_search_semantic_weight_percent: state.settings.search_semantic_weight_percent,
+        prefs_enclosure_load_mode: prefs.enclosure_load_mode.clone(),
+        prefs_enclosure_delivery_mode: prefs.enclosure_delivery_mode.clone(),
+        prefs_enclosure_audio: prefs
+            .enclosure_player_kinds
+            .iter()
+            .any(|kind| kind == "audio"),
+        prefs_enclosure_video: prefs
+            .enclosure_player_kinds
+            .iter()
+            .any(|kind| kind == "video"),
+        prefs_enclosure_image: prefs
+            .enclosure_player_kinds
+            .iter()
+            .any(|kind| kind == "image"),
+        prefs_enclosure_show_links: prefs.enclosure_show_links,
+        prefs_youtube_player_mode: prefs.youtube_player_mode.clone(),
+        prefs_youtube_player_provider: if state.settings.youtube_policy.alternative_name().is_some()
+        {
+            prefs.youtube_player_provider.clone()
+        } else {
+            "privacy".to_string()
+        },
+        youtube_alternative_player_name: state
+            .settings
+            .youtube_policy
+            .alternative_name()
+            .map(str::to_string),
+        prefs_youtube_autoplay: prefs.youtube_autoplay,
+        prefs_youtube_captions: prefs.youtube_captions.clone(),
+        prefs_touch_gestures_enabled: prefs.touch_gestures_enabled,
+        prefs_touch_gesture_sensitivity: prefs.touch_gesture_sensitivity.clone(),
+        prefs_touch_gesture_direction: prefs.touch_gesture_direction.clone(),
+        locales: rustss_core::i18n::SUPPORTED_LOCALES
+            .iter()
+            .map(|(code, name)| LocaleOption {
+                code: (*code).to_string(),
+                name: (*name).to_string(),
+            })
+            .collect(),
+        prefs_locale: prefs.locale.clone(),
+        prefs_fallback_locale: prefs.fallback_locale.clone(),
+        prefs_timezone: prefs.timezone.clone(),
+        prefs_date_format: prefs.date_format.clone(),
+        prefs_number_format: prefs.number_format.clone(),
+        prefs_custom_script_enabled: prefs.custom_script_enabled,
+        custom_javascript_enabled: state.settings.custom_javascript_enabled,
         saved,
         error,
     }
@@ -389,7 +759,9 @@ fn render_page(
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     Ok((
         jar,
-        render(&preferences_template(user, csrf_token, prefs, saved, error))?,
+        render(&preferences_template(
+            state, user, csrf_token, prefs, saved, error,
+        ))?,
     )
         .into_response())
 }
@@ -417,6 +789,23 @@ pub async fn save(
     let current = load(&state.db, user.id).await;
     let current_for_error = current.clone();
     let current_shortcuts = current.shortcuts.clone();
+    let search_settings_present = form.search_settings_present.is_some();
+    let enclosure_settings_present = form.enclosure_settings_present.is_some();
+    let privacy_settings_present = form.privacy_settings_present.is_some();
+    let youtube_settings_present = form.youtube_settings_present.is_some();
+    let enclosure_player_kinds = if enclosure_settings_present {
+        [
+            ("audio", form.enclosure_audio.is_some()),
+            ("video", form.enclosure_video.is_some()),
+            ("image", form.enclosure_image.is_some()),
+        ]
+        .into_iter()
+        .filter(|(_, selected)| *selected)
+        .map(|(kind, _)| kind.to_string())
+        .collect()
+    } else {
+        current.enclosure_player_kinds.clone()
+    };
     let shortcuts = match (KeyboardShortcuts {
         enabled: form.shortcuts_enabled.is_some(),
         next_article: form
@@ -446,12 +835,20 @@ pub async fn save(
         }
     };
     let prefs = Preferences {
+        locale: form.locale.unwrap_or(current.locale),
+        fallback_locale: form.fallback_locale.unwrap_or(current.fallback_locale),
+        timezone: form.timezone.unwrap_or(current.timezone),
+        date_format: form.date_format.unwrap_or(current.date_format),
+        number_format: form.number_format.unwrap_or(current.number_format),
+        custom_script_enabled: state.settings.custom_javascript_enabled
+            && form.custom_script_enabled.is_some(),
         theme: form.theme,
         articles_per_page: form.articles_per_page,
         show_read_articles: form.show_read_articles.is_some(),
         reading_mode: form.reading_mode,
         auto_mark_read: form.auto_mark_read.is_some(),
         article_density: form.article_density.unwrap_or(current.article_density),
+        font_family: form.font_family.unwrap_or(current.font_family),
         reader_font_size: form.reader_font_size.unwrap_or(current.reader_font_size),
         reader_line_height: form
             .reader_line_height
@@ -461,6 +858,75 @@ pub async fn save(
         reader_panel_width: form
             .reader_panel_width
             .unwrap_or(current.reader_panel_width),
+        external_link_mode: form
+            .external_link_mode
+            .unwrap_or(current.external_link_mode),
+        external_open_mode: form
+            .external_open_mode
+            .unwrap_or(current.external_open_mode),
+        show_blocked_tracking_notice: if privacy_settings_present {
+            form.show_blocked_tracking_notice.is_some()
+        } else {
+            current.show_blocked_tracking_notice
+        },
+        search_mode: if search_settings_present {
+            form.search_mode.unwrap_or_else(|| "instance".to_string())
+        } else {
+            current.search_mode
+        },
+        search_text_config: if search_settings_present {
+            form.search_text_config
+                .unwrap_or_else(|| "instance".to_string())
+        } else {
+            current.search_text_config
+        },
+        search_semantic_weight_percent: if search_settings_present {
+            form.search_semantic_weight_percent
+        } else {
+            current.search_semantic_weight_percent
+        },
+        enclosure_load_mode: form
+            .enclosure_load_mode
+            .unwrap_or(current.enclosure_load_mode),
+        enclosure_delivery_mode: form
+            .enclosure_delivery_mode
+            .unwrap_or(current.enclosure_delivery_mode),
+        enclosure_player_kinds,
+        enclosure_show_links: if enclosure_settings_present {
+            form.enclosure_show_links.is_some()
+        } else {
+            current.enclosure_show_links
+        },
+        youtube_player_mode: if youtube_settings_present {
+            form.youtube_player_mode
+                .unwrap_or_else(|| "privacy".to_string())
+        } else {
+            current.youtube_player_mode
+        },
+        youtube_player_provider: if youtube_settings_present {
+            form.youtube_player_provider
+                .unwrap_or_else(|| "privacy".to_string())
+        } else {
+            current.youtube_player_provider
+        },
+        youtube_autoplay: if youtube_settings_present {
+            form.youtube_autoplay.is_some()
+        } else {
+            current.youtube_autoplay
+        },
+        youtube_captions: if youtube_settings_present {
+            form.youtube_captions
+                .unwrap_or_else(|| "default".to_string())
+        } else {
+            current.youtube_captions
+        },
+        touch_gestures_enabled: form.touch_gestures_enabled.is_some(),
+        touch_gesture_sensitivity: form
+            .touch_gesture_sensitivity
+            .unwrap_or(current.touch_gesture_sensitivity),
+        touch_gesture_direction: form
+            .touch_gesture_direction
+            .unwrap_or(current.touch_gesture_direction),
         shortcuts,
     }
     .sanitized();
@@ -521,6 +987,16 @@ pub async fn save_layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::de::value::{Error as ValueError, StrDeserializer};
+
+    #[test]
+    fn optional_percentage_accepts_empty_form_values() {
+        let empty = empty_string_as_none(StrDeserializer::<ValueError>::new("")).unwrap();
+        let value = empty_string_as_none(StrDeserializer::<ValueError>::new("35")).unwrap();
+        assert_eq!(empty, None);
+        assert_eq!(value, Some(35));
+        assert!(empty_string_as_none(StrDeserializer::<ValueError>::new("invalid")).is_err());
+    }
 
     #[test]
     fn normalizes_shortcuts_and_removes_conflicts() {
@@ -545,5 +1021,90 @@ mod tests {
         assert!(partial.enabled);
         assert_eq!(partial.next_article, "ArrowDown");
         assert_eq!(partial.previous_article, "ArrowUp");
+    }
+
+    #[test]
+    fn sanitizes_attachment_player_preferences() {
+        let preferences = Preferences {
+            enclosure_load_mode: "autoplay".to_string(),
+            enclosure_delivery_mode: "unsafe".to_string(),
+            enclosure_player_kinds: vec![
+                "video".to_string(),
+                "script".to_string(),
+                "audio".to_string(),
+                "video".to_string(),
+            ],
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert_eq!(preferences.enclosure_load_mode, "on-demand");
+        assert_eq!(preferences.enclosure_delivery_mode, "proxy");
+        assert_eq!(
+            preferences.enclosure_player_kinds,
+            vec!["audio".to_string(), "video".to_string()]
+        );
+    }
+
+    #[test]
+    fn sanitizes_font_family() {
+        let preferences = Preferences {
+            font_family: "remote-font-url".to_string(),
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert_eq!(preferences.font_family, "sans");
+    }
+
+    #[test]
+    fn sanitizes_youtube_player_preferences() {
+        let preferences = Preferences {
+            youtube_player_mode: "standard-tracking-player".to_string(),
+            youtube_player_provider: "arbitrary-origin".to_string(),
+            youtube_captions: "script".to_string(),
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert_eq!(preferences.youtube_player_mode, "privacy");
+        assert_eq!(preferences.youtube_player_provider, "privacy");
+        assert_eq!(preferences.youtube_captions, "default");
+    }
+
+    #[test]
+    fn sanitizes_touch_gesture_preferences() {
+        let preferences = Preferences {
+            touch_gesture_sensitivity: "instant".to_string(),
+            touch_gesture_direction: "sideways".to_string(),
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert!(!preferences.touch_gestures_enabled);
+        assert_eq!(preferences.touch_gesture_sensitivity, "medium");
+        assert_eq!(preferences.touch_gesture_direction, "natural");
+    }
+
+    #[test]
+    fn sanitizes_external_link_preference() {
+        let preferences = Preferences {
+            external_link_mode: "unsafe".to_string(),
+            external_open_mode: "popup-with-opener".to_string(),
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert_eq!(preferences.external_link_mode, "clean");
+        assert_eq!(preferences.external_open_mode, "new-tab");
+    }
+
+    #[test]
+    fn sanitizes_search_preferences() {
+        let preferences = Preferences {
+            search_mode: "magic".to_string(),
+            search_text_config: "arbitrary-regconfig".to_string(),
+            search_semantic_weight_percent: Some(101),
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert_eq!(preferences.search_mode, "instance");
+        assert_eq!(preferences.search_text_config, "instance");
+        assert_eq!(preferences.search_semantic_weight_percent, None);
     }
 }

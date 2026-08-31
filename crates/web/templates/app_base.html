@@ -1,44 +1,55 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ theme }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" data-shortcuts-enabled="{{ ui.shortcuts.enabled }}" data-shortcut-next-article="{{ ui.shortcuts.next_article }}" data-shortcut-previous-article="{{ ui.shortcuts.previous_article }}" data-shortcut-save-article="{{ ui.shortcuts.save_article }}" data-shortcut-mark-unread="{{ ui.shortcuts.mark_unread }}" data-shortcut-next-feed="{{ ui.shortcuts.next_feed }}" data-shortcut-previous-feed="{{ ui.shortcuts.previous_feed }}" data-sidebar-collapsed="{{ ui.sidebar_collapsed }}" style="--sidebar-width: {{ ui.sidebar_width }}rem; --reader-panel-width: {{ ui.reader_panel_width }}%;">
+<html lang="{{ ui.locale }}" dir="{{ ui.text_direction() }}" class="sidebar-width-{{ ui.sidebar_width }} reader-panel-width-{{ ui.reader_panel_width }}" data-theme="{{ theme }}" data-font-family="{{ ui.font_family }}" data-density="{{ ui.article_density }}" data-reader-size="{{ ui.reader_font_size }}" data-reader-leading="{{ ui.reader_line_height }}" data-layout-url="/settings/layout" data-csrf-token="{{ csrf_token }}" data-shortcuts-enabled="{{ ui.shortcuts.enabled }}" data-shortcut-next-article="{{ ui.shortcuts.next_article }}" data-shortcut-previous-article="{{ ui.shortcuts.previous_article }}" data-shortcut-save-article="{{ ui.shortcuts.save_article }}" data-shortcut-mark-unread="{{ ui.shortcuts.mark_unread }}" data-shortcut-next-feed="{{ ui.shortcuts.next_feed }}" data-shortcut-previous-feed="{{ ui.shortcuts.previous_feed }}" data-touch-gestures-enabled="{{ ui.touch_gestures_enabled }}" data-touch-gesture-sensitivity="{{ ui.touch_gesture_sensitivity }}" data-touch-gesture-direction="{{ ui.touch_gesture_direction }}" data-sidebar-collapsed="{{ ui.sidebar_collapsed }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>{% block title %}RustSS{% endblock %} · RustSS</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/static/icon-192.png" />
     <link rel="stylesheet" href="/static/app.css" />
-    <script>document.documentElement.classList.add("js");</script>
+    <link rel="stylesheet" href="/assets/personal.css" />
     <script src="/static/app.js" defer></script>
+    {% if ui.custom_script_enabled %}<script src="/assets/instance-customization.js" defer></script>{% endif %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
-    <a class="skip-link" href="#main-content">Skip to content</a>
+    <a class="skip-link" href="#main-content">{{ ui.text("skip") }}</a>
     <header class="topbar">
       <a href="/articles" class="brand" aria-label="RustSS home"><span class="brand-mark">R</span><span>RustSS</span></a>
       <nav class="topbar-nav" aria-label="Primary navigation">
-        <a href="/articles" class="topbar-link nav-articles">Library</a>
-        <a href="/search" class="topbar-link nav-search">Search</a>
-        <a href="/searches" class="topbar-link nav-saved">Saved</a>
-        <a href="/notifications" class="topbar-link nav-alerts">Alerts</a>
-        <a href="/catalog" class="topbar-link nav-catalog">Discover</a>
-        <a href="/feeds" class="topbar-link nav-feeds">Feeds</a>
+        <a href="/articles" class="topbar-link nav-articles">{{ ui.text("library") }}</a>
+        <a href="/search" class="topbar-link nav-search">{{ ui.text("search") }}</a>
+        <a href="/searches" class="topbar-link nav-saved">{{ ui.text("saved") }}</a>
+        <a href="/notifications" class="topbar-link nav-alerts">{{ ui.text("alerts") }} <span data-notification-count data-url="/notifications/count" aria-live="polite"><span class="notification-badge" aria-label='{{ ui.text("alerts") }}'></span></span></a>
+        <a href="/catalog" class="topbar-link nav-catalog">{{ ui.text("discover") }}</a>
+        <a href="/feeds" class="topbar-link nav-feeds">{{ ui.text("feeds") }}</a>
       </nav>
       <span class="spacer"></span>
       <details class="account-menu">
-        <summary>Account</summary>
+        <summary>{{ ui.text("account") }}</summary>
         <div class="account-menu-panel">
           <span class="account-email">{{ user_email }}</span>
-          <a href="/settings/preferences" class="account-link nav-settings">Preferences</a>
-          <a href="/settings/tokens" class="account-link nav-tokens">API tokens</a>
-          {% if is_admin %}<a href="/admin" class="account-link nav-admin">Administration</a>{% endif %}
+          <a href="/settings/preferences" class="account-link nav-settings">{{ ui.text("preferences") }}</a>
+          <a href="/settings/customization" class="account-link">{{ ui.text("customization") }}</a>
+          <a href="/settings/ai" class="account-link nav-ai">{{ ui.text("ai_providers") }}</a>
+          <a href="/settings/integrations" class="account-link nav-integrations">{{ ui.text("integrations") }}</a>
+          <a href="/settings/tokens" class="account-link nav-tokens">{{ ui.text("api_tokens") }}</a>
+          <a href="/settings/sessions" class="account-link nav-sessions">{{ ui.text("sessions") }}</a>
+          <a href="/settings/passkeys" class="account-link nav-passkeys">{{ ui.text("passkeys") }}</a>
+          {% if is_admin %}<a href="/admin" class="account-link nav-admin">{{ ui.text("administration") }}</a>{% endif %}
           <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-            <button type="submit" class="button-quiet">Log out</button>
+            <button type="submit" class="button-quiet">{{ ui.text("logout") }}</button>
           </form>
         </div>
       </details>
     </header>
     <div class="layout {% block layout_class %}no-context-sidebar{% endblock %}">
       <aside class="sidebar" id="library-sidebar">{% block sidebar %}{% endblock %}</aside>
-      <main class="content" id="main-content">{% block content %}{% endblock %}</main>
+      <main class="content" id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
     </div>
     <div id="action-status" class="action-status" role="status" aria-live="polite"></div>
   </body>

@@ -9,35 +9,37 @@
   <div class="reader-meta">
     {% if let Some(when) = published %}<span>{{ when }}</span>{% endif %}
     {% if let Some(url) = url %}
-    <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
-    <button type="button" class="button-quiet live-view-toggle" data-live-view-toggle aria-controls="live-view-{{ id }}" aria-expanded="false">Live view</button>
+    <a href="{{ url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ url_label }}</a>
+    {% if let Some(alternate_url) = alternate_url %}<a href="{{ alternate_url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ alternate_url_label }}</a>{% endif %}
+    <button type="button" class="button-quiet live-view-toggle" data-live-view-toggle aria-controls="live-view-{{ id }}" aria-expanded="false">{{ ui.text("live_view") }}</button>
     {% else %}
     <span>Original link unavailable</span>
     {% endif %}
-    {% if let Some(comments_url) = comments_url %}<a href="{{ comments_url }}" target="_blank" rel="noopener noreferrer">Open comments</a>{% endif %}
+    {% if let Some(comments_url) = comments_url %}<a href="{{ comments_url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">Open comments</a>{% endif %}
   </div>
   {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
   {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
+  {% if let Some(count) = blocked_tracking_pixels %}<p class="content-notice privacy-notice">Tracking images removed by RustSS: {{ count }}.</p>{% endif %}
   <div class="actions" aria-label="Article actions">
     <form method="post" class="js-action" data-action="bookmark-toggle"
           action="/articles/{{ id }}/{% if is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
           data-target="#article-{{ id }}" data-toggle-class="bookmarked"
           data-alt-action="/articles/{{ id }}/{% if is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
-          data-alt-label="{% if is_bookmarked %}Save{% else %}Saved{% endif %}"
+          data-alt-label="{% if is_bookmarked %}{{ ui.text("save") }}{% else %}{{ ui.text("saved") }}{% endif %}"
           data-success-message="Saved state updated.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit">{% if is_bookmarked %}Saved{% else %}Save{% endif %}</button>
+      <button type="submit">{% if is_bookmarked %}{{ ui.text("saved") }}{% else %}{{ ui.text("save") }}{% endif %}</button>
     </form>
     <form method="post" class="js-action" data-action="read-toggle"
           action="/articles/{{ id }}/{% if is_read %}unread{% else %}read{% endif %}"
           data-target="#article-{{ id }}" data-toggle-class="read"
           data-alt-action="/articles/{{ id }}/{% if is_read %}read{% else %}unread{% endif %}"
-          data-alt-label="{% if is_read %}Mark read{% else %}Mark unread{% endif %}"
+          data-alt-label="{% if is_read %}{{ ui.text("mark_read") }}{% else %}{{ ui.text("mark_unread") }}{% endif %}"
           data-success-message="Reading status updated.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit">{% if is_read %}Mark unread{% else %}Mark read{% endif %}</button>
+      <button type="submit">{% if is_read %}{{ ui.text("mark_unread") }}{% else %}{{ ui.text("mark_read") }}{% endif %}</button>
     </form>
     <form method="post" class="js-action" action="/articles/{{ id }}/feedback"
           data-target="#article-{{ id }}" data-feedback-value="up" data-success-message="RustSS will show you more articles like this.">
@@ -53,7 +55,10 @@
       <input type="hidden" name="next" value="/articles/{{ id }}" />
       <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">👎</button>
     </form>
+    <a class="btn" href="/articles/{{ id }}/send">{{ ui.text("send_to") }}</a>
   </div>
+
+  {% include "article_share_controls.html" %}
 
   <div data-reader-view-content>
     {% if let Some(text) = summary %}
@@ -68,28 +73,39 @@
       {% endif %}
     </div>
     {% else if can_summarize %}
-    <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-success-message="AI summary queued. Refresh this article shortly.">
+    <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-summary-status-url="/articles/{{ id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" class="primary">Generate AI summary</button>
-      <span class="muted">The summary is prepared in the background.</span>
+      <button type="submit" class="primary">{{ ui.text("generate_summary") }}</button>
+      <span class="muted" data-summary-progress role="status">Uses the priority queue and updates here live.</span>
     </form>
     {% endif %}
 
-    <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}">
+    {% include "article_youtube.html" %}
+    {% include "article_enclosures.html" %}
+
+    <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}"{% if content_pending %} data-content-pending="true" data-content-url="/articles/{{ id }}/content"{% endif %}>
       {{ content|safe }}
     </div>
   </div>
 
   {% if let Some(url) = url %}
+  {% if let Some(live_url) = live_view_url %}
   <section class="live-view" id="live-view-{{ id }}" data-live-view aria-label="Live publisher view" hidden>
     <div class="live-view-toolbar">
-      <p id="live-view-note-{{ id }}"><strong>Live view</strong> is a restricted publisher preview. Some publishers prohibit embedded pages; Open original is the reliable view.</p>
-      <a href="{{ url }}" target="_blank" rel="noopener noreferrer">Open original</a>
+      <div>
+        <strong>Live publisher view</strong>
+        <p id="live-view-note-{{ id }}">Fetched through RustSS so publisher frame restrictions do not block the page. Scripts run without RustSS cookies in an isolated sandbox.</p>
+      </div>
+      <div class="live-view-actions">
+        <a href="{{ url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ url_label }}</a>
+        <button type="button" class="button-quiet" data-live-view-close>{{ ui.text("reader_view") }}</button>
+      </div>
     </div>
-    <p class="live-view-fallback" data-live-view-fallback role="alert" hidden></p>
-    <iframe class="live-view-frame" data-live-view-frame data-live-src="{{ url }}" title="Live publisher view: {{ title }}" sandbox="allow-scripts" referrerpolicy="no-referrer" credentialless loading="lazy" aria-describedby="live-view-note-{{ id }}"></iframe>
+    <div class="live-view-status" data-live-view-status role="status">Loading the current publisher page…</div>
+    <iframe class="live-view-frame" data-live-view-frame data-live-ticket-url="{{ live_url }}" title="Live publisher view: {{ title }}" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads" referrerpolicy="no-referrer" credentialless loading="lazy" aria-describedby="live-view-note-{{ id }}"></iframe>
   </section>
+  {% endif %}
   {% endif %}
 </article>
 {% endblock %}

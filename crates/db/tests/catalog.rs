@@ -1,3 +1,4 @@
+use rustss_core::feed_content::ContentLifetime;
 use rustss_db::models::NewArticle;
 use rustss_db::{articles, catalog, feeds, subscriptions, users, Db};
 use time::{Duration, OffsetDateTime};
@@ -69,7 +70,14 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
     let starters = catalog::list_published_for_user(pool, user.id, None, None, None)
         .await
         .unwrap();
-    assert!(starters.len() >= 97);
+    assert!(starters.len() >= 200);
+    let verified_seed_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM feed_catalog_entries WHERE sort_order BETWEEN 980 AND 2000",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(verified_seed_count, 103);
     assert!(starters.iter().any(|entry| entry.title == "Go Blog"));
     assert!(starters
         .iter()
@@ -83,6 +91,16 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
         ("Hungary", "hu", "Telex — Legfrissebb"),
         ("Poland", "pl", "OKO.press"),
         ("Russia", "ru", "Meduza"),
+        ("Brazil", "pt", "Folha de S.Paulo (Em Cima da Hora)"),
+        ("South Africa", "en", "Daily Maverick"),
+        ("Poland", "pl", "Newsweek Polska"),
+        ("Hungary", "en", "Daily News Hungary (English)"),
+        ("Ireland", "en", "TheJournal.ie"),
+        ("Global", "en", "Hugging Face Blog"),
+        ("Global", "en", "ScienceDaily"),
+        ("Global", "en", "xkcd"),
+        ("Global", "en", "Financial Times"),
+        ("Global", "en", "Coursera Blog"),
     ] {
         assert!(
             starters.iter().any(|entry| {
@@ -108,6 +126,7 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
                 content: (*body).to_string(),
                 excerpt: None,
                 image_url: None,
+                enclosures: Vec::new(),
                 published_at: Some(base + Duration::hours(24 * index as i64)),
             },
         )
@@ -121,6 +140,7 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
         created[0].content_revision,
         "This deliberately much longer public page body must not affect RSS statistics.",
         None,
+        ContentLifetime::Days(30),
     )
     .await
     .unwrap();
@@ -230,6 +250,7 @@ async fn content_probe_uses_only_current_three_rss_bodies() {
                 content: (*body).to_string(),
                 excerpt: None,
                 image_url: None,
+                enclosures: Vec::new(),
                 published_at: Some(base + Duration::hours(index as i64)),
             },
         )
@@ -243,6 +264,7 @@ async fn content_probe_uses_only_current_three_rss_bodies() {
         created[3].content_revision,
         "A long stored public-page body must not become an RSS probe measurement.",
         None,
+        ContentLifetime::Days(30),
     )
     .await
     .unwrap();
@@ -314,6 +336,7 @@ async fn content_probe_uses_only_current_three_rss_bodies() {
             content: "brand-new RSS body".to_string(),
             excerpt: None,
             image_url: None,
+            enclosures: Vec::new(),
             published_at: Some(base + Duration::hours(10)),
         },
     )

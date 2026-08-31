@@ -8,8 +8,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rustss_core::feed_content::FeedContentSettings;
-use rustss_db::{articles, feeds};
+use rustss_core::{
+    content_rules::apply_rewrite_rules,
+    feed_content::FeedContentSettings,
+    html::{sanitize_article_html_with_policies, ARTICLE_PAGE_PROCESSING_VERSION},
+};
+use rustss_db::{articles, feeds, subscriptions};
 use rustss_extract::{ExtractOutcome, ExtractionService};
 
 use crate::{Agent, AgentContext};
@@ -51,6 +55,11 @@ async fn store_failure(
             crate::worker::enqueue_embed(&ctx.db, article_id, revision).await?;
         }
     }
+    if ctx.auto_summarize {
+        if let Some(revision) = revision {
+            crate::worker::enqueue_summary(&ctx.db, article_id, revision).await?;
+        }
+    }
     Ok(json!({ "status": "failed", "failure_class": failure_class }))
 }
 
@@ -74,38 +83,59 @@ impl Agent for ExtractContentAgent {
         if article.content_revision != content_revision {
             return Ok(json!({ "skipped": "stale content revision" }));
         }
-        // Once per shared article.
-        if article.extraction_status != "none" {
-            return Ok(json!({ "skipped": "already processed" }));
-        }
-
         let Some(feed) = feeds::find_by_id(pool, article.feed_id).await? else {
             return Ok(json!({ "skipped": "feed gone" }));
         };
-        let content_settings = FeedContentSettings::from_json(feed.extraction_settings.as_ref());
-        if !content_settings.mode.fetches_article_pages() {
-            return Ok(json!({ "skipped": "feed uses RSS content" }));
+        let Some(lifetime) =
+            subscriptions::requested_article_page_lifetime(pool, article.feed_id).await?
+        else {
+            return Ok(json!({ "skipped": "no subscriber requests public-page content" }));
+        };
+        let page_is_current = article.article_page_content.is_some()
+            && article.article_page_processing_version >= ARTICLE_PAGE_PROCESSING_VERSION
+            && article
+                .article_page_expires_at
+                .is_none_or(|expires_at| expires_at > time::OffsetDateTime::now_utc());
+        if page_is_current {
+            return Ok(json!({ "skipped": "public-page content is current" }));
         }
+        let content_settings = FeedContentSettings::from_json(feed.extraction_settings.as_ref());
+        let canonical_url = ctx.tracking_url_policy.clean(&article.url);
+        let acquisition_fetch = ctx.fetch_for_feed(article.feed_id).await?;
 
         match self
             .service
-            .extract(
+            .extract_with_tracking_policy(
                 &ctx.db,
-                &ctx.fetch,
-                &article.url,
+                &acquisition_fetch,
+                &canonical_url,
                 content_settings.selector.as_deref(),
                 feed.respect_robots_txt,
                 feed.extraction_delay_ms.map(|delay| delay.max(0) as u64),
+                &ctx.tracking_pixel_policy,
             )
             .await
         {
             ExtractOutcome::Extracted(e) => {
-                let updated = articles::set_extracted_content(
+                let rewritten = apply_rewrite_rules(&e.content, &content_settings.rewrite_rules)
+                    .map_err(|error| anyhow::anyhow!("content rewrite failed: {error}"))?;
+                let report = sanitize_article_html_with_policies(
+                    &rewritten,
+                    &canonical_url,
+                    &ctx.tracking_url_policy,
+                    &ctx.tracking_pixel_policy,
+                );
+                let blocked_tracking_pixels = e
+                    .blocked_tracking_pixels
+                    .saturating_add(report.blocked_tracking_pixels);
+                let updated = articles::set_extracted_content_with_privacy(
                     pool,
                     article_id,
                     content_revision,
-                    &e.content,
+                    &report.html,
                     e.excerpt.as_deref(),
+                    lifetime,
+                    blocked_tracking_pixels,
                 )
                 .await?;
                 let Some(content_revision) = updated else {
@@ -114,6 +144,9 @@ impl Agent for ExtractContentAgent {
                 // Embed using the freshly-extracted content.
                 if ctx.embed_on_ingest {
                     crate::worker::enqueue_embed(&ctx.db, article_id, content_revision).await?;
+                }
+                if ctx.auto_summarize {
+                    crate::worker::enqueue_summary(&ctx.db, article_id, content_revision).await?;
                 }
                 Ok(json!({ "status": "success", "extractor": e.extractor }))
             }

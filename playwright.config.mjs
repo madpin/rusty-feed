@@ -7,6 +7,7 @@ const redisURL = process.env.PLAYWRIGHT_REDIS_URL || process.env.TEST_REDIS_URL 
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",

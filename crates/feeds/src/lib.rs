@@ -5,20 +5,33 @@
 //! synchronous refresh that upserts articles once per shared feed
 //! (`docs/ARCHITECTURE.md` §11.1, §12). Background scheduling is M7.
 
+mod discovery;
 pub mod error;
 mod icons;
 mod normalize;
+pub mod opml;
 mod parse;
 pub mod safe_fetch;
 
+pub use discovery::{discover_feed_urls, DiscoveredFeed};
 pub use error::{FeedError, Result};
 pub use normalize::normalize_url;
-pub use parse::{parse_feed, ParsedFeed};
-pub use safe_fetch::{ensure_http_scheme, is_global_ip, SafeFetchClient};
+pub use opml::{
+    export_opml, parse_opml, OpmlDocument, OpmlError, OpmlExportEntry, OpmlSubscription,
+};
+pub use parse::{
+    parse_feed, parse_feed_with_policies, parse_feed_with_policies_and_rules,
+    parse_feed_with_policy, ParsedFeed,
+};
+pub use safe_fetch::{
+    ensure_http_scheme, is_global_ip, AcquisitionPolicy, SafeFetchClient, SafeFetchOptions,
+    DEFAULT_USER_AGENT,
+};
 
 use futures_util::StreamExt;
 use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 
+use rustss_core::{tracking_pixel::TrackingPixelPolicy, tracking_url::TrackingUrlPolicy};
 use rustss_db::{jobs, Db, Feed};
 use uuid::Uuid;
 
@@ -59,9 +72,7 @@ pub async fn fetch_feed(
     etag: Option<&str>,
     last_modified: Option<&str>,
 ) -> Result<FetchOutcome> {
-    client.validate_url(url)?;
-
-    let mut req = client.client().get(url);
+    let mut req = client.get(url).await?;
     if let Some(e) = etag {
         req = req.header(IF_NONE_MATCH, e);
     }
@@ -129,17 +140,47 @@ async fn read_capped(resp: reqwest::Response, max: usize) -> Result<Vec<u8>> {
 }
 
 /// Stats from a single feed refresh.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct RefreshStats {
     pub not_modified: bool,
     pub created: u64,
     pub updated: u64,
     pub skipped: u64,
+    /// Shared article identifiers first inserted by this refresh.
+    pub created_article_ids: Vec<uuid::Uuid>,
 }
 
 /// Refresh one shared feed: conditional fetch → parse → upsert articles → update
 /// the feed's health/validators. Runs once per feed regardless of subscribers.
 pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Result<RefreshStats> {
+    refresh_feed_with_policy(db, client, feed, &TrackingUrlPolicy::default()).await
+}
+
+/// Refresh one shared feed using the immutable instance URL privacy policy.
+pub async fn refresh_feed_with_policy(
+    db: &Db,
+    client: &SafeFetchClient,
+    feed: &Feed,
+    tracking_url_policy: &TrackingUrlPolicy,
+) -> Result<RefreshStats> {
+    refresh_feed_with_policies(
+        db,
+        client,
+        feed,
+        tracking_url_policy,
+        &TrackingPixelPolicy::default(),
+    )
+    .await
+}
+
+/// Refresh one shared feed using immutable URL and tracking-image policies.
+pub async fn refresh_feed_with_policies(
+    db: &Db,
+    client: &SafeFetchClient,
+    feed: &Feed,
+    tracking_url_policy: &TrackingUrlPolicy,
+    tracking_pixel_policy: &TrackingPixelPolicy,
+) -> Result<RefreshStats> {
     let outcome = match fetch_feed(
         client,
         &feed.url,
@@ -186,7 +227,16 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
         });
     }
 
-    let parsed = match parse_feed(feed.id, &outcome.body) {
+    let content_settings = rustss_core::feed_content::FeedContentSettings::from_json(
+        feed.extraction_settings.as_ref(),
+    );
+    let parsed = match parse_feed_with_policies_and_rules(
+        feed.id,
+        &outcome.body,
+        tracking_url_policy,
+        tracking_pixel_policy,
+        &content_settings.rewrite_rules,
+    ) {
         Ok(parsed) => parsed,
         Err(error) => {
             let _ = rustss_db::feeds::record_fetch_failure(
@@ -222,9 +272,19 @@ pub async fn refresh_feed(db: &Db, client: &SafeFetchClient, feed: &Feed) -> Res
             )
         });
     let mut stats = RefreshStats::default();
-    for article in &parsed.articles {
-        match rustss_db::articles::upsert(db.pool(), article).await {
-            Ok((_, rustss_db::UpsertAction::Created)) => stats.created += 1,
+    for (article_index, article) in parsed.articles.iter().enumerate() {
+        match rustss_db::articles::upsert_with_original_url_and_privacy(
+            db.pool(),
+            article,
+            parsed.original_url_for(article),
+            parsed.blocked_tracking_pixels_for(article_index),
+        )
+        .await
+        {
+            Ok((stored, rustss_db::UpsertAction::Created)) => {
+                stats.created += 1;
+                stats.created_article_ids.push(stored.id);
+            }
             Ok((_, rustss_db::UpsertAction::Updated)) => stats.updated += 1,
             Ok((_, rustss_db::UpsertAction::Skipped)) => stats.skipped += 1,
             Err(e) => tracing::warn!(feed_id = %feed.id, error = %e, "article upsert failed"),

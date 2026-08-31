@@ -9,6 +9,7 @@
 {% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
 <form method="post" action="/register">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <input type="hidden" name="invite_token" value="{{ invite_token }}" />
   <label>Name (optional)
     <input type="text" name="name" autocomplete="name" />
   </label>

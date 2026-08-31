@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS core: domain types, config, errors, and port traits (no I/O)."
+description = "RustSS core: domain types, config, errors, and shared policies (no I/O)."
 
 [features]
 # Enabled by binaries only, so domain crates stay lean (no subscriber/exporter).
@@ -16,6 +16,12 @@ telemetry = ["dep:tracing-subscriber", "dep:metrics", "dep:metrics-exporter-prom
 serde = { workspace = true }
 serde_json = { workspace = true }
 ammonia = { workspace = true }
+html-escape = { workspace = true }
+htmd = { workspace = true }
+pulldown-cmark = { workspace = true }
+lol_html = { workspace = true }
+url = { workspace = true }
+ipnet = { workspace = true }
 thiserror = { workspace = true }
 figment = { workspace = true }
 dotenvy = { workspace = true }
@@ -24,7 +30,10 @@ chacha20poly1305 = { workspace = true }
 hkdf = { workspace = true }
 base64 = { workspace = true }
 rand = { workspace = true }
+regex = { workspace = true }
 tracing = { workspace = true }
+time = { workspace = true }
+time-tz = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
 metrics-exporter-prometheus = { workspace = true, optional = true }

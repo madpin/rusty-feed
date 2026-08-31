@@ -3,11 +3,13 @@
 //! One embedding space per instance (M9). An [`Embedder`] turns article text
 //! into a fixed-`EMBEDDING_DIM` vector. Providers:
 //! - **OpenAI-compatible** (`text-embedding-3-*` with `dimensions=384`), real.
-//! - **Local** — currently a deterministic hashing embedder placeholder; the
-//!   real on-device model (fastembed/BGE) is a follow-up (FND-121). Because the
-//!   stored `model` differs, switching providers never mixes spaces (FND-002).
+//! - **Local** — BAAI BGE-small-en-v1.5 through `fastembed`/ONNX, downloaded
+//!   once into the configured persistent cache and then usable offline.
+//! - **Hash fallback** — available only when explicitly selecting the legacy
+//!   `hash-placeholder-v1` model; it is never mixed with semantic vectors.
 
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -47,28 +49,130 @@ pub struct EmbedConfig {
     pub model: String,
     pub openai_api_key: Option<String>,
     pub openai_base_url: Option<String>,
+    pub model_cache_dir: PathBuf,
+}
+
+/// Normalize supported aliases before the durable space guard sees them. This
+/// prevents a harmless spelling change from looking like a model migration.
+pub fn canonical_model(provider: EmbeddingProvider, model: &str) -> anyhow::Result<String> {
+    let model = model.trim();
+    match provider {
+        EmbeddingProvider::Local => match model {
+            "BAAI/bge-small-en-v1.5" | "bge-small-en-v1.5" | "local-bge-small-en-v1.5" => {
+                Ok("BAAI/bge-small-en-v1.5".to_string())
+            }
+            "hash-placeholder-v1" => Ok(model.to_string()),
+            _ => anyhow::bail!(
+                "unsupported local embedding model `{model}`; use BAAI/bge-small-en-v1.5"
+            ),
+        },
+        EmbeddingProvider::Openai if model.is_empty() => {
+            anyhow::bail!("EMBEDDING_MODEL must not be empty")
+        }
+        EmbeddingProvider::Openai => Ok(model.to_string()),
+    }
 }
 
 /// Build the configured embedder.
 pub fn build_embedder(config: EmbedConfig) -> anyhow::Result<Arc<dyn Embedder>> {
+    let model = canonical_model(config.provider, &config.model)?;
     match config.provider {
         EmbeddingProvider::Openai => {
             let key = config.openai_api_key.ok_or_else(|| {
                 anyhow::anyhow!("OPENAI_API_KEY required for the openai provider")
             })?;
             Ok(Arc::new(OpenAiEmbedder::new(
-                config.model,
+                model,
                 key,
                 config.openai_base_url,
             )))
         }
-        EmbeddingProvider::Local => {
+        EmbeddingProvider::Local if model == "hash-placeholder-v1" => {
             tracing::warn!(
-                "embedding provider 'local' uses the placeholder hashing embedder; \
-                 the on-device model (fastembed) is pending (FND-121)"
+                "legacy hash embedding model explicitly selected; semantic search is lexical"
             );
             Ok(Arc::new(HashEmbedder::default()))
         }
+        EmbeddingProvider::Local => {
+            Ok(Arc::new(LocalEmbedder::new(model, config.model_cache_dir)?))
+        }
+    }
+}
+
+/// Production on-device BGE embedder. Model initialization is lazy so the web
+/// process can still serve RSS reading while a first download is unavailable;
+/// `rustss-cli fetch-model` performs the download deliberately for offline
+/// deployments.
+pub struct LocalEmbedder {
+    model: String,
+    cache_dir: PathBuf,
+    inner: Arc<Mutex<Option<fastembed::TextEmbedding>>>,
+}
+
+impl LocalEmbedder {
+    pub fn new(model: String, cache_dir: PathBuf) -> anyhow::Result<Self> {
+        if model != "BAAI/bge-small-en-v1.5" {
+            anyhow::bail!(
+                "unsupported local embedding model `{model}`; use BAAI/bge-small-en-v1.5"
+            );
+        }
+        Ok(Self {
+            model,
+            cache_dir,
+            inner: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    fn initialize(cache_dir: PathBuf) -> anyhow::Result<fastembed::TextEmbedding> {
+        std::fs::create_dir_all(&cache_dir).map_err(|error| {
+            anyhow::anyhow!("cannot create model cache {}: {error}", cache_dir.display())
+        })?;
+        let options = fastembed::TextInitOptions::new(fastembed::EmbeddingModel::BGESmallENV15)
+            .with_cache_dir(cache_dir)
+            .with_show_download_progress(false);
+        fastembed::TextEmbedding::try_new(options).map_err(|error| {
+            anyhow::anyhow!(
+                "BGE model is unavailable: {error}. Run `rustss-cli fetch-model` while online or seed MODEL_CACHE_DIR"
+            )
+        })
+    }
+}
+
+#[async_trait]
+impl Embedder for LocalEmbedder {
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    fn dimensions(&self) -> usize {
+        EMBEDDING_DIM
+    }
+
+    async fn embed(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let inner = Arc::clone(&self.inner);
+        let cache_dir = self.cache_dir.clone();
+        let documents = texts.to_vec();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = inner
+                .lock()
+                .map_err(|_| anyhow::anyhow!("local embedding model lock was poisoned"))?;
+            if guard.is_none() {
+                *guard = Some(Self::initialize(cache_dir)?);
+            }
+            let model = guard
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("local embedding model failed to initialize"))?;
+            let vectors = model.embed(documents, None)?;
+            if vectors.iter().any(|vector| vector.len() != EMBEDDING_DIM) {
+                anyhow::bail!("local embedding model returned an unexpected vector dimension");
+            }
+            Ok(vectors)
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("local embedding task failed: {error}"))?
     }
 }
 
@@ -256,5 +360,20 @@ mod tests {
             api_url("https://api.openai.com/v1/", "embeddings"),
             "https://api.openai.com/v1/embeddings"
         );
+    }
+
+    #[test]
+    fn local_model_aliases_share_one_durable_space_name() {
+        for alias in [
+            "BAAI/bge-small-en-v1.5",
+            "bge-small-en-v1.5",
+            "local-bge-small-en-v1.5",
+        ] {
+            assert_eq!(
+                canonical_model(EmbeddingProvider::Local, alias).unwrap(),
+                "BAAI/bge-small-en-v1.5"
+            );
+        }
+        assert!(canonical_model(EmbeddingProvider::Local, "unknown").is_err());
     }
 }

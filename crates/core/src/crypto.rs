@@ -28,6 +28,8 @@ pub enum CryptoError {
     Version(u8),
     #[error("decryption failed (wrong key or tampered data)")]
     Decrypt,
+    #[error("encryption failed")]
+    Encrypt,
 }
 
 /// Encrypts/decrypts secrets with a key derived from the instance secret.
@@ -39,17 +41,27 @@ pub struct Cryptor {
 impl Cryptor {
     /// Derive the encryption key from the raw `ENCRYPTION_SECRET`.
     pub fn new(encryption_secret: &[u8]) -> Self {
+        Self::new_with_context(encryption_secret, HKDF_INFO)
+    }
+
+    /// Derive a key isolated to one credential class.
+    ///
+    /// Callers storing a new kind of bearer credential should use a stable,
+    /// application-owned context rather than sharing another secret class's
+    /// derived key.
+    pub fn new_with_context(encryption_secret: &[u8], context: &[u8]) -> Self {
         let hk = Hkdf::<Sha256>::new(None, encryption_secret);
         let mut key = [0u8; 32];
-        hk.expand(HKDF_INFO, &mut key)
-            .expect("HKDF expand into 32 bytes is valid");
+        let Ok(()) = hk.expand(context, &mut key) else {
+            unreachable!("HKDF always supports a fixed 32-byte output")
+        };
         Self {
             cipher: XChaCha20Poly1305::new((&key).into()),
         }
     }
 
     /// Encrypt bytes → `base64(version ‖ nonce ‖ ciphertext)`.
-    pub fn encrypt(&self, plaintext: &[u8]) -> String {
+    pub fn encrypt(&self, plaintext: &[u8]) -> Result<String, CryptoError> {
         let mut nonce = [0u8; NONCE_LEN];
         rand::rngs::OsRng.fill_bytes(&mut nonce);
         let aad = [KEY_VERSION];
@@ -62,17 +74,17 @@ impl Cryptor {
                     aad: &aad,
                 },
             )
-            .expect("XChaCha20-Poly1305 encryption does not fail");
+            .map_err(|_| CryptoError::Encrypt)?;
 
         let mut envelope = Vec::with_capacity(1 + NONCE_LEN + ciphertext.len());
         envelope.push(KEY_VERSION);
         envelope.extend_from_slice(&nonce);
         envelope.extend_from_slice(&ciphertext);
-        BASE64.encode(envelope)
+        Ok(BASE64.encode(envelope))
     }
 
     /// Encrypt a UTF-8 string.
-    pub fn encrypt_str(&self, plaintext: &str) -> String {
+    pub fn encrypt_str(&self, plaintext: &str) -> Result<String, CryptoError> {
         self.encrypt(plaintext.as_bytes())
     }
 
@@ -114,7 +126,7 @@ mod tests {
     #[test]
     fn round_trips() {
         let c = Cryptor::new(b"super-secret-master-key-material");
-        let enc = c.encrypt_str("sk-my-api-key");
+        let enc = c.encrypt_str("sk-my-api-key").unwrap();
         assert_ne!(enc, "sk-my-api-key");
         assert_eq!(c.decrypt_str(&enc).unwrap(), "sk-my-api-key");
     }
@@ -122,13 +134,16 @@ mod tests {
     #[test]
     fn nonce_makes_ciphertexts_differ() {
         let c = Cryptor::new(b"master");
-        assert_ne!(c.encrypt_str("same"), c.encrypt_str("same"));
+        assert_ne!(
+            c.encrypt_str("same").unwrap(),
+            c.encrypt_str("same").unwrap()
+        );
     }
 
     #[test]
     fn tampering_is_detected() {
         let c = Cryptor::new(b"master");
-        let enc = c.encrypt_str("secret");
+        let enc = c.encrypt_str("secret").unwrap();
         let mut raw = BASE64.decode(&enc).unwrap();
         let last = raw.len() - 1;
         raw[last] ^= 0x01; // flip a ciphertext bit
@@ -140,8 +155,17 @@ mod tests {
     fn wrong_key_fails() {
         let a = Cryptor::new(b"key-a");
         let b = Cryptor::new(b"key-b");
-        let enc = a.encrypt_str("secret");
+        let enc = a.encrypt_str("secret").unwrap();
         assert!(b.decrypt(&enc).is_err());
+    }
+
+    #[test]
+    fn contexts_isolate_credential_classes() {
+        let secret = b"one-instance-master-secret";
+        let api_keys = Cryptor::new_with_context(secret, b"rustss/api-keys/v1");
+        let share_tokens = Cryptor::new_with_context(secret, b"rustss/share-tokens/v1");
+        let encrypted = api_keys.encrypt_str("credential").unwrap();
+        assert!(share_tokens.decrypt_str(&encrypted).is_err());
     }
 
     #[test]

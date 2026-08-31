@@ -11,12 +11,16 @@ use anyhow::Context;
 use rustss_cache::{Cache, CacheConfig};
 use rustss_core::AppConfig;
 use rustss_db::Db;
-use rustss_web::{AppSettings, AppState, OAuthProvider, ProviderKind};
+use rustss_web::{AppSettings, AppState, OAuthProvider, ProviderKind, ReverseProxyAuthSettings};
+
+#[path = "../../systemd.rs"]
+mod systemd;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Fail fast on bad config (before we have logging).
     let config = AppConfig::load().context("failed to load configuration")?;
+    let systemd = systemd::Notifier::detect(config.systemd_notify_enabled);
 
     rustss_core::telemetry::init_tracing(&config.log_level);
     let metrics = rustss_core::telemetry::install_metrics();
@@ -32,6 +36,16 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to connect to the database")?;
     db.migrate().await.context("failed to apply migrations")?;
+    let embedding_model =
+        rustss_embed::canonical_model(config.embedding_provider, &config.embedding_model)
+            .context("invalid embedding model")?;
+    rustss_db::embedding_space::ensure(
+        db.pool(),
+        &embedding_model,
+        rustss_embed::EMBEDDING_DIM as i32,
+    )
+    .await
+    .context("embedding-space configuration is incompatible")?;
 
     // Best-effort cache (degrades to L1-only if Redis is unavailable).
     let cache = Cache::new(CacheConfig {
@@ -42,10 +56,17 @@ async fn main() -> anyhow::Result<()> {
             .as_ref()
             .map(|s| s.expose().to_string()),
         l1_max_capacity: 10_000,
+        namespace: config.cache_namespace.clone(),
     })
     .await;
 
     let base_url = config.base_url();
+    let tracking_url_policy = config
+        .tracking_url_policy()
+        .map_err(|error| anyhow::anyhow!("invalid tracking URL policy: {error}"))?;
+    let tracking_pixel_policy = config
+        .tracking_pixel_policy()
+        .map_err(|error| anyhow::anyhow!("invalid tracking pixel policy: {error}"))?;
     let oauth_providers = build_oauth_providers(&config);
     if !oauth_providers.is_empty() {
         let names: Vec<&str> = oauth_providers.iter().map(|p| p.slug.as_str()).collect();
@@ -54,12 +75,13 @@ async fn main() -> anyhow::Result<()> {
     // One embedding model per instance, shared by the search path and worker.
     let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
         provider: config.embedding_provider,
-        model: config.embedding_model.clone(),
+        model: embedding_model,
         openai_api_key: config
             .openai_api_key
             .as_ref()
             .map(|s| s.expose().to_string()),
         openai_base_url: config.openai_base_url.clone(),
+        model_cache_dir: config.model_cache_dir.clone(),
     })
     .context("failed to build embedder")?;
 
@@ -74,43 +96,137 @@ async fn main() -> anyhow::Result<()> {
         openai_base_url: config.openai_base_url.clone(),
         ollama_base_url: config.ollama_base_url.clone(),
     });
+    let llm_cascade = std::sync::Arc::new(rustss_llm::ProviderCascade::new(
+        db.clone(),
+        config.encryption_secret.expose().as_bytes(),
+        llm.clone(),
+    ));
 
     let settings = AppSettings {
         registration_mode: config.registration_mode,
+        reverse_proxy_auth: ReverseProxyAuthSettings {
+            enabled: config.reverse_proxy_auth_enabled,
+            trusted_cidrs: comma_values(&config.reverse_proxy_auth_trusted_cidrs)
+                .map(str::parse)
+                .collect::<Result<Vec<_>, _>>()
+                .context("invalid reverse-proxy trusted CIDR")?,
+            user_header: config.reverse_proxy_auth_user_header.clone(),
+            name_header: config.reverse_proxy_auth_name_header.clone(),
+            auto_provision: config.reverse_proxy_auth_auto_provision,
+            allowed_domains: comma_values(&config.reverse_proxy_auth_allowed_domains)
+                .map(|value| value.to_ascii_lowercase())
+                .collect(),
+            admin_emails: comma_values(&config.reverse_proxy_auth_admin_emails)
+                .map(|value| value.to_ascii_lowercase())
+                .collect(),
+            logout_url: config.reverse_proxy_auth_logout_url.clone(),
+        },
         cookie_secure: base_url.starts_with("https://"),
         base_url,
+        pwa_name: config.pwa_name.clone(),
+        pwa_short_name: config.pwa_short_name.clone(),
+        pwa_theme_color: config.pwa_theme_color.clone(),
+        pwa_background_color: config.pwa_background_color.clone(),
+        external_links_new_tab_required: config.external_links_new_tab_required,
+        public_article_sharing_enabled: config.public_article_sharing_enabled,
+        public_share_default_lifetime_days: config.public_share_default_lifetime_days,
+        public_share_max_lifetime_days: config.public_share_max_lifetime_days,
+        public_share_allow_infinite: config.public_share_allow_infinite,
+        api_enabled: config.api_enabled,
+        greader_api_enabled: config.greader_api_enabled,
+        fever_api_enabled: config.fever_api_enabled,
+        custom_css_enabled: config.custom_css_enabled,
+        custom_javascript_enabled: config.custom_javascript_enabled,
+        ui_customization_max_bytes: config.ui_customization_max_bytes,
+        passkeys_enabled: config.passkeys_enabled,
+        passkey_rp_name: config.passkey_rp_name.clone(),
         oauth_providers,
-        summarization_enabled: llm.is_some(),
+        // The managed-provider screen can enable summarization without a restart.
+        summarization_enabled: true,
         auto_embed: config.embedding_auto_generate,
+        search_mode: config.search_mode,
+        search_text_config: config.search_text_config,
+        search_semantic_weight_percent: config.search_semantic_weight_percent,
+        media_proxy_enabled: config.media_proxy_enabled,
+        media_proxy_max_bytes: config.media_proxy_max_bytes,
+        media_proxy_cache_budget_bytes: config.media_proxy_cache_budget_bytes,
+        media_proxy_cache_ttl: std::time::Duration::from_secs(config.media_proxy_cache_ttl_seconds),
+        media_proxy_negative_ttl: std::time::Duration::from_secs(
+            config.media_proxy_negative_ttl_seconds,
+        ),
+        media_proxy_extra_inline_mime_types: config.media_proxy_extra_inline_mime_types(),
+        tracking_url_policy: tracking_url_policy.clone(),
+        tracking_pixel_policy: tracking_pixel_policy.clone(),
+        youtube_policy: config
+            .youtube_policy()
+            .map_err(|error| anyhow::anyhow!("invalid YouTube player policy: {error}"))?,
+        youtube_duration_enabled: config.youtube_duration_enabled,
+        youtube_duration_cache_days: config.youtube_duration_cache_days,
+        outbound_user_agent: config.outbound_user_agent.clone(),
+        outbound_http1_only: config.outbound_http1_only,
     };
 
     // SSRF-safe fetch client (opt into private/loopback for trusted intranet
     // feeds or local testing).
-    let fetch = if config.feeds_allow_private_network {
+    if config.feeds_allow_private_network {
         tracing::warn!("FEEDS_ALLOW_PRIVATE_NETWORK is on — feeds may reach private addresses");
-        rustss_feeds::SafeFetchClient::new_allow_private(std::time::Duration::from_secs(30))
-    } else {
-        rustss_feeds::SafeFetchClient::new(std::time::Duration::from_secs(30))
     }
+    let fetch = rustss_feeds::SafeFetchClient::with_options(rustss_feeds::SafeFetchOptions {
+        timeout: std::time::Duration::from_millis(config.extraction_timeout_ms),
+        allow_private: config.feeds_allow_private_network,
+        user_agent: config.outbound_user_agent.clone(),
+        http1_only: config.outbound_http1_only,
+    })
     .context("failed to build HTTP client")?;
 
     let state = AppState::new(db, cache, settings, move || metrics.render())
         .with_embedder(embedder.clone())
+        .with_live_view_secret(config.session_secret.expose().as_bytes())
+        .with_public_share_secret(config.encryption_secret.expose().as_bytes())
+        .with_llm_secret(config.encryption_secret.expose().as_bytes())
+        .with_integration_secret(config.encryption_secret.expose().as_bytes())
+        .with_acquisition_secret(config.encryption_secret.expose().as_bytes())
         .with_fetch(fetch);
 
     // Embedded AGENTS worker (default): refreshes feeds in the background.
     // Disable with RUN_EMBEDDED_WORKER=false to run `rustss-worker` separately.
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let watchdog_handle = systemd.spawn_watchdog(shutdown_tx.subscribe());
     let worker_handle = if config.run_embedded_worker {
         let worker = rustss_agents::Worker::new(
             state.db.clone(),
             state.fetch.clone(),
             embedder,
             llm,
+            Some(llm_cascade),
             rustss_agents::WorkerConfig {
                 concurrency: config.feed_refresh_concurrency,
+                interactive_concurrency: config.interactive_job_concurrency,
                 scheduler_enabled: config.enable_cron_jobs,
+                feed_refresh_schedule: rustss_core::cron::CronSchedule::parse(
+                    &config.feed_refresh_schedule,
+                )
+                .map_err(|error| anyhow::anyhow!("invalid FEED_REFRESH_SCHEDULE: {error}"))?,
+                cleanup_schedule: rustss_core::cron::CronSchedule::parse(&config.cleanup_schedule)
+                    .map_err(|error| anyhow::anyhow!("invalid CLEANUP_SCHEDULE: {error}"))?,
+                extraction_config: extraction_config(&config),
                 embed_on_ingest: config.embedding_auto_generate,
+                auto_summarize: config.llm_auto_summarize,
+                tracking_url_policy,
+                tracking_pixel_policy,
+                article_retention_days: config.article_retention_days,
+                retention_age_basis: config.retention_age_basis,
+                integration_credentials: rustss_core::crypto::Cryptor::new_with_context(
+                    config.encryption_secret.expose().as_bytes(),
+                    b"rustss/integration-credentials/v1",
+                ),
+                acquisition_credentials: rustss_core::crypto::Cryptor::new_with_context(
+                    config.encryption_secret.expose().as_bytes(),
+                    b"rustss/acquisition-profile-secrets/v1",
+                ),
+                youtube_duration_enabled: config.youtube_duration_enabled,
+                youtube_duration_daily_budget: config.youtube_duration_daily_budget,
+                youtube_duration_cache_days: i64::from(config.youtube_duration_cache_days),
                 ..rustss_agents::WorkerConfig::default()
             },
         );
@@ -126,13 +242,16 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("failed to bind {addr}"))?;
+    systemd.ready("RustSS is ready to accept HTTP requests");
 
+    let shutdown_notifier = systemd;
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
+        shutdown_notifier.stopping("RustSS is draining HTTP and worker activity");
         let _ = shutdown_tx.send(true); // stop the embedded worker too
     })
     .await
@@ -141,8 +260,39 @@ async fn main() -> anyhow::Result<()> {
     if let Some(handle) = worker_handle {
         let _ = handle.await;
     }
+    if let Some(handle) = watchdog_handle {
+        let _ = handle.await;
+    }
     tracing::info!("shutdown complete");
     Ok(())
+}
+
+fn comma_values(value: &str) -> impl Iterator<Item = &str> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+}
+
+fn extraction_config(config: &AppConfig) -> rustss_extract::ExtractConfig {
+    let chromium = if config.chromium_enabled {
+        config
+            .chromium_cdp_url
+            .as_ref()
+            .map(|endpoint| rustss_extract::chromium::ChromiumConfig {
+                endpoint: endpoint.clone(),
+                max_concurrency: config.feed_refresh_concurrency.min(4),
+                render_wait: std::time::Duration::from_millis(750),
+                timeout: std::time::Duration::from_millis(config.extraction_timeout_ms),
+            })
+    } else {
+        None
+    };
+    rustss_extract::ExtractConfig {
+        base_delay: std::time::Duration::from_millis(config.extraction_delay_ms),
+        chromium,
+        ..rustss_extract::ExtractConfig::default()
+    }
 }
 
 /// Assemble the enabled OAuth providers from configuration.

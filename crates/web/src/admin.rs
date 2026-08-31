@@ -8,11 +8,14 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use rustss_core::feed_content::FeedContentSettings;
-use rustss_db::{agent_runs, articles, catalog, cost_ledger, feeds, jobs, users};
+use rustss_db::{
+    agent_runs, api_audit, articles, catalog, cost_ledger, feeds, invitations, jobs, operations,
+    public_shares, users,
+};
 use rustss_feeds::{enqueue_fetch_feed, normalize_url};
 
-use crate::auth::csrf;
 use crate::auth::extractor::AdminUser;
+use crate::auth::{csrf, token};
 use crate::catalog_view::{content_size, frequency};
 use crate::error::AppError;
 use crate::prefs;
@@ -45,10 +48,61 @@ struct FeedErrorRow {
 struct AgentRunRow {
     agent_name: String,
     status: String,
+    tone: String,
     started_at: String,
     duration: String,
     stats: String,
-    has_error: bool,
+    error: String,
+}
+
+struct QueueStats {
+    pending_due: i64,
+    pending_scheduled: i64,
+    running: i64,
+    stalled: i64,
+    finished_last_hour: i64,
+    dead: i64,
+    workers_online: usize,
+    worker_capacity: i64,
+    background_capacity: i64,
+    interactive_capacity: i64,
+    background_pending: i64,
+    background_running: i64,
+    interactive_pending: i64,
+    interactive_running: i64,
+}
+
+struct QueueKindRow {
+    lane: String,
+    kind: String,
+    pending_due: i64,
+    pending_scheduled: i64,
+    running: i64,
+    stalled: i64,
+    dead: i64,
+}
+
+struct QueueItemRow {
+    lane: String,
+    kind: String,
+    status: String,
+    tone: String,
+    attempts: String,
+    created_at: String,
+    run_at: String,
+    worker: String,
+    updated_at: String,
+    error: String,
+}
+
+struct WorkerRow {
+    id: String,
+    concurrency: i32,
+    background_concurrency: i32,
+    interactive_concurrency: i32,
+    scheduler: String,
+    started_at: String,
+    heartbeat_at: String,
 }
 
 struct DashboardStats {
@@ -56,7 +110,32 @@ struct DashboardStats {
     feeds: i64,
     articles: i64,
     catalog_entries: i64,
-    active_jobs: i64,
+    pending_jobs: i64,
+    running_jobs: i64,
+    stalled_jobs: i64,
+    dead_jobs: i64,
+    workers_online: usize,
+    worker_capacity: i64,
+    active_public_shares: i64,
+    database_size: String,
+    article_storage: String,
+    embedding_storage: String,
+    media_storage: String,
+}
+
+struct PublicShareEventRow {
+    action: String,
+    user_email: String,
+    article_title: String,
+    policy: String,
+    occurred_at: String,
+}
+
+struct ApiAuditRow {
+    operation: String,
+    user: String,
+    token: String,
+    occurred_at: String,
 }
 
 struct UserRow {
@@ -66,6 +145,15 @@ struct UserRow {
     role: String,
     created: String,
     can_change: bool,
+}
+
+struct InvitationRow {
+    id: String,
+    email: String,
+    created: String,
+    expires: String,
+    status: String,
+    can_revoke: bool,
 }
 
 struct FeedRow {
@@ -119,6 +207,38 @@ struct DashboardTemplate {
     ui: prefs::Preferences,
     is_admin: bool,
     stats: DashboardStats,
+    youtube_embeds_enabled: bool,
+    youtube_source_host_count: usize,
+    youtube_alternative_player: String,
+    pwa_name: String,
+    pwa_short_name: String,
+    pwa_theme_color: String,
+    pwa_background_color: String,
+    public_article_sharing_enabled: bool,
+    public_share_default_lifetime_days: u16,
+    public_share_max_lifetime_days: u16,
+    public_share_allow_infinite: bool,
+    outbound_user_agent: String,
+    outbound_protocol: String,
+    reverse_proxy_auth_enabled: bool,
+    reverse_proxy_trusted_networks: usize,
+    reverse_proxy_auto_provision: bool,
+    reverse_proxy_allowed_domains: usize,
+    reverse_proxy_admin_mappings: usize,
+    reverse_proxy_logout_configured: bool,
+    media_proxy_enabled: bool,
+    media_proxy_max_bytes: usize,
+    media_proxy_cache_budget_bytes: usize,
+    media_proxy_cache_ttl_hours: u64,
+    media_proxy_extra_mime_types: usize,
+    tracking_url_cleanup_enabled: bool,
+    tracking_url_rule_count: usize,
+    tracking_url_exception_count: usize,
+    api_enabled: bool,
+    greader_api_enabled: bool,
+    fever_api_enabled: bool,
+    api_audit_events: Vec<ApiAuditRow>,
+    public_share_events: Vec<PublicShareEventRow>,
 }
 
 #[derive(Template)]
@@ -130,6 +250,8 @@ struct UsersTemplate {
     ui: prefs::Preferences,
     is_admin: bool,
     users: Vec<UserRow>,
+    invitations: Vec<InvitationRow>,
+    invitation_link: Option<String>,
     message: Option<String>,
     error: Option<String>,
 }
@@ -180,12 +302,47 @@ struct LogsTemplate {
     is_admin: bool,
     feed_errors: Vec<FeedErrorRow>,
     agent_runs: Vec<AgentRunRow>,
+    queue: QueueStats,
+    queue_by_kind: Vec<QueueKindRow>,
+    active_jobs: Vec<QueueItemRow>,
+    recent_jobs: Vec<QueueItemRow>,
+    workers: Vec<WorkerRow>,
 }
 
 #[derive(Deserialize)]
 pub struct RoleForm {
     csrf_token: String,
     role: String,
+}
+
+#[derive(Deserialize)]
+pub struct InvitationForm {
+    csrf_token: String,
+    #[serde(default)]
+    email: String,
+    #[serde(default = "default_invitation_lifetime")]
+    lifetime_days: i64,
+}
+
+fn default_invitation_lifetime() -> i64 {
+    7
+}
+
+#[derive(Deserialize)]
+pub struct CsrfOnlyForm {
+    csrf_token: String,
+}
+
+#[derive(Deserialize)]
+pub struct FeedStatusForm {
+    csrf_token: String,
+    status: String,
+}
+
+#[derive(Deserialize)]
+pub struct MaintenanceForm {
+    csrf_token: String,
+    action: String,
 }
 
 #[derive(Deserialize)]
@@ -227,7 +384,18 @@ fn micro_to_usd(micro: i64) -> String {
     format!("${:.4}", micro as f64 / 1_000_000.0)
 }
 
-fn numeric_run_stats(value: Option<serde_json::Value>) -> String {
+fn bytes_label(bytes: i64) -> String {
+    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes.max(0) as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", UNITS[unit])
+}
+
+fn safe_run_stats(value: Option<serde_json::Value>) -> String {
     const KEYS: &[&str] = &[
         "due",
         "enqueued",
@@ -243,7 +411,7 @@ fn numeric_run_stats(value: Option<serde_json::Value>) -> String {
     let Some(serde_json::Value::Object(values)) = value else {
         return "—".to_string();
     };
-    let values: Vec<_> = KEYS
+    let mut output: Vec<_> = KEYS
         .iter()
         .filter_map(|key| {
             values
@@ -252,10 +420,92 @@ fn numeric_run_stats(value: Option<serde_json::Value>) -> String {
                 .map(|value| format!("{key}: {value}"))
         })
         .collect();
-    if values.is_empty() {
+    if let Some(status) = values.get("status").and_then(serde_json::Value::as_str) {
+        let status = match status {
+            "success" => Some("content: ready"),
+            "failed" => Some("content: RSS fallback"),
+            "disallowed" => Some("content: blocked by robots policy"),
+            _ => None,
+        };
+        if let Some(status) = status {
+            output.push(status.to_string());
+        }
+    }
+    if let Some(extractor) = values
+        .get("extractor")
+        .and_then(serde_json::Value::as_str)
+        .filter(|extractor| matches!(*extractor, "readability" | "chromium"))
+    {
+        output.push(format!("extractor: {extractor}"));
+    }
+    if let Some(skipped) = values
+        .get("skipped")
+        .and_then(serde_json::Value::as_str)
+        .filter(|reason| {
+            matches!(
+                *reason,
+                "article gone"
+                    | "feed gone"
+                    | "stale content revision"
+                    | "no subscriber requests public-page content"
+                    | "public-page content is current"
+                    | "feed is paused"
+            )
+        })
+    {
+        output.push(format!("skipped: {skipped}"));
+    }
+    if output.is_empty() {
         "—".to_string()
     } else {
-        values.join(", ")
+        output.join(", ")
+    }
+}
+
+fn agent_run_tone(
+    status: &str,
+    stats: Option<&serde_json::Value>,
+    has_error: bool,
+) -> &'static str {
+    if has_error || status == "failed" {
+        return "error";
+    }
+    if stats
+        .and_then(|stats| stats.get("status"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|status| matches!(status, "failed" | "disallowed"))
+    {
+        return "warning";
+    }
+    "healthy"
+}
+
+fn queue_item(item: jobs::QueueItemSummary) -> QueueItemRow {
+    let status = if item.status == "running" && !item.worker_online {
+        "stalled".to_string()
+    } else if item.status == "pending" && item.run_at > time::OffsetDateTime::now_utc() {
+        "scheduled".to_string()
+    } else {
+        item.status
+    };
+    let tone = match status.as_str() {
+        "done" => "healthy",
+        "dead" => "error",
+        "stalled" => "error",
+        "running" => "warning",
+        _ => "",
+    };
+    QueueItemRow {
+        lane: item.queue_name,
+        kind: item.kind,
+        status,
+        tone: tone.to_string(),
+        attempts: format!("{} / {}", item.attempts, item.max_attempts),
+        created_at: item.created_at.to_string(),
+        run_at: item.run_at.to_string(),
+        worker: item.locked_by.unwrap_or_else(|| "—".to_string()),
+        updated_at: item.updated_at.to_string(),
+        error: item.last_error.unwrap_or_else(|| "—".to_string()),
     }
 }
 
@@ -328,6 +578,7 @@ async fn render_users(
     jar: CookieJar,
     message: Option<String>,
     error: Option<String>,
+    invitation_link: Option<String>,
 ) -> Result<Response, AppError> {
     let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
@@ -343,6 +594,32 @@ async fn render_users(
             can_change: candidate.id != user.id,
         })
         .collect();
+    let now = time::OffsetDateTime::now_utc();
+    let invitations = invitations::list(state.db.pool(), 100)
+        .await?
+        .into_iter()
+        .map(|invitation| {
+            let (status, can_revoke) = if invitation.accepted_at.is_some() {
+                ("Accepted".to_string(), false)
+            } else if invitation.revoked_at.is_some() {
+                ("Revoked".to_string(), false)
+            } else if invitation.expires_at <= now {
+                ("Expired".to_string(), false)
+            } else {
+                ("Available".to_string(), true)
+            };
+            InvitationRow {
+                id: invitation.id.to_string(),
+                email: invitation
+                    .email
+                    .unwrap_or_else(|| "Anyone with the link".to_string()),
+                created: invitation.created_at.date().to_string(),
+                expires: invitation.expires_at.date().to_string(),
+                status,
+                can_revoke,
+            }
+        })
+        .collect();
     Ok((
         jar,
         render(UsersTemplate {
@@ -352,6 +629,8 @@ async fn render_users(
             ui,
             is_admin: true,
             users,
+            invitations,
+            invitation_link,
             message,
             error,
         })?,
@@ -418,13 +697,33 @@ pub async fn dashboard(
     AdminUser(user): AdminUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
-    let (user_count, feed_count, article_count, catalog_entries, active_jobs) = tokio::try_join!(
+    let (
+        user_count,
+        feed_count,
+        article_count,
+        catalog_entries,
+        queue,
+        workers,
+        active_public_shares,
+        public_share_events,
+        api_audit_events,
+        storage,
+    ) = tokio::try_join!(
         users::count(state.db.pool()),
         feeds::count(state.db.pool()),
         articles::count(state.db.pool()),
         catalog::count(state.db.pool()),
-        jobs::count_active(state.db.pool()),
+        jobs::queue_totals(state.db.pool()),
+        jobs::list_online_workers(state.db.pool()),
+        public_shares::active_count(state.db.pool()),
+        public_shares::recent_events(state.db.pool(), 20),
+        api_audit::recent(state.db.pool(), 20),
+        operations::storage_stats(state.db.pool()),
     )?;
+    let worker_capacity = workers
+        .iter()
+        .map(|worker| i64::from(worker.concurrency))
+        .sum();
     let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     Ok((
@@ -435,16 +734,153 @@ pub async fn dashboard(
             csrf_token,
             ui,
             is_admin: true,
+            youtube_embeds_enabled: state.settings.youtube_policy.enabled(),
+            youtube_source_host_count: state.settings.youtube_policy.source_host_count(),
+            youtube_alternative_player: state
+                .settings
+                .youtube_policy
+                .alternative_name()
+                .map_or_else(|| "Not configured".to_string(), str::to_string),
+            pwa_name: state.settings.pwa_name.clone(),
+            pwa_short_name: state.settings.pwa_short_name.clone(),
+            pwa_theme_color: state.settings.pwa_theme_color.clone(),
+            pwa_background_color: state.settings.pwa_background_color.clone(),
+            public_article_sharing_enabled: state.settings.public_article_sharing_enabled,
+            public_share_default_lifetime_days: state.settings.public_share_default_lifetime_days,
+            public_share_max_lifetime_days: state.settings.public_share_max_lifetime_days,
+            public_share_allow_infinite: state.settings.public_share_allow_infinite,
+            outbound_user_agent: state.settings.outbound_user_agent.clone(),
+            outbound_protocol: if state.settings.outbound_http1_only {
+                "HTTP/1.1 only".to_string()
+            } else {
+                "HTTP/2 with HTTP/1.1 fallback".to_string()
+            },
+            reverse_proxy_auth_enabled: state.settings.reverse_proxy_auth.enabled,
+            reverse_proxy_trusted_networks: state.settings.reverse_proxy_auth.trusted_cidrs.len(),
+            reverse_proxy_auto_provision: state.settings.reverse_proxy_auth.auto_provision,
+            reverse_proxy_allowed_domains: state.settings.reverse_proxy_auth.allowed_domains.len(),
+            reverse_proxy_admin_mappings: state.settings.reverse_proxy_auth.admin_emails.len(),
+            reverse_proxy_logout_configured: state.settings.reverse_proxy_auth.logout_url.is_some(),
+            media_proxy_enabled: state.settings.media_proxy_enabled,
+            media_proxy_max_bytes: state.settings.media_proxy_max_bytes,
+            media_proxy_cache_budget_bytes: state.settings.media_proxy_cache_budget_bytes,
+            media_proxy_cache_ttl_hours: state.settings.media_proxy_cache_ttl.as_secs() / 3_600,
+            media_proxy_extra_mime_types: state.settings.media_proxy_extra_inline_mime_types.len(),
+            tracking_url_cleanup_enabled: state.settings.tracking_url_policy.enabled(),
+            tracking_url_rule_count: state.settings.tracking_url_policy.parameter_rule_count(),
+            tracking_url_exception_count: state
+                .settings
+                .tracking_url_policy
+                .domain_exception_count(),
+            api_enabled: state.settings.api_enabled,
+            greader_api_enabled: state.settings.greader_api_enabled,
+            fever_api_enabled: state.settings.fever_api_enabled,
+            api_audit_events: api_audit_events
+                .into_iter()
+                .map(|event| ApiAuditRow {
+                    operation: event.operation,
+                    user: event.user_email,
+                    token: event
+                        .token_name
+                        .unwrap_or_else(|| "Revoked token".to_string()),
+                    occurred_at: event.created_at.to_string(),
+                })
+                .collect(),
+            public_share_events: public_share_events
+                .into_iter()
+                .map(|event| PublicShareEventRow {
+                    action: if event.action == "revoked" {
+                        "Revoked".to_string()
+                    } else {
+                        "Created or rotated".to_string()
+                    },
+                    user_email: event.user_email,
+                    article_title: event.article_title,
+                    policy: event.content_source.map_or_else(
+                        || "Link disabled".to_string(),
+                        |source| {
+                            let lifetime = event.expires_at.map_or_else(
+                                || "infinite".to_string(),
+                                |expires| format!("until {}", expires.date()),
+                            );
+                            let images = if event.include_images.unwrap_or(false) {
+                                "external images on"
+                            } else {
+                                "external images off"
+                            };
+                            format!("{source}, {lifetime}, {images}")
+                        },
+                    ),
+                    occurred_at: event.created_at.to_string(),
+                })
+                .collect(),
             stats: DashboardStats {
                 users: user_count,
                 feeds: feed_count,
                 articles: article_count,
                 catalog_entries,
-                active_jobs,
+                pending_jobs: queue.pending_due + queue.pending_scheduled,
+                running_jobs: queue.running,
+                stalled_jobs: queue.stalled,
+                dead_jobs: queue.dead,
+                workers_online: workers.len(),
+                worker_capacity,
+                active_public_shares,
+                database_size: bytes_label(storage.database_bytes),
+                article_storage: bytes_label(storage.articles_bytes),
+                embedding_storage: bytes_label(storage.embeddings_bytes),
+                media_storage: bytes_label(storage.media_cache_bytes),
             },
         })?,
     )
         .into_response())
+}
+
+pub async fn maintenance(
+    State(state): State<AppState>,
+    AdminUser(_user): AdminUser,
+    jar: CookieJar,
+    Form(form): Form<MaintenanceForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    match form.action.as_str() {
+        "refresh_due" => {
+            jobs::enqueue(
+                state.db.pool(),
+                "feed_refresh",
+                serde_json::json!({}),
+                Some("feed_refresh"),
+                None,
+                3,
+            )
+            .await?;
+        }
+        "cleanup" => {
+            jobs::enqueue(
+                state.db.pool(),
+                "content_cleanup",
+                serde_json::json!({}),
+                Some("content_cleanup"),
+                None,
+                3,
+            )
+            .await?;
+        }
+        "reclaim_stalled" => {
+            jobs::reclaim_stale(state.db.pool(), time::Duration::minutes(10)).await?;
+        }
+        "retry_dead" => {
+            jobs::retry_dead(state.db.pool(), 100).await?;
+        }
+        _ => {
+            return Err(AppError::Validation(
+                "Unknown maintenance action.".to_string(),
+            ))
+        }
+    }
+    Ok((jar, Redirect::to("/admin/logs")).into_response())
 }
 
 pub async fn users_page(
@@ -452,7 +888,7 @@ pub async fn users_page(
     AdminUser(user): AdminUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
-    render_users(&state, &user, jar, None, None).await
+    render_users(&state, &user, jar, None, None, None).await
 }
 
 pub async fn update_role(
@@ -474,7 +910,82 @@ pub async fn update_role(
         users::RoleChange::CannotDemoteSelf => "You cannot demote your own administrator account.",
         users::RoleChange::LastAdmin => "Keep at least one administrator account.",
     };
-    render_users(&state, &user, jar, None, Some(message.to_string())).await
+    render_users(&state, &user, jar, None, Some(message.to_string()), None).await
+}
+
+pub async fn create_invitation(
+    State(state): State<AppState>,
+    AdminUser(user): AdminUser,
+    jar: CookieJar,
+    Form(form): Form<InvitationForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let email = form.email.trim();
+    if !email.is_empty() && (!email.contains('@') || email.len() > 320) {
+        return render_users(
+            &state,
+            &user,
+            jar,
+            None,
+            Some("Enter a valid email address or leave it blank.".to_string()),
+            None,
+        )
+        .await;
+    }
+    if !(1..=90).contains(&form.lifetime_days) {
+        return render_users(
+            &state,
+            &user,
+            jar,
+            None,
+            Some("Invitation lifetime must be between 1 and 90 days.".to_string()),
+            None,
+        )
+        .await;
+    }
+    let generated = token::generate();
+    invitations::create(
+        state.db.pool(),
+        user.id,
+        &generated.hash,
+        (!email.is_empty()).then_some(email),
+        form.lifetime_days,
+    )
+    .await?;
+    let link = format!(
+        "{}/register?invite={}",
+        state.settings.base_url.trim_end_matches('/'),
+        generated.raw
+    );
+    render_users(
+        &state,
+        &user,
+        jar,
+        Some("Invitation created. Copy the link now; RustSS stores only its hash.".to_string()),
+        None,
+        Some(link),
+    )
+    .await
+}
+
+pub async fn revoke_invitation(
+    State(state): State<AppState>,
+    AdminUser(user): AdminUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<CsrfOnlyForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let message = if invitations::revoke(state.db.pool(), id).await? {
+        "Invitation revoked."
+    } else {
+        "That invitation is no longer available."
+    };
+    render_users(&state, &user, jar, Some(message.to_string()), None, None).await
 }
 
 pub async fn feeds_page(
@@ -521,6 +1032,30 @@ pub async fn feeds_page(
         })?,
     )
         .into_response())
+}
+
+pub async fn set_feed_status(
+    State(state): State<AppState>,
+    AdminUser(_user): AdminUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<FeedStatusForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let paused = match form.status.as_str() {
+        "paused" => true,
+        "active" => false,
+        _ => return Err(AppError::Validation("Choose active or paused.".into())),
+    };
+    if !feeds::set_paused(state.db.pool(), id, paused).await? {
+        return Err(AppError::NotFound);
+    }
+    if !paused {
+        let _ = enqueue_fetch_feed(&state.db, id).await?;
+    }
+    Ok((jar, Redirect::to("/admin/feeds")).into_response())
 }
 
 pub async fn catalog_page(
@@ -621,9 +1156,14 @@ pub async fn logs(
     AdminUser(user): AdminUser,
     jar: CookieJar,
 ) -> Result<Response, AppError> {
-    let (feed_errors, agent_runs) = tokio::try_join!(
+    let (feed_errors, agent_runs, queue, queue_by_kind, active_jobs, recent_jobs, workers) = tokio::try_join!(
         feeds::list_recent_errors(state.db.pool(), ADMIN_LIST_LIMIT),
         agent_runs::list_recent(state.db.pool(), ADMIN_LIST_LIMIT),
+        jobs::queue_totals(state.db.pool()),
+        jobs::queue_by_kind(state.db.pool()),
+        jobs::list_active(state.db.pool(), 100),
+        jobs::list_recent_finished(state.db.pool(), 100),
+        jobs::list_online_workers(state.db.pool()),
     )?;
     let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
@@ -633,6 +1173,61 @@ pub async fn logs(
         csrf_token,
         ui,
         is_admin: true,
+        queue: QueueStats {
+            pending_due: queue.pending_due,
+            pending_scheduled: queue.pending_scheduled,
+            running: queue.running,
+            stalled: queue.stalled,
+            finished_last_hour: queue.finished_last_hour,
+            dead: queue.dead,
+            workers_online: workers.len(),
+            worker_capacity: workers
+                .iter()
+                .map(|worker| i64::from(worker.concurrency))
+                .sum(),
+            background_capacity: workers
+                .iter()
+                .map(|worker| i64::from(worker.concurrency - worker.interactive_concurrency))
+                .sum(),
+            interactive_capacity: workers
+                .iter()
+                .map(|worker| i64::from(worker.interactive_concurrency))
+                .sum(),
+            background_pending: queue.background_pending,
+            background_running: queue.background_running,
+            interactive_pending: queue.interactive_pending,
+            interactive_running: queue.interactive_running,
+        },
+        queue_by_kind: queue_by_kind
+            .into_iter()
+            .map(|row| QueueKindRow {
+                lane: row.queue_name,
+                kind: row.kind,
+                pending_due: row.pending_due,
+                pending_scheduled: row.pending_scheduled,
+                running: row.running,
+                stalled: row.stalled,
+                dead: row.dead,
+            })
+            .collect(),
+        active_jobs: active_jobs.into_iter().map(queue_item).collect(),
+        recent_jobs: recent_jobs.into_iter().map(queue_item).collect(),
+        workers: workers
+            .into_iter()
+            .map(|worker| WorkerRow {
+                id: worker.worker_id,
+                concurrency: worker.concurrency,
+                background_concurrency: worker.concurrency - worker.interactive_concurrency,
+                interactive_concurrency: worker.interactive_concurrency,
+                scheduler: if worker.scheduler_enabled {
+                    "On".to_string()
+                } else {
+                    "Off".to_string()
+                },
+                started_at: worker.started_at.to_string(),
+                heartbeat_at: worker.last_heartbeat_at.to_string(),
+            })
+            .collect(),
         feed_errors: feed_errors
             .into_iter()
             .map(|error| {
@@ -655,16 +1250,25 @@ pub async fn logs(
             .collect(),
         agent_runs: agent_runs
             .into_iter()
-            .map(|run| AgentRunRow {
-                agent_name: run.agent_name,
-                status: run.status,
-                started_at: run.started_at.to_string(),
-                duration: run
-                    .duration_ms
-                    .map(|duration| format!("{duration} ms"))
-                    .unwrap_or_else(|| "Running".to_string()),
-                stats: numeric_run_stats(run.stats),
-                has_error: run.has_error,
+            .map(|run| {
+                let tone = agent_run_tone(&run.status, run.stats.as_ref(), run.has_error);
+                let display_status = if tone == "warning" && run.status == "success" {
+                    "fallback"
+                } else {
+                    &run.status
+                };
+                AgentRunRow {
+                    agent_name: run.agent_name,
+                    status: display_status.to_string(),
+                    tone: tone.to_string(),
+                    started_at: run.started_at.to_string(),
+                    duration: run
+                        .duration_ms
+                        .map(|duration| format!("{duration} ms"))
+                        .unwrap_or_else(|| "Running".to_string()),
+                    stats: safe_run_stats(run.stats),
+                    error: run.error_message.unwrap_or_else(|| "—".to_string()),
+                }
             })
             .collect(),
     })?;

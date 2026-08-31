@@ -1,0 +1,52 @@
+name: rustss
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${NFPM_VERSION}
+section: net
+priority: optional
+maintainer: RustSS contributors
+description: Self-hosted, multi-user, AI-augmented RSS reader
+vendor: RustSS
+homepage: https://github.com/madpin/rustss
+license: MIT
+depends:
+  - ca-certificates
+contents:
+  - src: ${NFPM_BINARY_DIR}/rustss-server
+    dst: /usr/bin/rustss-server
+    file_info:
+      mode: 0755
+  - src: ${NFPM_BINARY_DIR}/rustss-worker
+    dst: /usr/bin/rustss-worker
+    file_info:
+      mode: 0755
+  - src: ${NFPM_BINARY_DIR}/rustss-cli
+    dst: /usr/bin/rustss-cli
+    file_info:
+      mode: 0755
+  - src: contrib/systemd/rustss.service
+    dst: /usr/lib/systemd/system/rustss.service
+  - src: contrib/systemd/rustss-worker.service
+    dst: /usr/lib/systemd/system/rustss-worker.service
+  - src: .env.example
+    dst: /usr/share/doc/rustss/rustss.env.example
+  - src: README.md
+    dst: /usr/share/doc/rustss/README.md
+  - src: docs/OPERATIONS.md
+    dst: /usr/share/doc/rustss/OPERATIONS.md
+scripts:
+  preinstall: packaging/scripts/preinstall.sh
+  postinstall: packaging/scripts/postinstall.sh
+  preremove: packaging/scripts/preremove.sh
+overrides:
+  deb:
+    depends:
+      - ca-certificates
+      - libssl3 | libssl3t64
+    recommends:
+      - postgresql-17
+  rpm:
+    depends:
+      - ca-certificates
+      - openssl-libs
+      - shadow-utils

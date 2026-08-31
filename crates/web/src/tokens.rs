@@ -38,6 +38,7 @@ struct TokensTemplate {
     notice: Option<String>,
     error: Option<String>,
     tokens: Vec<TokenView>,
+    fever_api_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -48,6 +49,14 @@ pub struct CreateForm {
 
 #[derive(Deserialize)]
 pub struct CsrfForm {
+    csrf_token: String,
+}
+
+#[derive(Deserialize)]
+pub struct FeverForm {
+    name: String,
+    username: String,
+    password: String,
     csrf_token: String,
 }
 
@@ -84,6 +93,7 @@ async fn render_page(
         notice,
         error,
         tokens,
+        fever_api_enabled: state.settings.fever_api_enabled,
     }
     .render()
     .map(Html)
@@ -136,6 +146,64 @@ pub async fn create(
         jar,
         Some(generated.raw),
         Some("Token created.".to_string()),
+        None,
+    )
+    .await
+}
+
+/// Create a revocable Fever credential. Fever clients transmit
+/// `md5(username:password)`; RustSS stores only a SHA-256 hash of that digest.
+pub async fn create_fever(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(form): Form<FeverForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if !state.settings.fever_api_enabled {
+        return Err(AppError::NotFound);
+    }
+    let name = form.name.trim();
+    let username = form.username.trim();
+    if name.is_empty()
+        || username.is_empty()
+        || username.chars().count() > 320
+        || form.password.chars().count() < 12
+        || form.password.chars().count() > 256
+    {
+        return render_page(
+            &state,
+            &user,
+            jar,
+            None,
+            None,
+            Some("Use a name, a username, and a 12–256 character Fever password.".into()),
+        )
+        .await;
+    }
+    let api_key = format!(
+        "{:x}",
+        md5::compute(format!("{username}:{}", form.password))
+    );
+    api_tokens::create(
+        state.db.pool(),
+        user.id,
+        &format!("Fever · {name}"),
+        &token::hash(&api_key),
+        &["fever".to_string()],
+    )
+    .await?;
+    render_page(
+        &state,
+        &user,
+        jar,
+        None,
+        Some(
+            "Fever credential created. Configure the client with the same username and password."
+                .into(),
+        ),
         None,
     )
     .await

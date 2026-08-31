@@ -9,7 +9,7 @@ use tower::ServiceExt;
 
 use rustss_cache::Cache;
 use rustss_db::models::NewArticle;
-use rustss_db::{articles, embeddings, feeds, subscriptions, users, Db};
+use rustss_db::{articles, embeddings, feeds, subscriptions, user_preferences, users, Db};
 use rustss_embed::{Embedder, HashEmbedder};
 use rustss_web::{router, AppSettings, AppState};
 
@@ -110,6 +110,7 @@ async fn search_returns_matching_article() {
             content: "a deep dive into async await and concurrency in the rust language".into(),
             excerpt: Some("async rust".into()),
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )
@@ -132,6 +133,7 @@ async fn search_returns_matching_article() {
 
     // Search finds it (the default AppState embedder is the same HashEmbedder).
     let resp = app
+        .clone()
         .oneshot(
             Request::get("/search?q=async%20rust%20concurrency")
                 .header("cookie", format!("rustss_sid={sid}"))
@@ -147,4 +149,111 @@ async fn search_returns_matching_article() {
         "expected the seeded article"
     );
     assert!(body.contains("% match"));
+    assert!(body.contains("% words"));
+    assert!(body.contains("% meaning"));
+
+    // A personal keyword preference uses the indexed path and can find an
+    // article before embedding. Phrase/exclusion syntax is handled by
+    // websearch_to_tsquery, not by SQL string construction.
+    for (title, content) in [
+        ("Exact Phrase Guide", "A stable release."),
+        ("Exact Phrase Draft", "An unfinished release."),
+    ] {
+        articles::upsert(
+            db.pool(),
+            &NewArticle {
+                feed_id: feed.id,
+                url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+                comments_url: None,
+                guid: None,
+                title: title.into(),
+                author: None,
+                content: content.into(),
+                excerpt: None,
+                image_url: None,
+                enclosures: Vec::new(),
+                published_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let preferences = app
+        .clone()
+        .oneshot(
+            Request::get("/settings/preferences")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&preferences), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let saved = app
+        .clone()
+        .oneshot(
+            Request::post("/settings/preferences")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header(
+                    "cookie",
+                    format!("rustss_sid={sid}; rustss_csrf={csrf}"),
+                )
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&theme=system&articles_per_page=20&reading_mode=side-panel&search_settings_present=true&search_mode=keyword&search_text_config=simple&search_semantic_weight_percent=25"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let stored = user_preferences::get(db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored["search_mode"], "keyword");
+    assert_eq!(stored["search_text_config"], "simple");
+    assert_eq!(stored["search_semantic_weight_percent"], 25);
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/search?q=%22exact%20phrase%22%20-draft")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Exact Phrase Guide"));
+    assert!(!body.contains("Exact Phrase Draft"));
+    assert!(body.contains("keyword, simple text"));
+    assert!(body.contains("% words"));
+    assert!(!body.contains("% meaning"));
+
+    let reset = app
+        .oneshot(
+            Request::post("/settings/preferences")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header(
+                    "cookie",
+                    format!("rustss_sid={sid}; rustss_csrf={csrf}"),
+                )
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&theme=system&articles_per_page=20&reading_mode=side-panel&search_settings_present=true&search_mode=instance&search_text_config=instance"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reset.status(), StatusCode::OK);
+    let stored = user_preferences::get(db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored["search_mode"], "instance");
+    assert_eq!(stored["search_text_config"], "instance");
+    assert!(stored["search_semantic_weight_percent"].is_null());
 }

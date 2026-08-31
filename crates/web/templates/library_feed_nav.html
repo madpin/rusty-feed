@@ -1,0 +1,7 @@
+<div class="sidebar-feed-row" data-sidebar-feed-row>
+  <a href="{{ f.href }}" data-feed-nav{% if f.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ f.name }}"><span class="feed-nav-icon" aria-hidden="true"><span>{{ f.initial }}</span>{% if f.has_icon %}<img src="/feeds/{{ f.id }}/icon" alt="" loading="lazy" />{% endif %}</span><span class="sidebar-text">{{ f.name }}</span></a>
+  <div class="sidebar-feed-tools" aria-label="Quick settings for {{ f.name }}">
+    <button type="button" data-feed-content-trigger data-feed-id="{{ f.id }}" data-feed-name="{{ f.name }}" data-content-mode="{{ f.content_mode }}" data-content-lifetime="{{ f.content_lifetime }}" aria-label="Content settings for {{ f.name }}" title="Content settings">◐</button>
+    <button type="button" data-feed-tags-trigger data-feed-id="{{ f.id }}" data-feed-name="{{ f.name }}" data-feed-folder-id="{{ f.folder_id }}" data-feed-tags="{{ f.tags_input }}" aria-label="Tags for {{ f.name }}" title="Tags">#</button>
+  </div>
+</div>

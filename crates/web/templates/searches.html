@@ -44,7 +44,7 @@
           <button type="submit">Run now</button>
         </form>
         <form method="post" action="/searches/{{ s.id }}/delete"
-              onsubmit="return confirm('Delete this saved search?');">
+              data-confirm="Delete this saved search?">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <button type="submit" class="danger">Delete</button>
         </form>

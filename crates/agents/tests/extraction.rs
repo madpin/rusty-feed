@@ -9,7 +9,8 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use rustss_agents::{Agent, AgentContext, ExtractContentAgent, FetchFeedAgent};
-use rustss_db::{articles, domain_state, feeds, jobs, Db};
+use rustss_core::feed_content::{ContentLifetime, FeedContentMode, SubscriptionContentSettings};
+use rustss_db::{articles, domain_state, feeds, jobs, subscriptions, users, Db};
 use rustss_extract::{ExtractConfig, ExtractOutcome, ExtractionService};
 use rustss_feeds::SafeFetchClient;
 
@@ -52,6 +53,33 @@ fn fast_extract_agent() -> ExtractContentAgent {
     })))
 }
 
+async fn request_article_pages(db: &Db, feed_id: uuid::Uuid) {
+    let user = users::create(
+        db.pool(),
+        &format!("extract-{}@example.com", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), user.id, feed_id, None)
+        .await
+        .unwrap();
+    subscriptions::update_content_settings(
+        db.pool(),
+        user.id,
+        feed_id,
+        SubscriptionContentSettings {
+            mode: FeedContentMode::ArticlePage,
+            lifetime: ContentLifetime::Days(30),
+        },
+    )
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn extract_content_agent_enriches_article() {
     let Some(db) = connect().await else {
@@ -70,6 +98,7 @@ async fn extract_content_agent_enriches_article() {
     let (feed, _) = feeds::upsert_by_url(db.pool(), &feed_url, "F", None)
         .await
         .unwrap();
+    request_article_pages(&db, feed.id).await;
     sqlx::query("UPDATE feeds SET extraction_settings = '{\"mode\": \"article_page\"}'::jsonb WHERE id = $1")
         .bind(feed.id)
         .execute(db.pool())
@@ -88,6 +117,7 @@ async fn extract_content_agent_enriches_article() {
             content: "summary only".into(),
             excerpt: Some("summary only".into()),
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )
@@ -113,7 +143,7 @@ async fn extract_content_agent_enriches_article() {
         .run(&ctx(db.clone()), json!({ "article_id": article.id }))
         .await
         .unwrap();
-    assert_eq!(out2["skipped"], "already processed");
+    assert_eq!(out2["skipped"], "public-page content is current");
 }
 
 #[tokio::test]
@@ -133,6 +163,7 @@ async fn rate_limited_extraction_records_and_signals_retry() {
     let (feed, _) = feeds::upsert_by_url(db.pool(), &feed_url, "F", None)
         .await
         .unwrap();
+    request_article_pages(&db, feed.id).await;
     sqlx::query("UPDATE feeds SET extraction_settings = '{\"mode\": \"article_page\"}'::jsonb WHERE id = $1")
         .bind(feed.id)
         .execute(db.pool())
@@ -151,6 +182,7 @@ async fn rate_limited_extraction_records_and_signals_retry() {
             content: "s".into(),
             excerpt: None,
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )
@@ -202,6 +234,7 @@ async fn fetch_feed_enqueues_extraction_when_enabled() {
     let (feed, _) = feeds::upsert_by_url(db.pool(), &feed_url, "F", None)
         .await
         .unwrap();
+    request_article_pages(&db, feed.id).await;
     sqlx::query(
         "UPDATE feeds SET extraction_settings = '{\"enabled\": true}'::jsonb WHERE id = $1",
     )
@@ -265,6 +298,7 @@ async fn ignored_robots_policy_skips_the_robots_request() {
     )
     .await
     .unwrap();
+    request_article_pages(&db, feed.id).await;
     sqlx::query(
         "UPDATE feeds SET extraction_settings = '{\"mode\": \"article_page\"}'::jsonb, \
          respect_robots_txt = false WHERE id = $1",
@@ -285,6 +319,7 @@ async fn ignored_robots_policy_skips_the_robots_request() {
             content: "RSS fallback".into(),
             excerpt: None,
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )
@@ -304,7 +339,7 @@ async fn ignored_robots_policy_skips_the_robots_request() {
 }
 
 #[tokio::test]
-async fn rss_and_legacy_paywalled_modes_do_not_fetch_article_pages() {
+async fn feeds_without_subscriber_demand_do_not_fetch_article_pages() {
     let Some(db) = connect().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -339,6 +374,7 @@ async fn rss_and_legacy_paywalled_modes_do_not_fetch_article_pages() {
                 content: "RSS fallback".into(),
                 excerpt: None,
                 image_url: None,
+                enclosures: Vec::new(),
                 published_at: None,
             },
         )
@@ -348,7 +384,7 @@ async fn rss_and_legacy_paywalled_modes_do_not_fetch_article_pages() {
             .run(&ctx(db.clone()), json!({ "article_id": article.id }))
             .await
             .unwrap();
-        assert_eq!(out["skipped"], "feed uses RSS content");
+        assert_eq!(out["skipped"], "no subscriber requests public-page content");
         if mode == "paywalled" {
             sqlx::query(
                 "UPDATE feeds SET extraction_settings = '{\"mode\": \"rss\"}'::jsonb WHERE id = $1",

@@ -1,0 +1,33 @@
+{% extends "app_base.html" %}
+{% block title %}Subscribe from website{% endblock %}
+{% block body_class %}page-feeds{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Bookmarklet</p>
+    <h1>Choose a feed to subscribe</h1>
+    <p class="muted">Inspected {{ source_url }}</p>
+  </div>
+  <a class="btn" href="/feeds#bookmarklet">Manage feeds</a>
+</div>
+
+{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
+{% if !candidates.is_empty() %}
+<form method="post" action="/feeds" class="stack panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <fieldset>
+    <legend>Advertised feeds</legend>
+    <div class="bookmarklet-candidates">
+      {% for candidate in candidates %}
+      <label class="check-row">
+        <input type="radio" name="url" value="{{ candidate.url }}"{% if loop.first %} checked{% endif %} />
+        <span><strong>{% if let Some(title) = candidate.title %}{{ title }}{% else %}Feed{% endif %}</strong><small>{{ candidate.url }}{% if let Some(media_type) = candidate.media_type %} · {{ media_type }}{% endif %}</small></span>
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  <div class="form-actions"><button type="submit" class="primary">Subscribe and refresh</button><a class="btn" href="/feeds">Cancel</a></div>
+</form>
+{% endif %}
+<p class="muted">Discovery fetches only the public page through RustSS's SSRF-protected client, follows bounded safe redirects, reads at most 2 MiB, and never runs publisher JavaScript or sends cookies.</p>
+{% endblock %}

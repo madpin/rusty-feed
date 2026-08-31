@@ -14,7 +14,7 @@ use base64::Engine;
 use rand::RngCore;
 use serde::Deserialize;
 
-use rustss_db::{oauth_accounts, users, Db, User};
+use rustss_db::{oauth_accounts, users, User};
 
 use crate::auth::csrf::constant_time_eq;
 use crate::auth::{session, token};
@@ -105,7 +105,7 @@ pub async fn callback(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("oauth exchange failed: {e}")))?;
 
-    let user = upsert_oauth_user(&state.db, provider, profile).await?;
+    let user = upsert_oauth_user(&state, provider, profile).await?;
 
     let jar = clear_oauth(jar);
     let jar = session::login(jar, &state.db, user.id, state.settings.cookie_secure).await?;
@@ -264,11 +264,11 @@ async fn fetch_github_email(
 }
 
 async fn upsert_oauth_user(
-    db: &Db,
+    state: &AppState,
     provider: &OAuthProvider,
     profile: Profile,
 ) -> Result<User, AppError> {
-    let pool = db.pool();
+    let pool = state.db.pool();
 
     // 1. Already linked → sign in.
     if let Some(account) = oauth_accounts::find(pool, &provider.slug, &profile.subject).await? {
@@ -286,12 +286,28 @@ async fn upsert_oauth_user(
     let user = match users::find_by_email(pool, &email).await? {
         Some(existing) => existing,
         None => {
-            let role = if users::count(pool).await? == 0 {
-                "admin"
-            } else {
-                "user"
-            };
-            users::create(pool, &email, profile.name.as_deref(), None, role, None).await?
+            let bootstrap = users::count(pool).await? == 0;
+            if !bootstrap
+                && !matches!(
+                    state.settings.registration_mode,
+                    rustss_core::config::RegistrationMode::Open
+                )
+            {
+                return Err(AppError::Validation(
+                    "New account registration is not open on this instance. Ask an administrator for an invitation and create a local account first."
+                        .into(),
+                ));
+            }
+            let role = if bootstrap { "admin" } else { "user" };
+            users::create_with_default_feeds(
+                pool,
+                &email,
+                profile.name.as_deref(),
+                None,
+                role,
+                None,
+            )
+            .await?
         }
     };
 

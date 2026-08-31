@@ -42,7 +42,7 @@ rustss-web = { path = "crates/web" }
 
 # runtime / web
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time"] }
-axum = "0.8"
+axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "compression-gzip", "timeout", "catch-panic"] }
 
@@ -53,7 +53,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # configuration
-figment = { version = "0.10", features = ["env"] }
+figment = { version = "0.10", features = ["env", "toml"] }
 dotenvy = "0.15"
 
 # database
@@ -68,7 +68,8 @@ sqlx = { version = "0.8", default-features = false, features = [
     "json",
 ] }
 uuid = { version = "1", features = ["v7", "serde"] }
-time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+time-tz = "2.0"
 sha2 = "0.10"
 
 # cache
@@ -82,25 +83,38 @@ axum-extra = { version = "0.10", features = ["cookie"] }
 askama = "0.12"
 base64 = "0.22"
 rust-embed = { version = "8", features = ["debug-embed"] }
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 ammonia = "4"
+html-escape = "0.2"
+htmd = "0.5.5"
+pulldown-cmark = "0.13.4"
 
 # HTTP client (feeds, extraction, OAuth, LLM) — rustls, no OpenSSL
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "brotli", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip", "brotli", "stream", "socks"] }
 
 # feeds / extraction
 feed-rs = "2"
 url = "2"
+ipnet = "2"
+md5 = "0.7"
+regex = "1.11"
 scraper = "0.20"
+lol_html = "3"
+dom_smoothie = "0.18.0"
+chromiumoxide = "0.9.1"
+fastembed = { version = "6.0.2", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
 
 # crypto (secrets at rest)
 chacha20poly1305 = "0.10"
 hkdf = "0.12"
+hmac = "0.12"
 
 # observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
+sd-notify = "0.5"
 
 [profile.release]
 # Optimize for the low-footprint, self-hosted target.

@@ -1,8 +1,8 @@
 # RustSS — Product Requirements Document
 
-**Status:** Draft for review
+**Status:** Living specification — v1 release candidate; expanded parity 65/67
 **Version:** 0.1.0
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-31
 **Owners:** Platform team
 **Supersedes:** `neureed` (Next.js 16 / TypeScript reference implementation)
 
@@ -16,6 +16,11 @@ The reimplementation exists to deliver the same (and eventually a superset of th
 
 This is **not** a rewrite for its own sake. The reference implementation is feature-rich and battle-tested; its **data model and algorithms are the source of truth** for behavior. RustSS preserves that behavior while fixing a set of known deficiencies (documented in §9) and re-architecting the runtime for performance and operability.
 
+Broader ecosystem parity with Miniflux is tracked as a living, testable product
+program in [`docs/MINIFLUX_PARITY.md`](MINIFLUX_PARITY.md). That tracker is the
+source of truth for parity status and customization acceptance criteria; this PRD
+continues to define RustSS-specific architecture, priorities, and invariants.
+
 ### 1.1 Product one-liner
 
 > Your RSS reader, but it actually understands what you read — and it runs as a single fast binary you own.
@@ -24,7 +29,7 @@ This is **not** a rewrite for its own sake. The reference implementation is feat
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| UI delivery | **Server-rendered HTML + HTMX** (Askama templates, HTMX, Alpine.js, Tailwind) | Lowest memory, fast first paint, all-Rust, progressive enhancement, ideal for self-hosting |
+| UI delivery | **Server-rendered Askama HTML + embedded CSS and dependency-free progressive JavaScript** | Lowest memory, fast first paint, no SPA/runtime asset service, progressive enhancement, ideal for self-hosting |
 | Infra footprint | **Full**: PostgreSQL + Redis + headless Chromium | Best extraction coverage and multi-instance caching; matches an "own your server" audience willing to run a compose stack |
 | Authentication | **OAuth + local accounts** | Google/GitHub/Generic OAuth2 *and* email/password (Argon2), so self-hosters without OAuth apps can still run it |
 | v1 milestone | **Feature parity first** | Reproduce current capabilities, then pursue the backlog. Clear success criteria, lower risk |
@@ -44,7 +49,7 @@ This is **not** a rewrite for its own sake. The reference implementation is feat
 
 ### 2.2 Non-Goals (v1)
 
-- Reproducing the Next.js SPA's exact micro-interactions 1:1 (the HTMX UI is functionally equivalent, not pixel-identical).
+- Reproducing the Next.js SPA's exact micro-interactions 1:1 (the server-rendered UI is functionally equivalent, not pixel-identical).
 - A public multi-tenant SaaS with billing/quotas (the target is self-hosted, small-to-medium user counts — think 1–500 users per instance).
 - A native mobile app (the web UI is responsive/mobile-friendly; native apps are out of scope).
 - Real-time collaborative features.
@@ -75,7 +80,7 @@ The following flows must be supported end-to-end. Each maps to concrete features
 
 ### 4.2 Add & organize feeds
 1. User adds a feed by URL → system validates (SSRF-safe), dedupes by normalized URL (creates the shared feed only if new), subscribes the user.
-2. User organizes subscriptions into **personal categories** (collapsible, reorderable, nestable), assigns tags, sets per-feed/per-category overrides (refresh interval, retention, extraction method).
+2. User organizes subscriptions into **personal categories** (collapsible, reorderable, nestable), assigns tags, and chooses whether their subscription reads the always-stored RSS body or a shared public-page copy with a finite or infinite lifetime.
 3. User imports/exports **OPML** (with category preservation).
 
 ### 4.3 Read & give feedback
@@ -114,13 +119,14 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 ### 5.2 Feeds & Subscriptions
 - **FR-FEED-1 (P0):** Add feed by URL with validation and **SSRF protection** (block localhost, private/link-local IPv4/IPv6, non-http(s)); dedupe by **normalized URL** so the underlying feed is shared across users.
 - **FR-FEED-2 (P0):** Parse RSS 2.0/1.0, Atom, and JSON Feed.
-- **FR-FEED-3 (P0):** Per-user subscription with `customName`, `tags`, and settings overrides.
+- **FR-FEED-3 (P0):** Per-user subscription with `customName`, `tags`, and settings overrides, including the user's content-source choice and public-page content lifetime (finite or infinite).
 - **FR-FEED-4 (P0):** Personal categories: create/rename/delete, **hierarchy (parent/child)**, ordering, collapse state persisted, per-category settings.
 - **FR-FEED-5 (P0):** Bulk operations across selected feeds: set category, edit tags (add/remove/replace), update settings, enable/disable, delete, refresh — with **partial-failure tolerance** and per-user authorization checks.
 - **FR-FEED-6 (P0):** OPML 2.0 import (auto-create categories, dedupe feeds) and export (grouped by category).
 - **FR-FEED-7 (P0):** Feed **health tracking**: states `healthy | warning | error | disabled`, consecutive-failure counting, structured per-error audit log, manual enable/disable/reset, optional error notifications, daily checks after three unresolved failures, and weekly checks after 14 failing days. `disabled` is a manual pause rather than an automatic terminal transition.
 - **FR-FEED-8 (P1):** OPML import with explicit **category selection** and correct category import (fixes a known reference bug).
 - **FR-FEED-9 (P0):** Admin-curated feed magazine: editorial title/description, country/category/language facets, featured/order/publish controls, live shared-feed stats (post count, RSS body depth, posting cadence, latest post), and idempotent multi-select subscriptions. Catalog membership never restricts custom URL subscriptions.
+- **FR-FEED-10 (P1):** Preserve multiple ordered RSS/Atom/JSON Feed and Media RSS attachments once per shared article. Readers choose on-demand, metadata-preload, or links-only behavior and allowed inline audio/video/image players; autoplay is never enabled.
 
 ### 5.3 Feed Refresh (background)
 - **FR-REFRESH-1 (P0):** Scheduled refresh of all due feeds; a feed is refreshed **once per cycle** regardless of how many users subscribe.
@@ -133,11 +139,13 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 
 ### 5.4 Content Extraction
 - **FR-EXTRACT-1 (P0):** Full-text extraction via a **Readability** strategy; **headless-Chromium** strategy for JS-rendered pages (full infra), selected per-feed with a fallback chain.
-- **FR-EXTRACT-2 (P0):** Extraction happens **only for new (deduped) articles** and **once per shared article** (never per user).
+- **FR-EXTRACT-2 (P0):** RSS content is always sanitized and stored. Public-page extraction runs **once per shared article version** whenever at least one subscriber requests it (never once per user); an expired or missing copy may be re-extracted.
 - **FR-EXTRACT-3 (P0):** Per-**domain** rate limiting with configurable base delay (default 3s), robots.txt `Crawl-delay` support, and adaptive `429` backoff (10s→30s→60s→120s honoring `Retry-After`).
-- **FR-EXTRACT-4 (P0):** Shared per-feed content source policy: RSS-only, or anonymous public article-page extraction with RSS fallback on failure (optional CSS selector, robots policy, delay, and refresh controls). RustSS does not store publisher credentials, send custom authentication headers, or bypass access controls. A feed administrator can explicitly choose whether public extraction respects robots.txt.
+- **FR-EXTRACT-4 (P0):** The content choice is owned by each subscription: RSS, or public article-page content with RSS fallback. If any subscriber requests a public page, RustSS stores one shared copy; the longest requested lifetime wins, and infinite is supported. Administrators control shared acquisition mechanics (selector, rewrite rules, robots policy, delay, and refresh controls). An explicitly assigned, host/path-pinned shared profile may contain an encrypted authorized cookie, outbound proxy, or expiring self-signed-certificate exception; ordinary users cannot create variants, and profiles must never bypass paywalls or access controls.
+- **FR-EXTRACT-7 (P0):** Opening an article whose requested public-page copy is missing or expired immediately enqueues one deduplicated extraction job. The request returns stored RSS content without waiting, and enhanced clients poll briefly so the public page replaces it as soon as it is available.
 - **FR-EXTRACT-5 (P0):** **SSRF protection on all extraction and robots.txt fetches** (fixes a known reference gap — see §9). HTML output is sanitized before storage/render.
-- **FR-EXTRACT-6 (P2):** Rewrite bare-text URLs into links; embed YouTube; media enrichment (backlog).
+- **FR-EXTRACT-6 (P0):** Privacy-enhanced, on-demand YouTube embeds preserve linked start times and expose explicit load, ready/error, unload, and reload states in every reader mode. User/subscription controls affect rendering only; no player request occurs before consent, removing the iframe immediately ends its presence in the article, and the no-referrer publisher link remains available. A validated named Invidious-compatible alternative and disabled-by-default, budgeted shared duration enrichment are implemented; bare-text URL rewriting remains backlog.
+- **FR-EXTRACT-8 (P1):** Administrators may apply ordered, named, enabled/disabled CSS-selector removal or bounded text-replacement rules once per shared source. Preview, immutable version history, restore-as-new-version, sanitizer-after-rewrite, and a deduplicated source rebuild are required. Personal include/exclude regex filters are stored on subscriptions and must never delete shared articles.
 
 ### 5.5 Embeddings & Semantic Search
 - **FR-EMB-1 (P0):** Generate embeddings via **local ONNX model** (BGE-small-en-v1.5, 384-dim) or **OpenAI-compatible API** (e.g., `text-embedding-3-small`, 1536-dim).
@@ -180,7 +188,9 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-UX-3 (P0):** Preferences applied server-side to rendered pages (theme/typography) and persisted.
 - **FR-UX-4 (P1):** "Seen" state (card viewed) distinct from "read".
 - **FR-UX-5 (P0):** Configurable keyboard shortcuts with server-side conflict validation, safe editable-control/IME/modifier guards, and an easy preference capture/reset UI. Default commands cover next/previous article, save for later, mark unread, and next/previous feed.
-- **FR-UX-6 (P2):** Touch gestures, configurable date formats, ADHD-friendly reading formatting, and i18n/language switcher — backlog.
+- **FR-UX-6 (P2):** Optional bounded touch article navigation, 20 selectable locale profiles, fallback locale, IANA time zone, date/number formats, language metadata, RTL direction, and localized primary navigation/reader actions are implemented. Complete localization of feature/admin/validation/notification/accessibility copy and ADHD-friendly reading formatting remain backlog.
+- **FR-UX-7 (P0):** Installable home-screen/desktop experience with an instance-branded web manifest, standalone display, application shortcuts, and a discoverable browser-native install flow. A service worker may cache only public versioned application assets; authenticated pages, articles, APIs, and publisher content remain network-only until offline reading is explicitly designed.
+- **FR-UX-8 (P1):** Users can publish an individual stored article through a revocable, rotatable bearer link with bounded or explicitly infinite lifetime and controls for title, metadata, clean source link, content source, and external images. The public request exposes no account/reading state, never triggers fetch/extract/enrichment, and falls back from an unavailable public-page copy to the always-stored RSS body.
 
 ### 5.11 Admin & Operations
 - **FR-ADM-1 (P0):** Admin dashboard: system stats for users, shared feeds, articles, catalog entries, active jobs, and durable AI costs; links to management surfaces.
@@ -188,7 +198,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-ADM-3 (P0):** System configuration: embedding provider + auto-generate, LLM system credentials/models, provider enable/disable, new-user default preferences, and **min/max constraints** for user settings.
 - **FR-ADM-4 (P0):** User management: list users and change admin/user roles with CSRF protection, self-demotion prevention, and last-admin protection. Resetting another user's learned data remains backlog.
 - **FR-ADM-5 (P0):** Maintenance actions: cache clear, Postgres `VACUUM/ANALYZE`, delete/regenerate embeddings, cleanup old articles.
-- **FR-ADM-6 (P1):** Storage/cost visibility with cleanup/compaction actions; installation/version info; application log viewer (backlog-aligned).
+- **FR-ADM-6 (P1):** Storage/cost visibility, cleanup/compaction actions, live worker/lane/queue state, recent completions, wide sanitized application/agent/feed errors, and bounded retry/recovery controls are implemented. Rich installation/version presentation remains optional polish.
 
 ### 5.12 Background Jobs / Agents
 - **FR-JOB-1 (P0):** Scheduled agents: **feed refresh** and **cleanup** (retention) run on cron; **pattern decay**, **embedding backfill**, and **saved-search matching** are available as scheduled and/or on-demand agents.
@@ -202,7 +212,13 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-API-3 (P0):** `/api/health` liveness/readiness endpoint (checks DB, and reports optional-dependency status).
 - **FR-API-4 (P1):** A safe **proxy** endpoint for images/media to avoid mixed-content and leaking the reader's IP, with SSRF protection.
 - **FR-API-5 (P1) — Open-standard client API (GReader):** Expose a **Google Reader API (GReader)-compatible** endpoint surface so existing third-party RSS clients (Reeder, FeedMe, FocusReader, NetNewsWire, etc.) can connect out of the box. RustSS's own API can be new/clean; the GReader layer is an adapter on top of the same services. Scope: `ClientLogin` token auth + write token (`T`), `subscription/list` & `subscription/edit`, `tag/list`, `stream/contents` & `stream/items/ids` & `stream/items/contents`, `edit-tag` (read/star/like state), `mark-all-as-read`, and `user-info`. Reads map to shared articles; read/star/tag state maps to the per-user tables. (See Architecture §9.1.) *Rationale: interoperability with the established self-hosted ecosystem, as used by FreshRSS/Miniflux.*
-- **FR-API-6 (P2):** Additional client-compat layer (Fever API) if demand warrants — backlog.
+- **FR-API-6 (P2):** A JSON-only Fever compatibility adapter reuses the same tenant-scoped repositories for groups, feeds, favicons, items, unread/saved IDs, and read/save mutations; credential and full client-sequence replay tests are required.
+
+### 5.14 Ecosystem, Automation & Authentication
+- **FR-ECO-1 (P1):** Users can create multiple named article/event destinations with a default, templates, tags, event filters, encrypted rotatable credentials, test delivery, bounded rate/retry policy, pause/dead-letter, and visible history. Webhook payloads are versioned and may use exact-body HMAC-SHA256 signatures. Provider failures never block reading.
+- **FR-ECO-2 (P1):** The provider catalog contains at least 25 save/notification targets, but a provider is described as turnkey only after its exact endpoint, authentication, request schema, and failure contract have automated tests. Generic JSON-compatible targets remain useful without overstating service-specific support.
+- **FR-AUTH-6 (P1):** Optional WebAuthn passkeys use a validated HTTPS relying-party origin, one-use bounded ceremonies, multiple named public credentials, passwordless login, authenticator counter updates, recent-auth enrollment/revocation, and a last-method recovery guard. No biometric material is stored.
+- **FR-UX-9 (P1):** Personal CSS and administrator-managed JavaScript are independently gated, bounded, versioned, restorable, and recoverable through a direct Safe Mode. JavaScript is a same-origin external asset requiring per-user opt-in; neither feature may weaken the no-inline CSP.
 
 ---
 
@@ -229,6 +245,7 @@ This is the defining architectural constraint and is called out separately becau
 - **FR-DEDUP-4:** Per-user reads/feedback/scores MUST be isolated and MUST NOT leak across users.
 - **FR-DEDUP-5:** Deleting a subscription MUST NOT delete shared content still referenced by others; shared content is reclaimed only by retention/cleanup policy.
 - **FR-DEDUP-6:** Caching keys MUST separate shared derivations (keyed by article/feed) from per-user derivations (keyed by user+entity) to maximize cross-user cache reuse.
+- **FR-DEDUP-7:** Per-user content preferences MUST aggregate into one shared public-page acquisition. One subscriber requesting a public page must never create a private article copy or duplicate the network/extraction work.
 
 **Success metric:** For a feed shared by *N* users, network fetches, extraction runs, embedding computations, and summary generations per refresh cycle are **O(1)**, not **O(N)**.
 
@@ -288,20 +305,27 @@ Targets assume a modest host (≈2 vCPU / 2 GB RAM) with Postgres+Redis local, u
 
 ### 7.8 Accessibility & i18n
 - WCAG-minded UI: keyboard navigable, ARIA on interactive components, reduced-motion support, sufficient contrast across themes.
-- i18n-ready structure (message catalogs) even if only English ships in v1.
+- Twenty locale/format profiles and initial message catalogs ship in v1; complete feature/admin/validation/notification/accessibility translation coverage remains a tracked parity gate rather than an implicit claim.
 
 ---
 
 ## 8. Feature Scope by Milestone
 
+Implementation is active rather than awaiting design approval. The
+evidence-backed milestone status is maintained in
+[`docs/DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md); broader Miniflux compatibility
+is maintained separately in [`docs/MINIFLUX_PARITY.md`](MINIFLUX_PARITY.md).
+Requirements below remain completion criteria even when a usable baseline is
+already present.
+
 ### 8.1 v1 — Parity (P0)
 All P0 requirements in §5, the multi-user dedup guarantees in §6, and the NFR targets in §7. Concretely: accounts (OAuth + local), feeds/subscriptions/categories/OPML/health/bulk-ops, refresh with conditional GET + dedup, extraction (Readability + Chromium) with rate limiting + SSRF, embeddings (local + OpenAI, **one model per instance** with a safe fixed-dimension store), semantic/related search, personalization, saved searches, LLM summarization with **durable cost tracking**, notifications, full reading UI + preferences, admin dashboard, background agents with locking + run history, and the HTTP API.
 
 ### 8.2 v1.1 — Parity+ (P1)
-Registration controls; OPML category selection/fix; hybrid search; "seen" state; batched health notifications; **bookmarks/favorites** + retention preservation; storage/cost admin views; media proxy.
+Registration controls, hybrid search, batched health notifications, **bookmarks/favorites** + retention preservation, storage/cost admin views, media proxy, public sharing, client APIs, passkeys, UI customization, and integration/webhook infrastructure landed early. A distinct "seen" state and the two partial Miniflux rows remain.
 
 ### 8.3 v2 — Backlog (P2)
-News **clustering + LLM cluster digests**; ADHD-friendly reading formatting; **i18n**/language switcher; touch gestures; configurable date formats; auto-link bare URLs; YouTube embeds; installation/version + log viewer; advanced OPML.
+News **clustering + LLM cluster digests**; ADHD-friendly reading formatting; complete translated-string coverage and translator workflow; exact adapters for the remaining hosted integration providers; auto-link bare URLs; richer installation/version presentation.
 
 ---
 
@@ -353,7 +377,7 @@ RustSS explicitly corrects these behaviors discovered during analysis of `neuree
 ### 12.2 Still open
 1. **Digest delivery (v2):** in-app only, or also email? (Affects whether we add an SMTP dependency.)
 2. **Local model choice/default:** confirm BGE-small-en-v1.5 (384-dim) as the shipped default vs. an alternative (e.g., `all-MiniLM-L6-v2`); both are fastembed-supported.
-3. **GReader auth mapping:** map GReader `ClientLogin` to local-account credentials only, or also mint app-specific tokens for OAuth users? (Leaning app-specific tokens.)
+3. **GReader auth mapping — resolved:** `ClientLogin` accepts local-account credentials or an existing revocable app API token. OAuth-only users create an app token from Account settings; successful local login mints the same token class. GReader never receives or stores OAuth provider credentials.
 
 ---
 

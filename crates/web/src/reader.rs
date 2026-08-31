@@ -5,17 +5,26 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use askama::Template;
 use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderValue};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_core::feed_content::{FeedContentMode, FeedContentSettings};
-use rustss_core::html::sanitize_article_html;
+use rustss_core::feed_content::{
+    FeedContentMode, SubscriptionContentSettings, SubscriptionEnclosureDelivery,
+    SubscriptionEnclosureLoad, SubscriptionEnclosureSettings,
+};
+use rustss_core::html::{
+    apply_external_link_navigation, sanitize_article_html_with_policies,
+    ARTICLE_PAGE_PROCESSING_VERSION,
+};
+use rustss_core::youtube::{SubscriptionYouTubeMode, YouTubePolicy, YouTubeVideo};
 use rustss_db::{
     articles, bookmarks, categories, feed_icons, feedback, feeds, jobs, patterns, read_articles,
-    subscriptions,
+    subscriptions, youtube_metadata,
 };
 use rustss_search::personalize;
 use rustss_search::{extract_keywords, relevance_score, ExplicitFeedback};
@@ -25,6 +34,7 @@ use crate::auth::extractor::AuthUser;
 use crate::error::AppError;
 use crate::extract::Ajax;
 use crate::prefs;
+use crate::public_shares::{self, ShareControls};
 use crate::state::AppState;
 
 /// Candidate window scored when sorting by relevance.
@@ -34,6 +44,7 @@ const BOUNCE_THRESHOLD: f64 = 0.25;
 
 struct ArticleView {
     id: String,
+    feed_id: String,
     title: String,
     excerpt: Option<String>,
     image_url: Option<String>,
@@ -49,6 +60,35 @@ struct ArticleView {
 }
 
 #[derive(Clone)]
+struct EnclosureView {
+    title: String,
+    url: String,
+    open_url: String,
+    details: Option<String>,
+    is_audio: bool,
+    is_video: bool,
+    is_image: bool,
+    can_embed: bool,
+    load_on_demand: bool,
+    show_direct_link: bool,
+    publisher_url: String,
+    show_publisher_link: bool,
+    proxied: bool,
+}
+
+#[derive(Clone)]
+struct YouTubeView {
+    title: String,
+    player_name: String,
+    watch_url: String,
+    start_label: Option<String>,
+    duration_label: Option<String>,
+    embed_url: Option<String>,
+    autoplay: bool,
+    referrer_policy: String,
+}
+
+#[derive(Clone)]
 struct FeedNav {
     id: String,
     name: String,
@@ -56,13 +96,19 @@ struct FeedNav {
     has_icon: bool,
     active: bool,
     href: String,
+    folder_id: String,
+    tags_input: String,
+    content_mode: String,
+    content_lifetime: String,
 }
 
 struct FolderNav {
+    id: String,
     name: String,
     depth: usize,
     feed_count: i64,
     active: bool,
+    collapsed: bool,
     href: String,
     feeds: Vec<FeedNav>,
 }
@@ -112,6 +158,7 @@ struct ArticlesTemplate {
     has_next: bool,
     prev_url: String,
     next_url: String,
+    filtered_count: usize,
 }
 
 #[derive(Template)]
@@ -126,11 +173,19 @@ struct ArticleTemplate {
     title: String,
     feed_name: String,
     url: Option<String>,
+    url_label: String,
+    alternate_url: Option<String>,
+    alternate_url_label: String,
+    live_view_url: Option<String>,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
+    enclosures: Vec<EnclosureView>,
+    youtube_videos: Vec<YouTubeView>,
     content: String, // sanitized HTML
     content_notice: Option<String>,
+    content_pending: bool,
+    blocked_tracking_pixels: Option<u32>,
     is_read: bool,
     is_bookmarked: bool,
     is_liked: bool,
@@ -139,21 +194,32 @@ struct ArticleTemplate {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    external_new_tab: bool,
+    share: ShareControls,
 }
 
 #[derive(Template)]
 #[template(path = "article_panel.html")]
 struct ArticlePanelTemplate {
     csrf_token: String,
+    ui: prefs::Preferences,
     id: String,
     title: String,
     feed_name: String,
     url: Option<String>,
+    url_label: String,
+    alternate_url: Option<String>,
+    alternate_url_label: String,
+    live_view_url: Option<String>,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
+    enclosures: Vec<EnclosureView>,
+    youtube_videos: Vec<YouTubeView>,
     content: String,
     content_notice: Option<String>,
+    content_pending: bool,
+    blocked_tracking_pixels: Option<u32>,
     is_read: bool,
     is_bookmarked: bool,
     is_liked: bool,
@@ -162,6 +228,8 @@ struct ArticlePanelTemplate {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    external_new_tab: bool,
+    share: ShareControls,
 }
 
 struct ReaderView {
@@ -169,11 +237,19 @@ struct ReaderView {
     title: String,
     feed_name: String,
     url: Option<String>,
+    url_label: String,
+    alternate_url: Option<String>,
+    alternate_url_label: String,
+    live_view_url: Option<String>,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
+    enclosures: Vec<EnclosureView>,
+    youtube_videos: Vec<YouTubeView>,
     content: String,
     content_notice: Option<String>,
+    content_pending: bool,
+    blocked_tracking_pixels: Option<u32>,
     is_read: bool,
     is_bookmarked: bool,
     is_liked: bool,
@@ -182,6 +258,127 @@ struct ReaderView {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    external_new_tab: bool,
+    share: ShareControls,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ContentAvailability {
+    Ready,
+    Pending,
+    Failed,
+}
+
+impl ContentAvailability {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Pending => "pending",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+async fn enqueue_article_page_on_access(
+    state: &AppState,
+    article: &rustss_db::Article,
+) -> Result<(), AppError> {
+    let dedup = format!("extract:{}:{}", article.id, article.content_revision);
+    jobs::enqueue(
+        state.db.pool(),
+        "extract_content",
+        serde_json::json!({
+            "article_id": article.id,
+            "content_revision": article.content_revision,
+        }),
+        Some(&dedup),
+        None,
+        3,
+    )
+    .await?;
+    Ok(())
+}
+
+async fn selected_content(
+    state: &AppState,
+    user_id: Uuid,
+    article: &rustss_db::Article,
+) -> Result<(String, Option<String>, ContentAvailability, u32), AppError> {
+    let settings =
+        subscriptions::content_settings_for_user(state.db.pool(), user_id, article.feed_id)
+            .await?
+            .unwrap_or_default();
+    if settings.mode == FeedContentMode::Rss {
+        return Ok((
+            article
+                .feed_content
+                .clone()
+                .unwrap_or_else(|| article.content.clone()),
+            None,
+            ContentAvailability::Ready,
+            article.feed_blocked_tracking_pixels.max(0) as u32,
+        ));
+    }
+
+    if safe_external_url(Some(&article.url)).is_none() {
+        return Ok((
+            article
+                .feed_content
+                .clone()
+                .unwrap_or_else(|| article.content.clone()),
+            Some(
+                "This feed item has no public article page. Showing its stored feed content and attachments."
+                    .to_string(),
+            ),
+            ContentAvailability::Failed,
+            article.feed_blocked_tracking_pixels.max(0) as u32,
+        ));
+    }
+
+    let current = article.article_page_content.is_some()
+        && article.article_page_processing_version >= ARTICLE_PAGE_PROCESSING_VERSION
+        && article
+            .article_page_expires_at
+            .is_none_or(|expires_at| expires_at > OffsetDateTime::now_utc());
+    if current {
+        return Ok((
+            article.article_page_content.clone().unwrap_or_default(),
+            None,
+            ContentAvailability::Ready,
+            article.article_page_blocked_tracking_pixels.max(0) as u32,
+        ));
+    }
+
+    if article.extraction_status == "failed"
+        && article.updated_at > OffsetDateTime::now_utc() - Duration::minutes(15)
+    {
+        return Ok((
+            article
+                .feed_content
+                .clone()
+                .unwrap_or_else(|| article.content.clone()),
+            Some(
+                "The public page could not be updated recently. Showing the stored RSS content; RustSS will retry on a later access."
+                    .to_string(),
+            ),
+            ContentAvailability::Failed,
+            article.feed_blocked_tracking_pixels.max(0) as u32,
+        ));
+    }
+
+    enqueue_article_page_on_access(state, article).await?;
+    Ok((
+        article
+            .feed_content
+            .clone()
+            .unwrap_or_else(|| article.content.clone()),
+        Some(
+            "The requested public-page content is being updated now. Showing the stored RSS content in the meantime."
+                .to_string(),
+        ),
+        ContentAvailability::Pending,
+        article.feed_blocked_tracking_pixels.max(0) as u32,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -349,10 +546,12 @@ fn append_folder_nav(
         }
         let category_id = category.id;
         output.push(FolderNav {
+            id: category_id.to_string(),
             name: category.name,
             depth,
             feed_count: category.feed_count,
             active: Some(category_id) == context.selected,
+            collapsed: category.collapsed,
             href: articles_url(
                 None,
                 Some(category_id),
@@ -407,10 +606,12 @@ fn folder_nav(
         if seen.insert(category.id) {
             let category_id = category.id;
             output.push(FolderNav {
+                id: category_id.to_string(),
                 name: category.name,
                 depth: 0,
                 feed_count: category.feed_count,
                 active: Some(category_id) == context.selected,
+                collapsed: category.collapsed,
                 href: articles_url(
                     None,
                     Some(category_id),
@@ -464,10 +665,28 @@ pub async fn list(
         unfiled,
         tag: tag.as_deref(),
     };
-    let (article_views, has_next) = if sort == "relevance" {
-        relevance_page(&state, user.id, filter, unread_only, per_page, offset).await?
+    let (article_views, has_next, filtered_count) = if sort == "relevance" {
+        relevance_page(
+            &state,
+            &prefs,
+            user.id,
+            filter,
+            unread_only,
+            per_page,
+            offset,
+        )
+        .await?
     } else {
-        recency_page(&state, user.id, filter, unread_only, per_page, offset).await?
+        recency_page(
+            &state,
+            &prefs,
+            user.id,
+            filter,
+            unread_only,
+            per_page,
+            offset,
+        )
+        .await?
     };
 
     let (feed_records, category_records, tag_records, organizations) = tokio::try_join!(
@@ -504,14 +723,33 @@ pub async fn list(
     let mut unfiled_feeds = Vec::new();
     for feed in feed_records {
         let organization = organizations.get(&feed.id);
+        let display_name = organization
+            .and_then(|organization| organization.custom_name.as_deref())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(&feed.name)
+            .to_string();
+        let content_settings = organization
+            .map(|organization| {
+                SubscriptionContentSettings::from_json(organization.settings.as_ref())
+            })
+            .unwrap_or_default();
         let id = feed.id;
         let nav = FeedNav {
             id: id.to_string(),
-            initial: feed_initial(&feed.name),
+            initial: feed_initial(&display_name),
             has_icon: icon_ids.contains(&id),
             active: Some(id) == feed_id,
             href: articles_url(Some(id), None, false, None, unread_param, sort, None),
-            name: feed.name,
+            folder_id: organization
+                .and_then(|organization| organization.category_id)
+                .map(|folder_id| folder_id.to_string())
+                .unwrap_or_default(),
+            tags_input: organization
+                .map(|organization| organization.tags.join(", "))
+                .unwrap_or_default(),
+            content_mode: content_settings.mode.as_str().to_string(),
+            content_lifetime: content_settings.lifetime.form_value(),
+            name: display_name,
         };
         if let Some(folder_id) = organization.and_then(|organization| organization.category_id) {
             feeds_by_folder.entry(folder_id).or_default().push(nav);
@@ -627,43 +865,54 @@ pub async fn list(
             sort,
             Some(offset + per_page),
         ),
+        filtered_count,
     }
     .render()
     .map(Html)
     .map_err(|e| AppError::Internal(anyhow::anyhow!("template render failed: {e}")))?;
 
-    Ok((jar, body).into_response())
+    let mut response = (jar, body).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    Ok(response)
 }
 
 /// Recency-ordered page (newest first), fetching one extra row for `has_next`.
 async fn recency_page(
     state: &AppState,
+    preferences: &prefs::Preferences,
     user_id: Uuid,
     filter: articles::LibraryFilter<'_>,
     unread_only: bool,
     per_page: i64,
     offset: i64,
-) -> Result<(Vec<ArticleView>, bool), AppError> {
+) -> Result<(Vec<ArticleView>, bool, usize), AppError> {
     let mut items = articles::list_for_user(
         state.db.pool(),
         user_id,
         filter,
         unread_only,
-        per_page + 1,
+        (per_page * 5 + 1).min(501),
         offset,
     )
     .await?;
-    let has_next = items.len() as i64 > per_page;
+    let before = items.len();
+    items.retain(article_passes_personal_filters);
+    let filtered_count = before.saturating_sub(items.len());
+    let has_next = items.len() as i64 > per_page || before as i64 > per_page * 5;
     items.truncate(per_page as usize);
     let views = items
         .into_iter()
         .map(|a| ArticleView {
             id: a.id.to_string(),
+            feed_id: a.feed_id.to_string(),
             title: a.title,
             excerpt: a.excerpt,
             image_url: safe_external_url(a.image_url.as_deref()),
             feed_name: a.feed_name,
-            published: a.published_at.map(|d| d.date().to_string()),
+            published: a.published_at.map(|date| preferences.format_date(date)),
             is_read: a.is_read,
             is_bookmarked: a.is_bookmarked,
             has_summary: a.has_summary,
@@ -673,20 +922,21 @@ async fn recency_page(
             score: None,
         })
         .collect();
-    Ok((views, has_next))
+    Ok((views, has_next, filtered_count))
 }
 
 /// Relevance-ranked page: score a recent candidate window against the user's
 /// patterns (one batched weights lookup), sort by score, then paginate.
 async fn relevance_page(
     state: &AppState,
+    preferences: &prefs::Preferences,
     user_id: Uuid,
     filter: articles::LibraryFilter<'_>,
     unread_only: bool,
     per_page: i64,
     offset: i64,
-) -> Result<(Vec<ArticleView>, bool), AppError> {
-    let candidates = articles::list_for_user(
+) -> Result<(Vec<ArticleView>, bool, usize), AppError> {
+    let mut candidates = articles::list_for_user(
         state.db.pool(),
         user_id,
         filter,
@@ -695,6 +945,9 @@ async fn relevance_page(
         0,
     )
     .await?;
+    let before = candidates.len();
+    candidates.retain(article_passes_personal_filters);
+    let filtered_count = before.saturating_sub(candidates.len());
 
     // Extract keywords per candidate (title + excerpt) and look up all weights
     // in a single query.
@@ -742,11 +995,12 @@ async fn relevance_page(
         .take(per_page as usize)
         .map(|(a, score)| ArticleView {
             id: a.id.to_string(),
+            feed_id: a.feed_id.to_string(),
             title: a.title,
             excerpt: a.excerpt,
             image_url: safe_external_url(a.image_url.as_deref()),
             feed_name: a.feed_name,
-            published: a.published_at.map(|d| d.date().to_string()),
+            published: a.published_at.map(|date| preferences.format_date(date)),
             is_read: a.is_read,
             is_bookmarked: a.is_bookmarked,
             has_summary: a.has_summary,
@@ -756,7 +1010,20 @@ async fn relevance_page(
             score: Some((score.clamp(0.0, 1.0) * 100.0).round() as i64),
         })
         .collect();
-    Ok((views, has_next))
+    Ok((views, has_next, filtered_count))
+}
+
+fn article_passes_personal_filters(article: &articles::ArticleListItem) -> bool {
+    let filters =
+        rustss_core::content_rules::entry_filters_from_json(article.subscription_settings.as_ref());
+    rustss_core::content_rules::entry_is_visible(
+        &article.title,
+        article.excerpt.as_deref().unwrap_or_default(),
+        article.author.as_deref(),
+        &article.url,
+        &filters,
+    )
+    .unwrap_or(false)
 }
 
 /// `POST /articles/{id}/feedback` — explicit 👍/👎 or an implicit reading signal.
@@ -822,6 +1089,244 @@ fn estimate_reading_seconds(content: &str) -> f64 {
     words / 200.0 * 60.0
 }
 
+fn enclosure_mime_is_safe(kind: &str, mime_type: Option<&str>, enclosure_url: &str) -> bool {
+    let inferred_extension = || {
+        url::Url::parse(enclosure_url)
+            .ok()
+            .and_then(|url| {
+                url.path_segments()
+                    .and_then(Iterator::last)
+                    .and_then(|name| {
+                        name.rsplit_once('.')
+                            .map(|(_, extension)| extension.to_owned())
+                    })
+            })
+            .map(|extension| extension.to_ascii_lowercase())
+    };
+    let Some(mime_type) = mime_type else {
+        return matches!(
+            (kind, inferred_extension().as_deref()),
+            (
+                "audio",
+                Some("aac" | "flac" | "m4a" | "mp3" | "oga" | "ogg" | "opus" | "wav")
+            ) | ("video", Some("m4v" | "mov" | "mp4" | "ogv" | "webm"))
+                | (
+                    "image",
+                    Some("avif" | "gif" | "jpeg" | "jpg" | "png" | "webp")
+                )
+        );
+    };
+    match kind {
+        "audio" => matches!(
+            mime_type,
+            "audio/aac"
+                | "audio/flac"
+                | "audio/mp4"
+                | "audio/mpeg"
+                | "audio/ogg"
+                | "audio/opus"
+                | "audio/wav"
+                | "audio/webm"
+                | "audio/x-wav"
+                | "application/ogg"
+        ),
+        "video" => matches!(
+            mime_type,
+            "video/mp4" | "video/ogg" | "video/quicktime" | "video/webm"
+        ),
+        "image" => matches!(
+            mime_type,
+            "image/avif" | "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+        ),
+        _ => false,
+    }
+}
+
+fn enclosure_size(size_bytes: i64) -> String {
+    const KIB: f64 = 1_024.0;
+    const MIB: f64 = KIB * 1_024.0;
+    const GIB: f64 = MIB * 1_024.0;
+    let bytes = size_bytes as f64;
+    if bytes >= GIB {
+        format!("{:.1} GB", bytes / GIB)
+    } else if bytes >= MIB {
+        format!("{:.1} MB", bytes / MIB)
+    } else if bytes >= KIB {
+        format!("{:.1} KB", bytes / KIB)
+    } else {
+        format!("{size_bytes} B")
+    }
+}
+
+fn enclosure_duration(seconds: i64) -> String {
+    let hours = seconds / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    let seconds = seconds % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+fn enclosure_views(
+    article_id: Uuid,
+    stored: Vec<rustss_db::ArticleEnclosure>,
+    preferences: &prefs::Preferences,
+    media_proxy_enabled: bool,
+    delivery_mode: &str,
+    load_mode: &str,
+    extra_inline_mime_types: &[String],
+) -> Vec<EnclosureView> {
+    stored
+        .into_iter()
+        .filter_map(|enclosure| {
+            let publisher_url = safe_external_url(Some(&enclosure.url))?;
+            let proxied = media_proxy_enabled
+                && match delivery_mode {
+                    "proxy" => true,
+                    "mixed-content" => publisher_url.starts_with("http://"),
+                    _ => false,
+                };
+            let position = enclosure.position;
+            let url = if proxied {
+                format!("/articles/{article_id}/media/{position}")
+            } else {
+                publisher_url.clone()
+            };
+            let open_url = if proxied {
+                format!("/articles/{article_id}/media/{position}?download=1")
+            } else {
+                publisher_url.clone()
+            };
+            let kind_allowed = preferences
+                .enclosure_player_kinds
+                .iter()
+                .any(|kind| kind == &enclosure.media_kind);
+            let mime_is_safe = enclosure_mime_is_safe(
+                &enclosure.media_kind,
+                enclosure.mime_type.as_deref(),
+                &enclosure.url,
+            ) || enclosure.mime_type.as_deref().is_some_and(|value| {
+                value.starts_with(&format!("{}/", enclosure.media_kind))
+                    && extra_inline_mime_types.iter().any(|extra| extra == value)
+            });
+            let can_embed = load_mode != "links-only" && kind_allowed && mime_is_safe;
+            let fallback_title = match enclosure.media_kind.as_str() {
+                "audio" => "Audio attachment",
+                "video" => "Video attachment",
+                "image" => "Image attachment",
+                _ => "File attachment",
+            };
+            let mut details = Vec::new();
+            if let Some(duration) = enclosure.duration_seconds {
+                details.push(enclosure_duration(duration));
+            }
+            if let Some(size) = enclosure.size_bytes {
+                details.push(enclosure_size(size));
+            }
+            if let Some(mime_type) = enclosure.mime_type.as_deref() {
+                details.push(mime_type.to_string());
+            }
+            Some(EnclosureView {
+                title: enclosure
+                    .title
+                    .filter(|title| !title.trim().is_empty())
+                    .unwrap_or_else(|| fallback_title.to_string()),
+                url,
+                open_url,
+                details: (!details.is_empty()).then(|| details.join(" · ")),
+                is_audio: enclosure.media_kind == "audio",
+                is_video: enclosure.media_kind == "video",
+                is_image: enclosure.media_kind == "image",
+                can_embed,
+                load_on_demand: load_mode == "on-demand",
+                show_direct_link: preferences.enclosure_show_links || !can_embed,
+                publisher_url,
+                show_publisher_link: proxied && preferences.enclosure_show_links,
+                proxied,
+            })
+        })
+        .collect()
+}
+
+fn youtube_views(
+    videos: Vec<YouTubeVideo>,
+    article_title: &str,
+    allow_player: bool,
+    provider: &str,
+    preferences: &prefs::Preferences,
+    policy: &YouTubePolicy,
+    durations: &HashMap<String, i32>,
+) -> Vec<YouTubeView> {
+    let multiple = videos.len() > 1;
+    videos
+        .into_iter()
+        .enumerate()
+        .map(|(index, video)| {
+            let start_seconds = video.start_seconds;
+            YouTubeView {
+                title: if multiple {
+                    format!("YouTube video {} — {article_title}", index + 1)
+                } else {
+                    format!("YouTube video — {article_title}")
+                },
+                player_name: if provider == "alternative" {
+                    policy
+                        .alternative_name()
+                        .unwrap_or("Alternative player")
+                        .to_string()
+                } else {
+                    "YouTube privacy-enhanced player".to_string()
+                },
+                watch_url: video.watch_url,
+                start_label: start_seconds.map(format_timestamp),
+                duration_label: durations.get(&video.id).copied().map(format_duration),
+                embed_url: if allow_player {
+                    policy.embed_url_for(
+                        provider,
+                        &video.id,
+                        start_seconds,
+                        preferences.youtube_autoplay,
+                        &preferences.youtube_captions,
+                    )
+                } else {
+                    None
+                },
+                autoplay: preferences.youtube_autoplay,
+                referrer_policy: if provider == "alternative" {
+                    "no-referrer".to_string()
+                } else {
+                    "strict-origin-when-cross-origin".to_string()
+                },
+            }
+        })
+        .collect()
+}
+
+fn format_duration(seconds: i32) -> String {
+    let seconds = seconds.max(0) as u32;
+    let hours = seconds / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    let seconds = seconds % 60;
+    if hours > 0 {
+        format!("Duration {hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("Duration {minutes}:{seconds:02}")
+    }
+}
+
+fn format_timestamp(seconds: u32) -> String {
+    let hours = seconds / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    let seconds = seconds % 60;
+    if hours > 0 {
+        format!("Starts at {hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("Starts at {minutes}:{seconds:02}")
+    }
+}
+
 /// `POST /articles/{id}/summarize` — enqueue a (deduped) summary job.
 pub async fn summarize(
     State(state): State<AppState>,
@@ -840,11 +1345,19 @@ pub async fn summarize(
         ));
     }
     authorize_action(&state, user.id, id).await?;
-    let dedup = format!("summarize:{id}");
-    jobs::enqueue(
+    let article = articles::find_by_id(state.db.pool(), id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let dedup = summary_dedup(id, article.content_revision);
+    jobs::enqueue_in_lane(
         state.db.pool(),
+        jobs::QueueLane::Interactive,
         "summarize_article",
-        serde_json::json!({ "article_id": id, "user_id": user.id }),
+        serde_json::json!({
+            "article_id": id,
+            "content_revision": article.content_revision,
+            "user_id": user.id
+        }),
         Some(&dedup),
         None,
         3,
@@ -853,11 +1366,69 @@ pub async fn summarize(
     Ok(action_response(is_ajax, form.next))
 }
 
+#[derive(Serialize)]
+pub struct SummaryStatus {
+    state: &'static str,
+    message: &'static str,
+}
+
+/// `GET /articles/{id}/summary/status` — safe, live progress for a shared
+/// revision-scoped summary job. Operational error details remain admin-only.
+pub async fn summary_status(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<axum::Json<SummaryStatus>, AppError> {
+    authorize_action(&state, user.id, id).await?;
+    let article = articles::find_by_id(state.db.pool(), id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if article.summarized_at.is_some() {
+        return Ok(axum::Json(SummaryStatus {
+            state: "ready",
+            message: "AI summary ready.",
+        }));
+    }
+    let dedup = summary_dedup(id, article.content_revision);
+    let status = jobs::latest_by_dedup(state.db.pool(), &dedup).await?;
+    let response = match status {
+        Some(job) if job.status == "running" => SummaryStatus {
+            state: "running",
+            message: "Generating the AI summary now…",
+        },
+        Some(job) if job.status == "pending" && job.attempts > 0 => SummaryStatus {
+            state: "retrying",
+            message: "The first attempt failed. Retrying in the priority queue…",
+        },
+        Some(job) if job.status == "pending" => SummaryStatus {
+            state: "queued",
+            message: "Waiting for a priority worker…",
+        },
+        Some(job) if job.status == "dead" => SummaryStatus {
+            state: "failed",
+            message: "The summary could not be generated. An administrator can see the error details.",
+        },
+        Some(_) => SummaryStatus {
+            state: "failed",
+            message: "The summary finished without usable content. An administrator can see the run details.",
+        },
+        None => SummaryStatus {
+            state: "idle",
+            message: "Ready to generate an AI summary.",
+        },
+    };
+    Ok(axum::Json(response))
+}
+
+fn summary_dedup(id: Uuid, content_revision: i64) -> String {
+    format!("summarize:{id}:{content_revision}")
+}
+
 async fn reader_view(
     state: &AppState,
     user_id: Uuid,
     id: Uuid,
-    auto_mark_read: bool,
+    preferences: &prefs::Preferences,
 ) -> Result<ReaderView, AppError> {
     if !articles::user_can_access(state.db.pool(), user_id, id).await? {
         return Err(AppError::NotFound);
@@ -865,33 +1436,28 @@ async fn reader_view(
     let article = articles::find_by_id(state.db.pool(), id)
         .await?
         .ok_or(AppError::NotFound)?;
-    if auto_mark_read {
+    if preferences.auto_mark_read {
         read_articles::mark_read(state.db.pool(), user_id, id).await?;
     }
 
     let feed = feeds::find_by_id(state.db.pool(), article.feed_id).await?;
-    let feed_name = feed
+    let subscription = subscriptions::find(state.db.pool(), user_id, article.feed_id).await?;
+    let feed_name = subscription
         .as_ref()
-        .map(|feed| feed.name.clone())
+        .and_then(|subscription| subscription.custom_name.clone())
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| feed.as_ref().map(|feed| feed.name.clone()))
         .unwrap_or_default();
-    let content_mode = FeedContentSettings::from_json(
-        feed.as_ref()
-            .and_then(|feed| feed.extraction_settings.as_ref()),
-    )
-    .mode;
-    let content_notice = match (
-        content_mode,
-        article.content_source.as_str(),
-        article.extraction_status.as_str(),
-    ) {
-        (FeedContentMode::ArticlePage, "feed", "none") => Some(
-            "Full article content is queued for this source. Showing feed-provided content until extraction finishes.".to_string(),
-        ),
-        (FeedContentMode::ArticlePage, "feed", "failed") => Some(
-            "Full article content could not be downloaded. Showing the feed-provided fallback.".to_string(),
-        ),
-        _ => None,
-    };
+    let (content, content_notice, content_availability, stored_blocked_tracking_pixels) =
+        selected_content(state, user_id, &article).await?;
+    let content_report = sanitize_article_html_with_policies(
+        &content,
+        &article.url,
+        &state.settings.tracking_url_policy,
+        &state.settings.tracking_pixel_policy,
+    );
+    let blocked_tracking_pixels =
+        stored_blocked_tracking_pixels.saturating_add(content_report.blocked_tracking_pixels);
     let stored_summary = articles::get_summary(state.db.pool(), id).await?;
     let can_summarize = state.settings.summarization_enabled && stored_summary.is_none();
     let (summary, key_points, topics) = match stored_summary {
@@ -902,17 +1468,171 @@ async fn reader_view(
         .await?
         .map(|record| record.feedback_value);
 
+    let canonical_url = state.settings.tracking_url_policy.clean(&article.url);
+    let clean_url = safe_external_url(Some(&canonical_url));
+    let original_url = safe_external_url(Some(&article.original_url));
+    let original_differs = original_url != clean_url;
+    let prefer_original = preferences.external_link_mode == "original";
+    let external_new_tab = state.settings.external_links_new_tab_required
+        || preferences.external_open_mode == "new-tab";
+    let (url, url_label, alternate_url, alternate_url_label) = if prefer_original {
+        (
+            original_url.clone().or_else(|| clean_url.clone()),
+            "Open publisher URL".to_string(),
+            original_differs.then(|| clean_url.clone()).flatten(),
+            "Privacy-clean URL".to_string(),
+        )
+    } else {
+        (
+            clean_url.clone().or_else(|| original_url.clone()),
+            "Open clean link".to_string(),
+            original_differs.then(|| original_url.clone()).flatten(),
+            "Publisher URL".to_string(),
+        )
+    };
+    let live_view_url = clean_url
+        .as_ref()
+        .map(|_| format!("/articles/{id}/live-ticket"));
+    let stored_enclosures = articles::list_enclosures(state.db.pool(), id).await?;
+    let mut youtube_urls = vec![article.url.as_str(), article.original_url.as_str()];
+    youtube_urls.extend(
+        stored_enclosures
+            .iter()
+            .map(|enclosure| enclosure.url.as_str()),
+    );
+    let youtube_mode = subscription
+        .as_ref()
+        .map(|subscription| SubscriptionYouTubeMode::from_json(subscription.settings.as_ref()))
+        .unwrap_or_default();
+    let enclosure_settings = subscription
+        .as_ref()
+        .map(|subscription| {
+            SubscriptionEnclosureSettings::from_json(subscription.settings.as_ref())
+        })
+        .unwrap_or_default();
+    let enclosure_delivery_mode = match enclosure_settings.delivery {
+        SubscriptionEnclosureDelivery::Inherit => preferences.enclosure_delivery_mode.as_str(),
+        SubscriptionEnclosureDelivery::Proxy => "proxy",
+        SubscriptionEnclosureDelivery::MixedContent => "mixed-content",
+        SubscriptionEnclosureDelivery::Direct => "direct",
+    };
+    let enclosure_load_mode = match enclosure_settings.load {
+        SubscriptionEnclosureLoad::Inherit => preferences.enclosure_load_mode.as_str(),
+        SubscriptionEnclosureLoad::OnDemand => "on-demand",
+        SubscriptionEnclosureLoad::Metadata => "metadata",
+        SubscriptionEnclosureLoad::LinksOnly => "links-only",
+    };
+    let preferred_youtube_provider = if preferences.youtube_player_provider == "alternative"
+        && state.settings.youtube_policy.alternative_name().is_some()
+    {
+        "alternative"
+    } else {
+        "privacy"
+    };
+    let (allow_youtube_player, youtube_provider) = match youtube_mode {
+        SubscriptionYouTubeMode::Inherit => (
+            preferences.youtube_player_mode == "privacy",
+            preferred_youtube_provider,
+        ),
+        SubscriptionYouTubeMode::Privacy => (true, "privacy"),
+        SubscriptionYouTubeMode::LinksOnly => (false, "privacy"),
+    };
+    let detected_youtube_videos = state
+        .settings
+        .youtube_policy
+        .videos(youtube_urls, &content_report.html);
+    let video_ids: Vec<_> = detected_youtube_videos
+        .iter()
+        .map(|video| video.id.clone())
+        .collect();
+    let metadata = youtube_metadata::list(state.db.pool(), &video_ids).await?;
+    let now = OffsetDateTime::now_utc();
+    let durations: HashMap<_, _> = metadata
+        .iter()
+        .filter_map(|row| {
+            (row.status == "ready" && row.expires_at > now)
+                .then(|| {
+                    row.duration_secs
+                        .map(|duration| (row.video_id.clone(), duration))
+                })
+                .flatten()
+        })
+        .collect();
+    if state.settings.youtube_duration_enabled {
+        let known: HashMap<_, _> = metadata
+            .into_iter()
+            .map(|row| (row.video_id, row.expires_at))
+            .collect();
+        for video_id in &video_ids {
+            if known
+                .get(video_id)
+                .is_none_or(|expires_at| *expires_at <= now)
+            {
+                youtube_metadata::reserve(state.db.pool(), video_id).await?;
+                let _ = jobs::enqueue(
+                    state.db.pool(),
+                    "youtube_duration",
+                    serde_json::json!({"video_id": video_id}),
+                    Some(&format!("youtube_duration:{video_id}")),
+                    None,
+                    3,
+                )
+                .await?;
+            }
+        }
+    }
+    let youtube_videos = youtube_views(
+        detected_youtube_videos,
+        &article.title,
+        allow_youtube_player,
+        youtube_provider,
+        preferences,
+        &state.settings.youtube_policy,
+        &durations,
+    );
+    let enclosures = enclosure_views(
+        id,
+        stored_enclosures,
+        preferences,
+        state.settings.media_proxy_enabled,
+        enclosure_delivery_mode,
+        enclosure_load_mode,
+        &state.settings.media_proxy_extra_inline_mime_types,
+    );
+    let default_share_source = subscription
+        .as_ref()
+        .map(|subscription| SubscriptionContentSettings::from_json(subscription.settings.as_ref()))
+        .filter(|settings| settings.mode == FeedContentMode::ArticlePage)
+        .map_or("rss", |_| "article_page");
+    let share =
+        public_shares::controls(state, user_id, id, &article.title, default_share_source).await?;
     Ok(ReaderView {
         id: id.to_string(),
         title: article.title,
         feed_name,
         image_url: safe_external_url(article.image_url.as_deref()),
-        url: safe_external_url(Some(&article.url)),
-        comments_url: safe_external_url(article.comments_url.as_deref())
-            .filter(|comments_url| comments_url != &article.url),
-        published: article.published_at.map(|d| d.date().to_string()),
-        content: sanitize_article_html(&article.content, &article.url),
+        enclosures,
+        youtube_videos,
+        url,
+        url_label,
+        alternate_url,
+        alternate_url_label,
+        live_view_url,
+        comments_url: article
+            .comments_url
+            .as_deref()
+            .map(|url| state.settings.tracking_url_policy.clean(url))
+            .and_then(|url| safe_external_url(Some(&url)))
+            .filter(|comments_url| comments_url != &canonical_url),
+        published: article
+            .published_at
+            .map(|date| preferences.format_date(date)),
+        content: apply_external_link_navigation(&content_report.html, external_new_tab),
         content_notice,
+        content_pending: content_availability == ContentAvailability::Pending,
+        blocked_tracking_pixels: (preferences.show_blocked_tracking_notice
+            && blocked_tracking_pixels > 0)
+            .then_some(blocked_tracking_pixels),
         is_read: read_articles::is_read(state.db.pool(), user_id, id).await?,
         is_bookmarked: bookmarks::is_bookmarked(state.db.pool(), user_id, id).await?,
         is_liked: feedback_value.is_some_and(|value| value > 0.0),
@@ -921,6 +1641,8 @@ async fn reader_view(
         key_points,
         topics,
         can_summarize,
+        external_new_tab,
+        share,
     })
 }
 
@@ -933,7 +1655,7 @@ pub async fn read(
 ) -> Result<Response, AppError> {
     let prefs = prefs::load(&state.db, user.id).await;
     let is_admin = user.role == "admin";
-    let article = reader_view(&state, user.id, id, prefs.auto_mark_read).await?;
+    let article = reader_view(&state, user.id, id, &prefs).await?;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = ArticleTemplate {
         theme: prefs.theme.clone(),
@@ -945,11 +1667,19 @@ pub async fn read(
         title: article.title,
         feed_name: article.feed_name,
         url: article.url,
+        url_label: article.url_label,
+        alternate_url: article.alternate_url,
+        alternate_url_label: article.alternate_url_label,
+        live_view_url: article.live_view_url,
         comments_url: article.comments_url,
         published: article.published,
         image_url: article.image_url,
+        enclosures: article.enclosures,
+        youtube_videos: article.youtube_videos,
         content: article.content,
         content_notice: article.content_notice,
+        content_pending: article.content_pending,
+        blocked_tracking_pixels: article.blocked_tracking_pixels,
         is_read: article.is_read,
         is_bookmarked: article.is_bookmarked,
         is_liked: article.is_liked,
@@ -958,11 +1688,18 @@ pub async fn read(
         key_points: article.key_points,
         topics: article.topics,
         can_summarize: article.can_summarize,
+        external_new_tab: article.external_new_tab,
+        share: article.share,
     }
     .render()
     .map(Html)
     .map_err(|e| AppError::Internal(anyhow::anyhow!("template render failed: {e}")))?;
-    Ok((jar, body).into_response())
+    let mut response = (jar, body).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    Ok(response)
 }
 
 pub async fn side_panel(
@@ -972,19 +1709,28 @@ pub async fn side_panel(
     Path(id): Path<Uuid>,
 ) -> Result<Response, AppError> {
     let prefs = prefs::load(&state.db, user.id).await;
-    let article = reader_view(&state, user.id, id, prefs.auto_mark_read).await?;
+    let article = reader_view(&state, user.id, id, &prefs).await?;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = ArticlePanelTemplate {
         csrf_token,
+        ui: prefs,
         id: article.id,
         title: article.title,
         feed_name: article.feed_name,
         url: article.url,
+        url_label: article.url_label,
+        alternate_url: article.alternate_url,
+        alternate_url_label: article.alternate_url_label,
+        live_view_url: article.live_view_url,
         comments_url: article.comments_url,
         published: article.published,
         image_url: article.image_url,
+        enclosures: article.enclosures,
+        youtube_videos: article.youtube_videos,
         content: article.content,
         content_notice: article.content_notice,
+        content_pending: article.content_pending,
+        blocked_tracking_pixels: article.blocked_tracking_pixels,
         is_read: article.is_read,
         is_bookmarked: article.is_bookmarked,
         is_liked: article.is_liked,
@@ -993,6 +1739,8 @@ pub async fn side_panel(
         key_points: article.key_points,
         topics: article.topics,
         can_summarize: article.can_summarize,
+        external_new_tab: article.external_new_tab,
+        share: article.share,
     }
     .render()
     .map(Html)
@@ -1016,7 +1764,31 @@ pub async fn content_fragment(
     if prefs.auto_mark_read {
         read_articles::mark_read(state.db.pool(), user.id, id).await?;
     }
-    Ok(Html(sanitize_article_html(&article.content, &article.url)).into_response())
+    let (content, _, availability, stored_blocked_tracking_pixels) =
+        selected_content(&state, user.id, &article).await?;
+    let report = sanitize_article_html_with_policies(
+        &content,
+        &article.url,
+        &state.settings.tracking_url_policy,
+        &state.settings.tracking_pixel_policy,
+    );
+    let blocked_tracking_pixels =
+        stored_blocked_tracking_pixels.saturating_add(report.blocked_tracking_pixels);
+    let notice = if prefs.show_blocked_tracking_notice && blocked_tracking_pixels > 0 {
+        format!(
+            "<p class=\"content-notice privacy-notice\">Tracking images removed by RustSS: {blocked_tracking_pixels}.</p>"
+        )
+    } else {
+        String::new()
+    };
+    let external_new_tab =
+        state.settings.external_links_new_tab_required || prefs.external_open_mode == "new-tab";
+    let content = apply_external_link_navigation(&report.html, external_new_tab);
+    Ok((
+        [("x-rustss-content-status", availability.as_str())],
+        Html(format!("{notice}{content}")),
+    )
+        .into_response())
 }
 
 async fn authorize_action(state: &AppState, user_id: Uuid, id: Uuid) -> Result<(), AppError> {
@@ -1085,6 +1857,7 @@ pub async fn bookmark(
     }
     authorize_action(&state, user.id, id).await?;
     bookmarks::add(state.db.pool(), user.id, id).await?;
+    crate::integrations::dispatch_event(&state, user.id, id, "article.bookmarked").await?;
     Ok(action_response(is_ajax, form.next))
 }
 
@@ -1138,7 +1911,7 @@ pub async fn mark_all_read(
 
 #[cfg(test)]
 mod tests {
-    use super::safe_external_url;
+    use super::{enclosure_mime_is_safe, format_timestamp, safe_external_url};
 
     #[test]
     fn external_urls_reject_unsafe_origins_and_strip_fragments() {
@@ -1162,5 +1935,36 @@ mod tests {
                 "{url} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn inline_enclosures_use_a_narrow_passive_media_allow_list() {
+        assert!(enclosure_mime_is_safe(
+            "audio",
+            Some("audio/mpeg"),
+            "https://cdn.example/play"
+        ));
+        assert!(enclosure_mime_is_safe(
+            "video",
+            None,
+            "https://cdn.example/trailer.webm?token=1"
+        ));
+        assert!(!enclosure_mime_is_safe(
+            "image",
+            Some("image/svg+xml"),
+            "https://cdn.example/vector.svg"
+        ));
+        assert!(!enclosure_mime_is_safe(
+            "audio",
+            None,
+            "https://cdn.example/download"
+        ));
+    }
+
+    #[test]
+    fn youtube_timestamp_labels_are_compact_and_unambiguous() {
+        assert_eq!(format_timestamp(42), "Starts at 0:42");
+        assert_eq!(format_timestamp(62), "Starts at 1:02");
+        assert_eq!(format_timestamp(3_723), "Starts at 1:02:03");
     }
 }

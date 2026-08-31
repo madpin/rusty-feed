@@ -42,8 +42,6 @@ services:
     ports:
       - "${CHROMIUM_PORT:-9222}:9222"
     command:
-      - --remote-debugging-address=0.0.0.0
-      - --remote-debugging-port=9222
       - --no-sandbox
       - --disable-gpu
       - --headless=new
@@ -74,10 +72,60 @@ services:
       ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-INSECURE_dev_only_change_me_please_0123456789}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
-      - "${APP_PORT:-8080}:8080"
+      - "${APP_BIND_IP:-0.0.0.0}:${APP_PORT:-8080}:8080"
     volumes:
       - models:/var/lib/rustss/models
+
+  # Choose exactly one TLS profile. Keep APP_BIND_IP=127.0.0.1 so the plain
+  # backend is not exposed beyond the host while Caddy owns public :80/:443.
+  caddy-auto:
+    image: caddy:2.11.4-alpine
+    profiles: ["https-auto"]
+    depends_on:
+      - app
+    environment:
+      RUSTSS_DOMAIN: ${RUSTSS_DOMAIN:-}
+      TLS_EMAIL: ${TLS_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.auto:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  caddy-custom:
+    image: caddy:2.11.4-alpine
+    profiles: ["https-custom"]
+    depends_on:
+      - app
+    environment:
+      RUSTSS_DOMAIN: ${RUSTSS_DOMAIN:-}
+      TLS_CERT_FILE: ${TLS_CERT_FILE:-cert.pem}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:-key.pem}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.custom:/etc/caddy/Caddyfile:ro
+      - ${TLS_CERT_DIR:-../certs}:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
 volumes:
   pgdata:
   models:
+  caddy_data:
+  caddy_config:

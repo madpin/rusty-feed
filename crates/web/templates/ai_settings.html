@@ -1,0 +1,66 @@
+{% extends "app_base.html" %}
+{% block title %}AI providers{% endblock %}
+{% block body_class %}page-ai-settings{% endblock %}
+{% block content %}
+{% if managing_instance %}{% include "admin_nav.html" %}{% endif %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">{% if managing_instance %}Administration{% else %}Settings{% endif %}</p>
+    <h1>{% if managing_instance %}Instance AI providers{% else %}Your AI providers{% endif %}</h1>
+    <p class="muted">Summary requests try {% if managing_instance %}user profiles first, then these instance profiles, then environment configuration{% else %}your profiles first, then administrator and environment fallbacks{% endif %}. Lower priority numbers run first.</p>
+  </div>
+</div>
+{% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
+
+<section class="panel">
+  <h2>Add a provider</h2>
+  <form method="post" action="{% if managing_instance %}/admin/ai{% else %}/settings/ai{% endif %}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="form-grid">
+      <label>Profile name<input name="name" maxlength="80" placeholder="Fast summaries" required /></label>
+      <label>Provider
+        <select name="provider">
+          <option value="openai">OpenAI</option>
+          {% if managing_instance %}<option value="ollama">Ollama / compatible endpoint</option>{% endif %}
+        </select>
+      </label>
+      <label>Model<input name="model" maxlength="160" placeholder="gpt-4.1-mini" required /></label>
+      <label>Priority<input type="number" name="priority" min="0" max="10000" value="100" required /></label>
+      {% if managing_instance %}<label>Base URL<input type="url" name="base_url" placeholder="https://api.openai.com or http://ollama:11434" /></label>{% endif %}
+      <label>API key<input type="password" name="api_key" autocomplete="new-password" placeholder="Required for OpenAI" /></label>
+    </div>
+    <p class="muted">Keys are encrypted with the instance master secret, never displayed again, and decrypted only inside a summary worker.</p>
+    <div class="form-actions"><button class="primary" type="submit">Save provider</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Fallback order</h2>
+  {% if profiles.is_empty() %}
+  <div class="empty-state"><p><strong>No managed providers in this scope.</strong></p><p>The next available fallback will be used.</p></div>
+  {% else %}
+  <ul class="token-list">
+  {% for profile in profiles %}
+    <li class="token-row">
+      <div>
+        <strong>{{ profile.name }}</strong> <span class="token-status">{{ profile.provider }}</span>
+        <div class="meta">Priority {{ profile.priority }} · {{ profile.model }} · {{ profile.base_url }} · key {% if profile.has_key %}stored{% else %}not required{% endif %}{% if !profile.enabled %} · disabled{% endif %}</div>
+      </div>
+      <div class="row-actions">
+        <form method="post" action="{% if managing_instance %}/admin/ai{% else %}/settings/ai{% endif %}/{{ profile.id }}/toggle">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="enabled" value="{% if profile.enabled %}false{% else %}true{% endif %}" />
+          <button type="submit">{% if profile.enabled %}Disable{% else %}Enable{% endif %}</button>
+        </form>
+        <form method="post" action="{% if managing_instance %}/admin/ai{% else %}/settings/ai{% endif %}/{{ profile.id }}/delete" data-confirm="Delete this AI provider?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </div>
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

@@ -13,6 +13,28 @@
 {% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 <form method="post" action="/settings/preferences" class="stack panel preference-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <fieldset id="language-region">
+    <legend>Language and region</legend>
+    <div class="form-grid">
+      <label>Interface language
+        <select name="locale">{% for locale in locales %}<option value="{{ locale.code }}"{% if locale.code == prefs_locale %} selected{% endif %}>{{ locale.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Fallback language
+        <select name="fallback_locale">{% for locale in locales %}<option value="{{ locale.code }}"{% if locale.code == prefs_fallback_locale %} selected{% endif %}>{{ locale.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Time zone
+        <input type="text" name="timezone" value="{{ prefs_timezone }}" list="common-timezones" required />
+        <datalist id="common-timezones"><option value="UTC"></option><option value="Europe/Dublin"></option><option value="Europe/London"></option><option value="Europe/Paris"></option><option value="America/New_York"></option><option value="America/Los_Angeles"></option><option value="America/Sao_Paulo"></option><option value="Asia/Tokyo"></option><option value="Asia/Shanghai"></option><option value="Australia/Sydney"></option></datalist>
+      </label>
+      <label>Date format
+        <select name="date_format"><option value="mdy"{% if prefs_date_format == "mdy" %} selected{% endif %}>MM/DD/YYYY</option><option value="dmy"{% if prefs_date_format == "dmy" %} selected{% endif %}>DD/MM/YYYY</option><option value="ymd"{% if prefs_date_format == "ymd" %} selected{% endif %}>YYYY-MM-DD</option></select>
+      </label>
+      <label>Number grouping
+        <select name="number_format"><option value="comma"{% if prefs_number_format == "comma" %} selected{% endif %}>1,234,567</option><option value="dot"{% if prefs_number_format == "dot" %} selected{% endif %}>1.234.567</option></select>
+      </label>
+    </div>
+    <p class="muted">RustSS ships 20 built-in catalogs. Your locale also controls accessibility labels and dates; missing strings use your chosen fallback.</p>
+  </fieldset>
   <fieldset>
     <legend>Appearance</legend>
     <div class="form-grid">
@@ -34,6 +56,12 @@
           <option value="spacious"{% if prefs_density == "spacious" %} selected{% endif %}>Spacious</option>
         </select>
       </label>
+      <label>Reading typeface
+        <select name="font_family">
+          <option value="sans"{% if prefs_font_family == "sans" %} selected{% endif %}>Sans serif</option>
+          <option value="serif"{% if prefs_font_family == "serif" %} selected{% endif %}>Serif</option>
+        </select>
+      </label>
       <label>Sidebar width
         <input type="number" name="sidebar_width" min="13" max="24" value="{{ prefs_sidebar_width }}" required />
       </label>
@@ -42,6 +70,48 @@
       <input type="checkbox" name="sidebar_collapsed" value="true"{% if prefs_sidebar_collapsed %} checked{% endif %} />
       <span>Start the Library with a reduced sidebar</span>
     </label>
+    {% if custom_javascript_enabled %}<label class="check-row"><input type="checkbox" name="custom_script_enabled" value="true"{% if prefs_custom_script_enabled %} checked{% endif %} /><span>Load the administrator-managed customization script</span></label>{% endif %}
+    <p><a href="/settings/customization">Open CSS and interface customization</a></p>
+  </fieldset>
+
+  <fieldset id="install-app" class="install-app-card" data-install-app data-install-app-name="{{ pwa_name }}">
+    <legend>{{ pwa_name }} on this device</legend>
+    <p class="muted" data-install-app-status>Install {{ pwa_name }} from your browser for a focused standalone window and quick Library, Search, and Discover shortcuts.</p>
+    <button type="button" data-install-app-button hidden>Install {{ pwa_name }}</button>
+    <p class="muted" data-install-app-help>Use your browser's <strong>Install app</strong> or <strong>Add to Home Screen</strong> action. Installation support and wording vary by browser and device; remote installations require HTTPS.</p>
+    <p class="muted">Only public application assets are cached. Articles, account pages, API responses, and publisher content remain network-only.</p>
+  </fieldset>
+
+  <fieldset id="youtube">
+    <legend>YouTube videos</legend>
+    <input type="hidden" name="youtube_settings_present" value="true" />
+    {% if youtube_embeds_enabled %}
+    <p class="muted">RustSS recognizes links from {{ youtube_source_host_count }} administrator-approved source domain(s). Players are loaded only when you ask. The built-in player uses <code>youtube-nocookie.com</code>{% if let Some(name) = youtube_alternative_player_name %}; this instance also offers {{ name }}{% endif %}.</p>
+    {% else %}
+    <p class="notice">Embedded YouTube playback is disabled by the instance administrator. Safe no-referrer links remain available.</p>
+    {% endif %}
+    <div class="form-grid">
+      <label>Player behavior
+        <select name="youtube_player_mode">
+          <option value="privacy"{% if prefs_youtube_player_mode == "privacy" %} selected{% endif %}{% if !youtube_embeds_enabled %} disabled{% endif %}>Privacy-enhanced player</option>
+          <option value="links_only"{% if prefs_youtube_player_mode == "links_only" %} selected{% endif %}>Links only</option>
+        </select>
+      </label>
+      <label>Player provider
+        <select name="youtube_player_provider">
+          <option value="privacy"{% if prefs_youtube_player_provider == "privacy" %} selected{% endif %}>YouTube privacy-enhanced</option>
+          {% if let Some(name) = youtube_alternative_player_name %}<option value="alternative"{% if prefs_youtube_player_provider == "alternative" %} selected{% endif %}>{{ name }}</option>{% endif %}
+        </select>
+      </label>
+      <label>Captions
+        <select name="youtube_captions">
+          <option value="default"{% if prefs_youtube_captions == "default" %} selected{% endif %}>Use video default</option>
+          <option value="on"{% if prefs_youtube_captions == "on" %} selected{% endif %}>Prefer captions on</option>
+        </select>
+      </label>
+    </div>
+    <label class="check-row"><input type="checkbox" name="youtube_autoplay" value="true"{% if prefs_youtube_autoplay %} checked{% endif %}{% if !youtube_embeds_enabled %} disabled{% endif %} /> <span>Start playback after I choose Load player</span></label>
+    <p class="muted">A subscription may inherit this preference or force the built-in privacy player/links-only mode. If an alternative provider is removed, RustSS safely returns to <code>youtube-nocookie.com</code>; it never falls back to a standard tracking embed.</p>
   </fieldset>
 
   <fieldset>
@@ -74,6 +144,18 @@
       <label>Articles per page
         <input type="number" name="articles_per_page" min="5" max="100" value="{{ prefs_per_page }}" required />
       </label>
+      <label>External article links
+        <select name="external_link_mode">
+          <option value="clean"{% if prefs_external_link_mode == "clean" %} selected{% endif %}>Privacy-clean URL (recommended)</option>
+          <option value="original"{% if prefs_external_link_mode == "original" %} selected{% endif %}>Publisher-provided URL</option>
+        </select>
+      </label>
+      <label>External-link navigation
+        <select name="external_open_mode">
+          <option value="new-tab"{% if prefs_external_open_mode == "new-tab" %} selected{% endif %}>Open in a new tab</option>
+          <option value="same-tab"{% if prefs_external_open_mode == "same-tab" %} selected{% endif %}{% if external_links_new_tab_required %} disabled{% endif %}>Open in the current tab</option>
+        </select>
+      </label>
     </div>
     <label class="check-row">
       <input type="checkbox" name="show_read_articles" value="true"{% if prefs_show_read %} checked{% endif %} />
@@ -83,6 +165,100 @@
       <input type="checkbox" name="auto_mark_read" value="true"{% if prefs_auto_mark_read %} checked{% endif %} />
       <span>Mark articles read when opened</span>
     </label>
+    {% if external_links_new_tab_required %}<p class="notice">This instance requires publisher links to open in a new tab.</p>{% endif %}
+    <p class="muted">RustSS keeps the publisher-provided URL for provenance. Clean links remove analytics parameters according to the instance policy; same-tab and new-tab links always suppress the referrer and opener relationship.</p>
+  </fieldset>
+
+  <fieldset id="touch-gestures">
+    <legend>Touch gestures</legend>
+    <label class="check-row">
+      <input type="checkbox" name="touch_gestures_enabled" value="true"{% if prefs_touch_gestures_enabled %} checked{% endif %} />
+      <span>Swipe horizontally to move between articles</span>
+    </label>
+    <div class="form-grid">
+      <label>Sensitivity
+        <select name="touch_gesture_sensitivity">
+          <option value="low"{% if prefs_touch_gesture_sensitivity == "low" %} selected{% endif %}>Low — longer swipe</option>
+          <option value="medium"{% if prefs_touch_gesture_sensitivity == "medium" %} selected{% endif %}>Medium</option>
+          <option value="high"{% if prefs_touch_gesture_sensitivity == "high" %} selected{% endif %}>High — shorter swipe</option>
+        </select>
+      </label>
+      <label>Direction
+        <select name="touch_gesture_direction">
+          <option value="natural"{% if prefs_touch_gesture_direction == "natural" %} selected{% endif %}>Natural — swipe left for next</option>
+          <option value="reversed"{% if prefs_touch_gesture_direction == "reversed" %} selected{% endif %}>Reversed — swipe right for next</option>
+        </select>
+      </label>
+    </div>
+    <p class="muted">Gestures navigate only; they never save, delete, or change read state by themselves. Vertical scrolling keeps priority, and controls, media, dialogs, and editable content are excluded.</p>
+  </fieldset>
+
+  <fieldset id="privacy">
+    <legend>Content privacy</legend>
+    <input type="hidden" name="privacy_settings_present" value="true" />
+    <p class="muted">Tracking images are removed once from shared RSS and public-page content without contacting the image host. The instance policy is <strong>{{ tracking_pixel_strictness }}</strong>, with {{ tracking_pixel_blocked_host_count }} custom blocked host(s) and {{ tracking_pixel_allowed_host_count }} custom allowed host(s).</p>
+    <label class="check-row">
+      <input type="checkbox" name="show_blocked_tracking_notice" value="true"{% if prefs_show_blocked_tracking_notice %} checked{% endif %} />
+      <span>Show how many tracking images RustSS removed from each article</span>
+    </label>
+    <p class="muted">This controls only the indicator. Privacy cleanup remains active for everyone and never runs separately per user.</p>
+  </fieldset>
+
+  <fieldset id="search">
+    <legend>Search</legend>
+    <input type="hidden" name="search_settings_present" value="true" />
+    <p class="muted">Choose how exact PostgreSQL matches and semantic similarity are combined. Inherit keeps the instance administrator's defaults.</p>
+    <div class="form-grid">
+      <label>Default search mode
+        <select name="search_mode">
+          <option value="instance"{% if prefs_search_mode == "instance" %} selected{% endif %}>Inherit ({{ instance_search_mode }})</option>
+          <option value="hybrid"{% if prefs_search_mode == "hybrid" %} selected{% endif %}>Hybrid</option>
+          <option value="keyword"{% if prefs_search_mode == "keyword" %} selected{% endif %}>Exact words and operators</option>
+          <option value="semantic"{% if prefs_search_mode == "semantic" %} selected{% endif %}>Meaning only</option>
+        </select>
+      </label>
+      <label>Text matching
+        <select name="search_text_config">
+          <option value="instance"{% if prefs_search_text_config == "instance" %} selected{% endif %}>Inherit ({{ instance_search_text_config }})</option>
+          <option value="simple"{% if prefs_search_text_config == "simple" %} selected{% endif %}>Language-neutral</option>
+          <option value="english"{% if prefs_search_text_config == "english" %} selected{% endif %}>English stemming</option>
+        </select>
+      </label>
+      <label>Meaning weight in hybrid mode (%)
+        <input type="number" name="search_semantic_weight_percent" min="0" max="100" value="{{ prefs_search_semantic_weight_percent }}" placeholder="Inherit ({{ instance_search_semantic_weight_percent }})" />
+      </label>
+    </div>
+    <p class="muted">Keyword search supports quoted phrases, uppercase <code>OR</code>, and a leading minus to exclude a term. Language-neutral matching is the safest choice for multilingual feeds.</p>
+  </fieldset>
+
+  <fieldset id="media">
+    <legend>Article attachments</legend>
+    <input type="hidden" name="enclosure_settings_present" value="true" />
+    <p class="muted">On-demand is the privacy-friendly default: RustSS does not contact the media host until you choose Load. Autoplay is always disabled.</p>
+    {% if !media_proxy_enabled %}<p class="notice">The RustSS media proxy is disabled by the instance administrator. Attachments currently load directly from publishers.</p>{% endif %}
+    <div class="form-grid">
+      <label>Media delivery
+        <select name="enclosure_delivery_mode">
+          <option value="proxy"{% if prefs_enclosure_delivery_mode == "proxy" %} selected{% endif %}{% if !media_proxy_enabled %} disabled{% endif %}>RustSS proxy (recommended)</option>
+          <option value="mixed-content"{% if prefs_enclosure_delivery_mode == "mixed-content" %} selected{% endif %}{% if !media_proxy_enabled %} disabled{% endif %}>Proxy HTTP media only</option>
+          <option value="direct"{% if prefs_enclosure_delivery_mode == "direct" %} selected{% endif %}>Direct from publisher</option>
+        </select>
+      </label>
+      <label>Remote media loading
+        <select name="enclosure_load_mode">
+          <option value="on-demand"{% if prefs_enclosure_load_mode == "on-demand" %} selected{% endif %}>On demand (recommended)</option>
+          <option value="metadata"{% if prefs_enclosure_load_mode == "metadata" %} selected{% endif %}>Preload player metadata</option>
+          <option value="links-only"{% if prefs_enclosure_load_mode == "links-only" %} selected{% endif %}>Links only</option>
+        </select>
+      </label>
+    </div>
+    <div class="preference-check-grid" aria-label="Allowed inline attachment players">
+      <label class="check-row"><input type="checkbox" name="enclosure_audio" value="true"{% if prefs_enclosure_audio %} checked{% endif %} /> <span>Audio players</span></label>
+      <label class="check-row"><input type="checkbox" name="enclosure_video" value="true"{% if prefs_enclosure_video %} checked{% endif %} /> <span>Video players</span></label>
+      <label class="check-row"><input type="checkbox" name="enclosure_image" value="true"{% if prefs_enclosure_image %} checked{% endif %} /> <span>Image previews</span></label>
+      <label class="check-row"><input type="checkbox" name="enclosure_show_links" value="true"{% if prefs_enclosure_show_links %} checked{% endif %} /> <span>Show publisher fallback links beside proxied attachments</span></label>
+    </div>
+    <p class="muted">The proxy hides your address from media hosts and fixes HTTPS mixed content. Unknown or unsafe media is downloaded instead of rendered inline. Publisher links are explicit no-referrer fallbacks.</p>
   </fieldset>
 
   <fieldset>
@@ -106,7 +282,7 @@
   <h2>Personalization</h2>
   <p class="muted">RustSS learns from your feedback and reading habits to rank your articles.</p>
   <form method="post" action="/settings/reset-learning"
-        onsubmit="return confirm('Clear everything RustSS has learned about you?');">
+        data-confirm="Clear everything RustSS has learned about you?">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <button type="submit" class="danger">Reset learning</button>
   </form>

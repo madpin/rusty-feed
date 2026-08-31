@@ -10,13 +10,13 @@
 //! Keys separate *shared* from *per-user* entries so shared work is reused
 //! across users (the multi-user dedup principle applies to caching too).
 //!
-//! ## Notes / limitations
-//! - Cross-instance L1 invalidation via Redis pub/sub is not yet implemented
-//!   (single-instance is exact; multi-instance L1 may be briefly stale until TTL
-//!   — see docs/FINDINGS.md FND-114).
-//! - Invalidation is prefix-based (`delete_prefix`); the key scheme in
+//! Redis-backed instances coordinate L1 invalidation through a versioned,
+//! namespace-scoped Pub/Sub channel. If that subscriber disconnects, L1 is
+//! cleared and bypassed until a clean resubscription, while L2/source reads
+//! continue. Invalidation is prefix-based (`delete_prefix`); the key scheme in
 //!   [`keys`] is designed so related entries share a prefix.
 
+mod invalidation;
 pub mod keys;
 
 use std::sync::Arc;
@@ -25,17 +25,20 @@ use std::time::{Duration, Instant};
 use moka::future::Cache as MokaCache;
 use serde::{de::DeserializeOwned, Serialize};
 
+use crate::invalidation::{InvalidationCoordinator, InvalidationKind};
 use crate::keys::L1_MAX_TTL;
+
+const DEFAULT_NAMESPACE: &str = "rustss";
 
 /// An L1 entry: serialized bytes plus the per-key expiry deadline.
 #[derive(Clone)]
-struct L1Value {
+pub(crate) struct L1Value {
     data: Arc<[u8]>,
     deadline: Instant,
 }
 
 /// Configuration for [`Cache::new`].
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CacheConfig {
     /// Master switch; when false, no Redis is used (L1 only).
     pub enabled: bool,
@@ -45,6 +48,21 @@ pub struct CacheConfig {
     pub redis_password: Option<String>,
     /// Max number of entries kept in the in-process L1 cache.
     pub l1_max_capacity: u64,
+    /// Isolates L2 keys and invalidation messages when Redis is shared by
+    /// multiple RustSS installations.
+    pub namespace: String,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            redis_url: None,
+            redis_password: None,
+            l1_max_capacity: 0,
+            namespace: DEFAULT_NAMESPACE.to_string(),
+        }
+    }
 }
 
 /// A cloneable, two-tier cache handle.
@@ -52,6 +70,8 @@ pub struct CacheConfig {
 pub struct Cache {
     l1: MokaCache<String, L1Value>,
     l2: Option<redis::aio::ConnectionManager>,
+    key_prefix: Arc<str>,
+    invalidation: Option<InvalidationCoordinator>,
 }
 
 impl Cache {
@@ -69,17 +89,50 @@ impl Cache {
             .support_invalidation_closures() // enables delete_prefix's predicate sweep
             .build();
 
-        let l2 = if config.enabled {
-            connect_redis(
+        let namespace = normalize_namespace(&config.namespace);
+        let key_prefix: Arc<str> = format!("{namespace}:").into();
+        let (l2, invalidation) = if config.enabled {
+            match connect_redis(
                 config.redis_url.as_deref(),
                 config.redis_password.as_deref(),
             )
             .await
+            {
+                Some((manager, client)) => {
+                    match tokio::time::timeout(
+                        Duration::from_secs(5),
+                        InvalidationCoordinator::start(client, l1.clone(), &namespace),
+                    )
+                    .await
+                    {
+                        Ok(Ok(coordinator)) => (Some(manager), Some(coordinator)),
+                        Ok(Err(error)) => {
+                            tracing::warn!(
+                                %error,
+                                "cache: invalidation subscriber unavailable; running L1-only"
+                            );
+                            (None, None)
+                        }
+                        Err(_) => {
+                            tracing::warn!(
+                                "cache: invalidation subscriber timed out; running L1-only"
+                            );
+                            (None, None)
+                        }
+                    }
+                }
+                None => (None, None),
+            }
         } else {
-            None
+            (None, None)
         };
 
-        Self { l1, l2 }
+        Self {
+            l1,
+            l2,
+            key_prefix,
+            invalidation,
+        }
     }
 
     /// An L1-only cache (no Redis). Handy for tests and Redis-less deployments.
@@ -87,6 +140,7 @@ impl Cache {
         Self::new(CacheConfig {
             enabled: false,
             l1_max_capacity: 10_000,
+            namespace: DEFAULT_NAMESPACE.to_string(),
             ..Default::default()
         })
         .await
@@ -101,21 +155,24 @@ impl Cache {
     /// or any (swallowed) error.
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
         // L1
-        if let Some(v) = self.l1.get(key).await {
-            if Instant::now() < v.deadline {
-                if let Ok(val) = serde_json::from_slice::<T>(&v.data) {
-                    return Some(val);
+        if self.l1_available() {
+            if let Some(v) = self.l1.get(key).await {
+                if Instant::now() < v.deadline {
+                    if let Ok(val) = serde_json::from_slice::<T>(&v.data) {
+                        return Some(val);
+                    }
+                } else {
+                    self.l1.invalidate(key).await;
                 }
-            } else {
-                self.l1.invalidate(key).await;
             }
         }
 
         // L2
         if let Some(mgr) = &self.l2 {
             let mut conn = mgr.clone();
+            let redis_key = self.redis_key(key);
             let bytes: Option<Vec<u8>> = redis::cmd("GET")
-                .arg(key)
+                .arg(&redis_key)
                 .query_async(&mut conn)
                 .await
                 .ok()
@@ -123,7 +180,7 @@ impl Cache {
             if let Some(bytes) = bytes {
                 // Backfill L1 using the remaining Redis TTL when available.
                 let ttl_ms: i64 = redis::cmd("PTTL")
-                    .arg(key)
+                    .arg(&redis_key)
                     .query_async(&mut conn)
                     .await
                     .unwrap_or(-1);
@@ -158,7 +215,7 @@ impl Cache {
             let mut conn = mgr.clone();
             let secs = ttl.as_secs().max(1);
             let res: redis::RedisResult<()> = redis::cmd("SET")
-                .arg(key)
+                .arg(self.redis_key(key))
                 .arg(bytes.as_slice())
                 .arg("EX")
                 .arg(secs)
@@ -166,6 +223,9 @@ impl Cache {
                 .await;
             if let Err(e) = res {
                 tracing::debug!(error = %e, key, "cache: L2 set failed (degraded)");
+            } else {
+                self.publish_invalidation(&mut conn, InvalidationKind::Key, key)
+                    .await;
             }
         }
     }
@@ -191,7 +251,19 @@ impl Cache {
         self.l1.invalidate(key).await;
         if let Some(mgr) = &self.l2 {
             let mut conn = mgr.clone();
-            let _: redis::RedisResult<()> = redis::cmd("DEL").arg(key).query_async(&mut conn).await;
+            let deleted: redis::RedisResult<()> = redis::cmd("DEL")
+                .arg(self.redis_key(key))
+                .query_async(&mut conn)
+                .await;
+            match deleted {
+                Ok(()) => {
+                    self.publish_invalidation(&mut conn, InvalidationKind::Key, key)
+                        .await;
+                }
+                Err(error) => {
+                    tracing::debug!(%error, key, "cache: L2 delete failed (degraded)");
+                }
+            }
         }
     }
 
@@ -210,8 +282,9 @@ impl Cache {
 
         if let Some(mgr) = &self.l2 {
             let mut conn = mgr.clone();
-            let pattern = format!("{prefix}*");
+            let pattern = format!("{}{prefix}*", self.key_prefix);
             let mut cursor: u64 = 0;
+            let mut completed = true;
             loop {
                 let scan: redis::RedisResult<(u64, Vec<String>)> = redis::cmd("SCAN")
                     .arg(cursor)
@@ -225,22 +298,38 @@ impl Cache {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::debug!(error = %e, "cache: L2 SCAN failed (degraded)");
+                        completed = false;
                         break;
                     }
                 };
                 if !found.is_empty() {
-                    let _: redis::RedisResult<()> =
+                    let deleted: redis::RedisResult<()> =
                         redis::cmd("DEL").arg(&found).query_async(&mut conn).await;
+                    if let Err(error) = deleted {
+                        tracing::debug!(
+                            %error,
+                            "cache: L2 prefix delete failed (degraded)"
+                        );
+                        completed = false;
+                        break;
+                    }
                 }
                 if next == 0 {
                     break;
                 }
                 cursor = next;
             }
+            if completed {
+                self.publish_invalidation(&mut conn, InvalidationKind::Prefix, prefix)
+                    .await;
+            }
         }
     }
 
     async fn insert_l1(&self, key: &str, bytes: &[u8], ttl: Duration) {
+        if !self.l1_available() {
+            return;
+        }
         let deadline = Instant::now().checked_add(ttl).unwrap_or_else(Instant::now);
         self.l1
             .insert(
@@ -252,6 +341,38 @@ impl Cache {
             )
             .await;
     }
+
+    fn l1_available(&self) -> bool {
+        self.invalidation
+            .as_ref()
+            .is_none_or(InvalidationCoordinator::is_available)
+    }
+
+    fn redis_key(&self, key: &str) -> String {
+        format!("{}{key}", self.key_prefix)
+    }
+
+    async fn publish_invalidation(
+        &self,
+        connection: &mut redis::aio::ConnectionManager,
+        kind: InvalidationKind,
+        target: &str,
+    ) {
+        let Some(coordinator) = &self.invalidation else {
+            return;
+        };
+        let Some(payload) = coordinator.encode(kind, target) else {
+            return;
+        };
+        let result: redis::RedisResult<usize> = redis::cmd("PUBLISH")
+            .arg(coordinator.channel())
+            .arg(payload)
+            .query_async(connection)
+            .await;
+        if let Err(error) = result {
+            tracing::debug!(%error, "cache: invalidation publish failed");
+        }
+    }
 }
 
 /// Connect a Redis `ConnectionManager`, injecting a password if provided and not
@@ -259,7 +380,7 @@ impl Cache {
 async fn connect_redis(
     url: Option<&str>,
     password: Option<&str>,
-) -> Option<redis::aio::ConnectionManager> {
+) -> Option<(redis::aio::ConnectionManager, redis::Client)> {
     let url = url?;
     let mut info = match redis::IntoConnectionInfo::into_connection_info(url) {
         Ok(info) => info,
@@ -283,11 +404,11 @@ async fn connect_redis(
     };
     // Bound the initial connect so a down/unreachable Redis degrades quickly
     // instead of blocking startup on reconnection backoff.
-    let connect = redis::aio::ConnectionManager::new(client);
+    let connect = redis::aio::ConnectionManager::new(client.clone());
     match tokio::time::timeout(Duration::from_secs(5), connect).await {
         Ok(Ok(mgr)) => {
             tracing::info!("cache: connected to Redis (L2 enabled)");
-            Some(mgr)
+            Some((mgr, client))
         }
         Ok(Err(e)) => {
             tracing::warn!(error = %e, "cache: Redis unavailable; running L1-only");
@@ -300,10 +421,33 @@ async fn connect_redis(
     }
 }
 
+fn normalize_namespace(namespace: &str) -> String {
+    let namespace = namespace.trim();
+    if (1..=64).contains(&namespace.len())
+        && namespace
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        namespace.to_string()
+    } else {
+        tracing::warn!(
+            namespace_bytes = namespace.len(),
+            "cache: invalid namespace; using the safe default"
+        );
+        DEFAULT_NAMESPACE.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn default_config_uses_safe_installation_namespace() {
+        assert_eq!(CacheConfig::default().namespace, DEFAULT_NAMESPACE);
+        assert_eq!(normalize_namespace("bad:namespace"), DEFAULT_NAMESPACE);
+    }
 
     #[tokio::test]
     async fn set_get_roundtrip_l1() {
@@ -393,6 +537,22 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn unavailable_redis_degrades_to_l1() {
+        let cache = Cache::new(CacheConfig {
+            enabled: true,
+            redis_url: Some("not-a-redis-url".to_string()),
+            redis_password: None,
+            l1_max_capacity: 100,
+            namespace: "degraded-test".to_string(),
+        })
+        .await;
+
+        assert!(!cache.l2_connected());
+        cache.set("available", &true, Duration::from_secs(30)).await;
+        assert_eq!(cache.get::<bool>("available").await, Some(true));
+    }
+
     // Redis-backed round trip. Runs only when TEST_REDIS_URL is set.
     #[tokio::test]
     async fn redis_l2_roundtrip() {
@@ -405,6 +565,7 @@ mod tests {
             redis_url: Some(url),
             redis_password: None,
             l1_max_capacity: 1_000,
+            namespace: format!("test-{}", uuid::Uuid::now_v7()),
         })
         .await;
         assert!(cache.l2_connected(), "should connect to Redis");
@@ -421,6 +582,7 @@ mod tests {
                 redis_url: std::env::var("TEST_REDIS_URL").ok(),
                 redis_password: None,
                 l1_max_capacity: 1_000,
+                namespace: cache.key_prefix.trim_end_matches(':').to_string(),
             })
             .await
         };
@@ -430,9 +592,85 @@ mod tests {
         );
 
         // After delete, another fresh instance must miss (proves L2 removal).
-        // Note: a *previously-populated* instance's L1 would stay warm until TTL
-        // (cross-instance L1 invalidation is FND-114).
         cache.delete(&key).await;
         assert_eq!(fresh().await.get::<String>(&key).await, None);
+    }
+
+    #[tokio::test]
+    async fn redis_invalidation_updates_other_instances_l1() {
+        let Ok(url) = std::env::var("TEST_REDIS_URL") else {
+            eprintln!("skipping: TEST_REDIS_URL not set");
+            return;
+        };
+        let namespace = format!("test-{}", uuid::Uuid::now_v7());
+        let config = || CacheConfig {
+            enabled: true,
+            redis_url: Some(url.clone()),
+            redis_password: None,
+            l1_max_capacity: 1_000,
+            namespace: namespace.clone(),
+        };
+        let writer = Cache::new(config()).await;
+        let reader = Cache::new(config()).await;
+        assert!(writer.l2_connected() && reader.l2_connected());
+
+        let key = format!("shared:{}", uuid::Uuid::now_v7());
+        writer.set(&key, &1u8, Duration::from_secs(30)).await;
+        assert_eq!(reader.get::<u8>(&key).await, Some(1));
+
+        writer.set(&key, &2u8, Duration::from_secs(30)).await;
+        wait_for_value(&reader, &key, Some(2)).await;
+
+        writer.delete(&key).await;
+        wait_for_value(&reader, &key, None).await;
+    }
+
+    #[tokio::test]
+    async fn redis_prefix_invalidation_is_remote_and_namespace_scoped() {
+        let Ok(url) = std::env::var("TEST_REDIS_URL") else {
+            eprintln!("skipping: TEST_REDIS_URL not set");
+            return;
+        };
+        let namespace = format!("test-{}", uuid::Uuid::now_v7());
+        let config = |namespace: String| CacheConfig {
+            enabled: true,
+            redis_url: Some(url.clone()),
+            redis_password: None,
+            l1_max_capacity: 1_000,
+            namespace,
+        };
+        let writer = Cache::new(config(namespace.clone())).await;
+        let reader = Cache::new(config(namespace.clone())).await;
+        let isolated = Cache::new(config(format!("{namespace}-isolated"))).await;
+
+        writer
+            .set("score:u1:a1", &1u8, Duration::from_secs(30))
+            .await;
+        writer
+            .set("score:u2:a1", &2u8, Duration::from_secs(30))
+            .await;
+        isolated
+            .set("score:u1:a1", &9u8, Duration::from_secs(30))
+            .await;
+        assert_eq!(reader.get::<u8>("score:u1:a1").await, Some(1));
+        assert_eq!(reader.get::<u8>("score:u2:a1").await, Some(2));
+
+        writer.delete_prefix("score:u1:").await;
+        wait_for_value(&reader, "score:u1:a1", None).await;
+        assert_eq!(reader.get::<u8>("score:u2:a1").await, Some(2));
+        assert_eq!(isolated.get::<u8>("score:u1:a1").await, Some(9));
+    }
+
+    async fn wait_for_value(cache: &Cache, key: &str, expected: Option<u8>) {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if cache.get::<u8>(key).await == expected {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("remote cache invalidation should arrive promptly");
     }
 }

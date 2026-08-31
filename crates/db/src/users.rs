@@ -34,6 +34,108 @@ pub async fn create(
     Ok(user)
 }
 
+/// Create a user and idempotently subscribe them to the administrator-curated
+/// featured catalog feeds in one transaction. Featured catalog entries are the
+/// customizable new-user defaults; shared feed/article rows are never copied.
+pub async fn create_with_default_feeds(
+    pool: &PgPool,
+    email: &str,
+    name: Option<&str>,
+    image: Option<&str>,
+    role: &str,
+    password_hash: Option<&str>,
+) -> Result<User> {
+    let mut transaction = pool.begin().await?;
+    let sql = format!(
+        "INSERT INTO users (id, email, name, image, role, password_hash) \
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING {USER_COLUMNS}"
+    );
+    let user = sqlx::query_as::<_, User>(&sql)
+        .bind(Uuid::now_v7())
+        .bind(email)
+        .bind(name)
+        .bind(image)
+        .bind(role)
+        .bind(password_hash)
+        .fetch_one(&mut *transaction)
+        .await?;
+    subscribe_featured_catalog(&mut transaction, user.id).await?;
+    transaction.commit().await?;
+    Ok(user)
+}
+
+/// Atomically consume an invitation, create its user, and apply the shared
+/// featured-feed defaults. Returns `None` when the token is expired, revoked,
+/// already used, or restricted to a different email address.
+pub async fn create_with_invitation(
+    pool: &PgPool,
+    invitation_hash: &str,
+    email: &str,
+    name: Option<&str>,
+    password_hash: &str,
+) -> Result<Option<User>> {
+    let mut transaction = pool.begin().await?;
+    let invitation_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM registration_invitations \
+         WHERE token_hash = $1 AND revoked_at IS NULL AND accepted_at IS NULL \
+           AND expires_at > now() AND (email IS NULL OR lower(email) = lower($2)) \
+         FOR UPDATE",
+    )
+    .bind(invitation_hash)
+    .bind(email)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some(invitation_id) = invitation_id else {
+        return Ok(None);
+    };
+
+    let sql = format!(
+        "INSERT INTO users (id, email, name, role, password_hash) \
+         VALUES ($1, $2, $3, 'user', $4) RETURNING {USER_COLUMNS}"
+    );
+    let user = sqlx::query_as::<_, User>(&sql)
+        .bind(Uuid::now_v7())
+        .bind(email)
+        .bind(name)
+        .bind(password_hash)
+        .fetch_one(&mut *transaction)
+        .await?;
+    subscribe_featured_catalog(&mut transaction, user.id).await?;
+    sqlx::query(
+        "UPDATE registration_invitations SET accepted_by = $2, accepted_at = now() WHERE id = $1",
+    )
+    .bind(invitation_id)
+    .bind(user.id)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(Some(user))
+}
+
+async fn subscribe_featured_catalog(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+) -> Result<()> {
+    let feed_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT feed_id FROM feed_catalog_entries WHERE published AND featured \
+         ORDER BY sort_order, title",
+    )
+    .fetch_all(&mut **transaction)
+    .await?;
+    for feed_id in feed_ids {
+        sqlx::query(
+            "INSERT INTO user_feeds (id, user_id, feed_id) VALUES ($1, $2, $3) \
+             ON CONFLICT (user_id, feed_id) DO NOTHING",
+        )
+        .bind(Uuid::now_v7())
+        .bind(user_id)
+        .bind(feed_id)
+        .execute(&mut **transaction)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Look up a user by email.
 pub async fn find_by_email(pool: &PgPool, email: &str) -> Result<Option<User>> {
     let sql = format!("SELECT {USER_COLUMNS} FROM users WHERE email = $1");

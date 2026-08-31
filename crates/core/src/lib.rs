@@ -2,7 +2,8 @@
 //!
 //! Foundational, mostly I/O-free building blocks shared across every RustSS
 //! crate: configuration, the error taxonomy, secret handling, telemetry setup,
-//! and (from M2) the port traits that adapter crates implement.
+//! and shared policy/value types. Narrow substitution seams live beside the
+//! feature types they operate on instead of in a catch-all port module.
 //!
 //! See `docs/ARCHITECTURE.md` §5 (module structure), §16 (config), §17
 //! (observability), and §19 (errors).
@@ -11,13 +12,21 @@
 //! *Content is shared; state is personal.* Types and traits here must never
 //! encode per-user duplication of shared content. See `docs/ARCHITECTURE.md` §7.
 
+pub mod acquisition;
 pub mod config;
+pub mod content_rules;
+pub mod cron;
 pub mod crypto;
 pub mod error;
 pub mod feed_content;
 pub mod hash;
 pub mod html;
+pub mod i18n;
+pub mod integrations;
 pub mod secret;
+pub mod tracking_pixel;
+pub mod tracking_url;
+pub mod youtube;
 
 #[cfg(feature = "telemetry")]
 pub mod telemetry;

@@ -6,7 +6,7 @@
 
 This repository (`rustss`) is a **ground-up reimplementation in Rust** of the original [`neureed`](https://github.com/madpin/neureed) (a Next.js 16 / TypeScript app). The goal: the same (and eventually more) capabilities, with a **fraction of the memory footprint**, higher throughput, and dramatically simpler operations.
 
-> **Status: 📐 Design phase.** The foundational documents (PRD, Architecture) are complete and awaiting review. No application code has been written yet — see the [Roadmap](#-roadmap). Setup instructions below describe the **target** experience.
+> **Status: 🧪 v1 release candidate.** All fourteen implementation milestones are complete. The expanded Miniflux audit is **65/67 complete**, with full-string localization and turnkey contracts for every advertised hosted integration still partial. The repository has not been tagged or published from this worktree; see the [Roadmap](#-roadmap), [release evidence](docs/RELEASE_EVIDENCE.md), and [parity tracker](docs/MINIFLUX_PARITY.md).
 
 ---
 
@@ -30,7 +30,7 @@ The original `neureed` is feature-rich and proven — its data model and algorit
 | | Original (`neureed`) | RustSS |
 |---|---|---|
 | Runtime | Node.js 24 / Next.js 16 | Rust + Tokio (single binary) |
-| UI | React SPA (SSR + client) | Server-rendered HTML + HTMX + Alpine |
+| UI | React SPA (SSR + client) | Askama HTML + progressive local JavaScript |
 | Idle memory (app) | Hundreds of MB | **Target < 100 MB** |
 | Background jobs | node-cron in-process | Durable Postgres-backed **AGENTS** queue |
 | Vector storage | mixed dims in one column ⚠️ | **space-tagged, correct** per model |
@@ -43,39 +43,50 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 
 ## 🧩 Feature overview
 
-**Core (v1 — feature parity):**
+**Implemented today:**
 - RSS 2.0/1.0, Atom, and JSON Feed parsing; conditional GET; smart dedup (GUID → URL → content hash)
-- RSS fallback or opt-in anonymous public-page extraction with per-domain rate limiting, robots.txt, SSRF protection, and safe rich-content rendering
+- RSS fallback or opt-in public-page extraction with per-domain rate limiting, robots.txt, SSRF protection, safe rich-content rendering, and administrator-owned host/path-pinned profiles for explicitly authorized cookie/proxy/certificate cases
 - Semantic search + "related articles" (pgvector, HNSW); optional recency-weighted ranking
 - Per-user personalization (TF keyword patterns, sigmoid relevance scoring, time-decay)
 - Saved searches with a boolean+semantic DSL (`AND`/`OR`/`NOT`/phrases/groups) and match notifications
-- On-demand LLM article summaries from the Library or reader (summary + key points + topics), with a provider cascade and cost tracking
-- Feed magazine: 97 verified starter sources across news, technology, research, science, security, public-interest, and culture; automatic country/category/language filtering, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
+- On-demand and optional automatic LLM article summaries with a reserved low-latency queue, live progress, user → administrator → environment provider fallback, encrypted managed credentials, actionable errors, and durable cost tracking
+- Feed magazine: 200 verified starter sources across news, technology, research, science, security, public-interest, and culture; automatic country/category/language filtering, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
 - Personal feed organization: stable hierarchical folder navigation, one folder per feed, an Unfiled scope, multi-valued tags, bulk move/tag/refresh actions, drag-to-folder organization, downloaded source icons, and a reduced sidebar mode
+- OPML 2.0 file/URL import with preview, selective nested-folder mapping, duplicate policy and partial results, plus hierarchy-preserving export
 - Feed health tracking (healthy/warning/error/manual-disabled): normal cadence for 1–2 failures, daily after 3, weekly after 14 failing days, resolved structured error history, and last-successful-update timestamps
 - Three reading modes (side panel / inline / standalone), opt-in sandboxed live publisher view, original and RSS-comment links, themes, deep typography/display preferences, and arrow-key-first shortcuts
-- Admin dashboard: instance stats, users/roles, shared feed inventory/cadence, feed magazine editing, safe operations logs, and AI costs
+- Installable home-screen/desktop experience with instance branding and quick Library/Search/Discover shortcuts; only public application assets are cached
+- Admin dashboard: instance stats, users/roles, shared feed inventory/cadence, feed magazine editing, live worker/queue status, safe operations logs, public-share activity, and AI costs
+- Revocable public article links with finite/infinite lifetimes and configurable RSS/public-page, metadata, source-link, and image policies
 - OAuth (Google/GitHub/Generic) **and** local accounts (Argon2id)
+- A versioned native JSON API and the commonly used GReader client subset, with stable protocol IDs and replay conformance tests
+- Fever-compatible mobile-client API, passwordless WebAuthn passkeys, trusted reverse-proxy auth, and scoped app credentials
+- Personal entry filters, versioned shared rewrite rules with preview/rollback/reprocessing, and opt-in host-pinned cookie/proxy/self-signed-certificate acquisition profiles
+- Versioned personal CSS, administrator-managed opt-in JavaScript with Safe Mode, public YouTube duration enrichment, and 20 selectable locale/format profiles
+- Named article destinations and signed event webhooks with encrypted credential rotation, templates, event filters, low-impact retries, dead letters, and delivery history
 
-**Planned (v1.1+ / v2):** smarter retention, OPML import/export, feed bulk operations and health notifications/manual controls, news **clustering + LLM digests**, i18n, ADHD-friendly reading formatting, media/YouTube embeds, richer storage/log administration, and a GReader-compatible API. Full list in **[docs/PRD.md §8](docs/PRD.md)**.
+**After v1:** the product program continues with news **clustering + LLM digests**, ADHD-friendly reading formatting, completion of every translated UI string and accessibility label, and exact turnkey contracts for the remaining hosted integration providers. Fever compatibility, YouTube duration enrichment, automatic/custom HTTPS with HTTP/2, touch navigation, and a validated alternative-player path are already implemented. Full status lives in **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)** and the separate parity tracker.
+
+The living Miniflux feature-parity and customization checklist is in
+**[docs/MINIFLUX_PARITY.md](docs/MINIFLUX_PARITY.md)**.
 
 ---
 
 ## 🏗️ How it works (30-second tour)
 
 ```
-Browser (HTMX) ─▶ Axum server (Askama HTML / JSON API)
+Browser (HTML + progressive JS) ─▶ Axum server (Askama HTML / JSON API)
                         │
       ┌─────────────────┼─────────────────┐
       ▼                 ▼                 ▼
- PostgreSQL         Redis (L2)      Local ONNX / LLM
- + pgvector       cache · pub/sub      providers
+ PostgreSQL         Redis (L2)       Embed / LLM
+ + pgvector          cache             providers
  (source of truth,
   job queue)
       ▲
-      │ SKIP LOCKED / apalis
+      │ SKIP LOCKED
  AGENTS worker: FeedRefresh ▶ FetchFeed ▶ Extract ▶ Embed ▶ SavedSearchMatch
-                Summarize · PatternDecay · Cleanup · (v2) Cluster/Digest
+                Summarize · PatternDecay · Cleanup
 ```
 
 **The golden rule:** *content is shared, state is personal.* Feeds, articles, embeddings, and summaries are stored and computed **once**; reading state, feedback, learned patterns, and saved searches are per-user. A feed shared by *N* users costs **O(1)** fetch/extract/embed/summarize work, not O(N). See **[docs/ARCHITECTURE.md §7](docs/ARCHITECTURE.md)**.
@@ -95,9 +106,10 @@ docker compose --env-file .env -f docker/compose.yaml up -d
 curl http://localhost:8080/api/health
 ```
 
-> **Status:** early development — the app boots, migrates its database, serves
-> `/api/health` + `/metrics`, and includes the reading UI, feed magazine, and
-> administration surfaces. The commands below describe the developer workflow.
+> **Status:** v1 release candidate — the application is usable end to end, its
+> shared-content invariants and browser flows are tested, and release evidence
+> is recorded. A maintainer still needs to create the intended `vX.Y.Z` tag to
+> publish signed artifacts and multi-architecture images.
 
 ### Run it (Docker Compose — recommended)
 
@@ -109,7 +121,7 @@ docker compose --env-file .env -f docker/compose.yaml up -d  # full stack
 open http://localhost:8080
 ```
 
-The first account you register becomes the **admin**. New users can choose from 97 curated magazine sources with country and language filters, or add their own feed URL.
+The first account you register becomes the **admin**. New users can choose from 200 curated magazine sources with country and language filters, or add their own feed URL.
 
 ### Redis-free single-process mode
 
@@ -129,7 +141,7 @@ not yet a supported database backend.
 # Prereqs: Rust (stable) and Docker. Node 20 is needed only for browser E2E tests.
 cp .env.example .env
 docker compose --env-file .env -f docker/compose.yaml up -d postgres
-# Optional Redis L2 cache and future Chrome extraction service:
+# Optional Redis L2 cache and bounded Chromium extraction fallback:
 # docker compose --env-file .env -f docker/compose.yaml up -d redis chromium
 
 cargo run -p rustss-cli -- migrate            # apply DB migrations
@@ -137,10 +149,14 @@ cargo run -p rustss-server                    # start the server (embedded worke
 
 # Useful:
 cargo run -p rustss-worker                    # run AGENTS separately (scaled mode)
-cargo run -p rustss-cli -- create-admin       # bootstrap an admin
 cargo test                                     # unit + integration tests
-cargo clippy -D warnings && cargo fmt --check  # lint & format
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all --check
 ```
+
+The first registered account becomes the administrator. `create-admin`,
+`fetch-model`, `reindex`, `backfill`, `migrate`, and `config-check` support
+bootstrap and maintenance workflows; use `--help` for their current arguments.
 
 ### Browser E2E tests
 
@@ -151,7 +167,7 @@ PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
   npm run test:e2e
 ```
 
-Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises automatic catalog filtering, selection, RSS/processed-availability preview navigation (including a no-JavaScript flow), searchable feed organization, folder/tag navigation, shortcut capture/conflict handling, sidebar persistence, and normal-user admin denial. CI installs Chromium and runs this suite after Rust tests.
+Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises discovery and OPML flows, reader modes and typography, Live View, privacy-gated media/YouTube, public sharing, feed organization and drag/drop, keyboard shortcuts, the fixed side panel, live AI-summary progress, admin queue refresh, no-JavaScript fallbacks, and authorization boundaries. CI installs Chromium and runs this suite after Rust tests.
 
 ### Configuration (essentials)
 
@@ -160,6 +176,7 @@ DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
 # Optional Redis L2 cache. For L1-only, omit REDIS_URL and use CACHE_ENABLED=false.
 REDIS_URL=redis://localhost:6379
 CACHE_ENABLED=true
+CACHE_NAMESPACE=rustss                    # make unique when Redis is shared by installations
 SESSION_SECRET=<32+ random bytes>
 ENCRYPTION_SECRET=<32+ random bytes>         # encrypts stored API credentials
 
@@ -169,7 +186,9 @@ GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
 REGISTRATION_MODE=open                        # open | invite | closed
 ```
 
-The full configuration reference will live in `docs/configuration.md`. Env vars are typed and validated at startup — the app refuses to boot on invalid config.
+See the complete [configuration reference](docs/CONFIGURATION.md), including
+TOML layering and the secret-safe `rustss-cli config-check` diagnostic. RustSS
+refuses to boot with missing or invalid required configuration.
 
 ---
 
@@ -180,32 +199,34 @@ The full configuration reference will live in `docs/configuration.md`. Env vars 
 | **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** | Step-by-step install for localhost (Docker Compose or from source), Dokploy, and Proxmox — beginner friendly |
 | **[docs/PRD.md](docs/PRD.md)** | Product requirements: personas, user flows, functional/non-functional requirements, the multi-user dedup mandate, performance targets, milestones, and fixes to the reference |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | System design: full tech stack + rationale, data model, the **AGENTS** framework, caching, algorithms & constants, security, deployment, testing, and migration |
-| **AGENTS.md** *(coming with code)* | Build/test/run commands and contributor conventions |
-| **docs/MIGRATION.md** *(coming)* | Migrating data from the original `neureed` |
+| **[docs/API.md](docs/API.md)** | Versioned native JSON resources, bearer authentication, scopes, and examples |
+| **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** | Every runtime and Compose setting, precedence, validation, security notes, and safe diagnostics |
+| **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** | Complete guide to reading, organizing feeds, search, summaries, APIs, customization, and administration |
+| **[docs/OPERATIONS.md](docs/OPERATIONS.md)** | Production health, backup/restore, upgrades, queues, retention, and failure recovery |
+| **[docs/MIGRATION.md](docs/MIGRATION.md)** | RustSS upgrades, NeuReed OPML migration, and moving hosts |
+| **[docs/RELEASE_EVIDENCE.md](docs/RELEASE_EVIDENCE.md)** | Reproducible performance, resilience, model, accessibility, and restore evidence |
+| **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)** | Evidence-backed milestone status, remaining acceptance work, and delivery order |
+| **[docs/MINIFLUX_PARITY.md](docs/MINIFLUX_PARITY.md)** | Living 67-item Miniflux parity and customization tracker |
+| **[docs/FINDINGS.md](docs/FINDINGS.md)** | Resolved defects, deliberate deviations, and open engineering risks |
+| **[AGENTS.md](AGENTS.md)** | Build/test/run commands and canonical contributor conventions |
 
 ---
 
 ## 🗺️ Roadmap
 
+The detailed status and acceptance evidence are maintained in
+[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md).
+
 - [x] **Phase 1** — Deep analysis of the original `neureed` codebase
 - [x] **Phase 2** — Foundational docs: PRD, Architecture, README *(this document)*
-- [ ] **Review & approval** of the three documents ← *we are here*
-- [ ] **Phase 3** — Implementation
-  - [ ] Workspace scaffold, config, error types, CI (fmt/clippy/test)
-  - [ ] Database schema + migrations (multi-user shared/personal model)
-  - [ ] Core domain + repositories (SQLx)
-  - [ ] Feed fetch/parse/dedup + SafeFetchClient (SSRF)
-  - [ ] AGENTS framework + FeedRefresh/FetchFeed pipeline
-  - [ ] Content extraction (Readability + Chromium) + rate limiting
-  - [ ] Embeddings + semantic search (space-tagged vectors)
-  - [ ] Personalization (patterns, scoring, feedback)
-  - [ ] Saved searches (DSL, matcher, notifications)
-  - [ ] LLM summarization + durable cost ledger
-  - [ ] Auth (OAuth + local), sessions, preferences
-  - [ ] HTMX UI (reading, feeds mgmt, search, admin)
-  - [ ] Deployment (Docker Compose, images, docs)
-- [ ] **v1.1** — bookmarks/favorites, "seen" state, hybrid search, OPML fixes
-- [ ] **v2** — clustering + digests, keyboard shortcuts, i18n, ADHD reading mode
+- [x] **Phase 2 review** — requirements, architecture, and contributor contract accepted as living documents
+- [x] **Phase 3 — v1 implementation** *(14 of 14 milestones complete)*
+  - [x] Shared-content ingestion, durable workers/outbox, production local embeddings, safe Chromium fallback, search/personalization, summaries, native/GReader APIs, and user/admin experiences
+  - [x] Invitations and session controls, feed health/pause/bulk actions, retention, queue/storage operations, managed AI providers, strict CSP, and responsive accessibility matrix
+  - [x] Performance, dependency-failure, model offline-cache, upgrade/backup/restore, and browser acceptance evidence
+  - [x] Versioned native archives, Debian/RPM packages, and multi-registry amd64/arm64 images with checksums, SBOM/provenance, smoke/upgrade checks, and keyless signatures (publication occurs when a maintainer pushes a version tag)
+- [ ] **Broader Miniflux parity program** — 65/67 complete; complete catalogs for every UI/validation/notification/accessibility string and exact service-specific adapters for every advertised integration remain
+- [ ] **Post-v1 product program** — clustering/digests and ADHD reading mode remain deliberately scoped after v1
 
 Work is committed iteratively per milestone using **[Conventional Commits](https://www.conventionalcommits.org/)** (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`), with commit bodies explaining the *why*.
 

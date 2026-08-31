@@ -15,7 +15,7 @@
       <button type="submit">Refresh my feeds now</button>
     </form>
     {% if is_admin %}
-    <form method="post" action="/feeds/refresh-everything" onsubmit="return confirm('Reset the refresh schedule and queue every active shared source now? Paused sources stay paused.');">
+    <form method="post" action="/feeds/refresh-everything" data-confirm="Reset the refresh schedule and queue every active shared source now? Paused sources stay paused.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <button type="submit">Reset schedules and refresh every source</button>
     </form>
@@ -29,13 +29,46 @@
 
 <section class="panel">
   <h2>Add a feed</h2>
-  <p class="muted">New feeds begin in RSS-content mode. Administrators can choose public-page extraction with RSS fallback from Content settings.</p>
+  <p class="muted">New subscriptions begin in RSS-content mode. You can request a shared public-page copy and choose its lifetime from Content settings.</p>
   <form method="post" action="/feeds" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <label>Feed URL
       <input type="url" name="url" placeholder="https://example.com/feed.xml" required />
     </label>
     <div class="form-actions"><button type="submit" class="primary">Subscribe and refresh</button></div>
+  </form>
+</section>
+
+<section class="panel" id="bookmarklet">
+  <h2>Subscribe from any website</h2>
+  <p class="muted">Drag this button to your browser's bookmarks bar. While viewing a website, activate it to let RustSS discover advertised RSS, Atom, or JSON feeds and show a confirmation screen. Nothing is subscribed automatically.</p>
+  <p><a class="btn primary" href="{{ bookmarklet_href }}" rel="bookmark">Subscribe with RustSS</a></p>
+  <details>
+    <summary>Manual bookmarklet setup</summary>
+    <p class="muted">If your browser does not support dragging, create a bookmark and paste this complete address into its URL field:</p>
+    <code class="bookmarklet-code">{{ bookmarklet_href }}</code>
+  </details>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Import or export subscriptions</h2>
+      <p class="muted">Preview an OPML file before anything changes, choose exactly which sources to import, and preserve its folder hierarchy. Existing subscriptions stay untouched unless you choose to replace their personal name and folder.</p>
+    </div>
+    <a class="btn" href="/feeds/opml/export">Export OPML</a>
+  </div>
+  <form method="post" action="/feeds/opml/preview" enctype="multipart/form-data" class="form-grid opml-source-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>OPML file
+      <input type="file" name="opml_file" accept=".opml,.xml,text/x-opml,text/xml,application/xml" />
+      <span class="field-help">Maximum 2 MiB and 2,000 subscriptions.</span>
+    </label>
+    <label>Or public OPML URL
+      <input type="url" name="opml_url" maxlength="8192" placeholder="https://example.com/subscriptions.opml" />
+      <span class="field-help">Fetched through RustSS's private-network protection.</span>
+    </label>
+    <div class="form-actions"><button type="submit" class="primary">Preview import</button></div>
   </form>
 </section>
 
@@ -58,7 +91,7 @@
   <p class="muted feed-drop-hint">Drag a feed handle onto a folder below, or use the bulk controls in Your feeds. Keyboard and no-JavaScript users can use the folder picker.</p>
   <ul class="folder-tree-manage feed-drop-list" aria-label="Your folder tree and feed drop targets">
     <li class="feed-folder-drop" data-feed-drop data-folder-id="" data-folder-label="Unfiled"><span aria-hidden="true">□</span><span>Unfiled</span></li>
-    {% for category in categories %}<li class="feed-folder-drop" data-feed-drop data-folder-id="{{ category.id }}" data-folder-label="{{ category.name }}" style="padding-inline-start: {{ category.depth }}rem"><span aria-hidden="true">▣</span><span>{{ category.tree_name }}</span></li>{% endfor %}
+    {% for category in categories %}<li class="feed-folder-drop depth-{{ category.depth }}" data-feed-drop data-folder-id="{{ category.id }}" data-folder-label="{{ category.name }}"><span aria-hidden="true">▣</span><span>{{ category.tree_name }}</span></li>{% endfor %}
   </ul>
 </section>
 
@@ -95,6 +128,7 @@
     </label>
     <button type="submit" formaction="/feeds/bulk-tags" data-bulk-action>Update tags</button>
     <button type="submit" formaction="/feeds/refresh-selected" data-bulk-action>Refresh selected</button>
+    <button type="submit" class="danger" formaction="/feeds/bulk-unsubscribe" data-bulk-action data-confirm="Unsubscribe from every selected feed? Shared articles remain available to other subscribers.">Unsubscribe selected</button>
   </form>
   {% endif %}
   {% if feeds.is_empty() %}
@@ -117,6 +151,7 @@
           <strong><a href="/articles?feed={{ f.id }}">{{ f.name }}</a></strong>
           <span class="badge health-{{ f.health }}">{{ f.health }}</span>
           <span class="badge content-mode-{{ f.content_mode }}">{{ f.content_mode_label }}</span>
+          {% if f.content_mode == "article_page" %}<span class="badge">{{ f.content_lifetime_label }}</span>{% endif %}
           <div class="meta">{{ f.refresh_cadence }} · {{ f.url }}</div>
           <div class="feed-update-meta"{% if let Some(updated_at) = f.last_updated_at %} title="Last successful update: {{ updated_at }}"{% endif %}>Last updated: {{ f.last_updated }}</div>
           <div class="feed-organization-meta">Folder: {{ f.folder_name }}</div>
@@ -131,7 +166,7 @@
         <button type="button" class="feed-organize-trigger" data-feed-organizer-trigger data-feed-id="{{ f.id }}" data-feed-name="{{ f.name }}" data-feed-tags="{{ f.tags_input }}" data-feed-folder-id="{{ f.folder_id }}">Organize</button>
         {% if f.can_configure %}<a href="/feeds/{{ f.id }}/settings" class="btn">Content settings</a>{% endif %}
         <form method="post" action="/feeds/{{ f.id }}/unsubscribe"
-              onsubmit="return confirm('Unsubscribe from this feed?');">
+              data-confirm="Unsubscribe from this feed?">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <button type="submit" class="danger">Unsubscribe</button>
         </form>

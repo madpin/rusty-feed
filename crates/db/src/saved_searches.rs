@@ -82,6 +82,29 @@ pub async fn delete(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<bool> {
     Ok(res.rows_affected() > 0)
 }
 
+/// Update a saved search owned by `user_id`.
+pub async fn update(
+    pool: &PgPool,
+    id: Uuid,
+    user_id: Uuid,
+    name: &str,
+    query: &str,
+    notify_on_match: bool,
+) -> Result<bool> {
+    let result = sqlx::query(
+        "UPDATE saved_searches SET name = $3, query = $4, notify_on_match = $5, \
+         updated_at = now() WHERE id = $1 AND user_id = $2",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(name)
+    .bind(query)
+    .bind(notify_on_match)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 /// Record a matching pass: bump `total_matches` and `last_matched_at`.
 pub async fn record_matches(pool: &PgPool, id: Uuid, new_matches: i64) -> Result<()> {
     sqlx::query(

@@ -1,0 +1,42 @@
+{% if !youtube_videos.is_empty() %}
+<section class="article-youtube" aria-labelledby="youtube-heading-{{ id }}">
+  <div class="article-enclosures-heading">
+    <h3 id="youtube-heading-{{ id }}">YouTube</h3>
+    <span class="badge">{{ youtube_videos.len() }}</span>
+  </div>
+  <ul class="youtube-list">
+    {% for video in youtube_videos %}
+    <li class="youtube-card">
+      <div class="youtube-meta">
+        <div>
+          <strong>{{ video.title }}</strong>
+          {% if let Some(start_label) = video.start_label %}<span class="youtube-start">{{ start_label }}</span>{% endif %}
+          {% if let Some(duration_label) = video.duration_label %}<span class="youtube-start">{{ duration_label }}</span>{% endif %}
+        </div>
+        <a href="{{ video.watch_url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">Open on YouTube</a>
+      </div>
+      {% if let Some(embed_url) = video.embed_url %}
+      <div class="youtube-loader" data-youtube-loader data-youtube-state="idle">
+        <div class="youtube-consent" data-youtube-consent>
+          <button type="button" data-youtube-load aria-expanded="false">{% if video.autoplay %}Play video{% else %}Load privacy player{% endif %}</button>
+          <span>Nothing is sent to the player until you load it. Playback contacts {{ video.player_name }}.</span>
+        </div>
+        <div class="youtube-player" data-youtube-player aria-busy="false" hidden>
+          <div class="youtube-player-toolbar">
+            <span data-youtube-status role="status" aria-live="polite">Connecting to the privacy-enhanced player…</span>
+            <button type="button" class="secondary" data-youtube-unload>Unload player</button>
+          </div>
+          <div class="youtube-frame-wrap" data-youtube-frame-wrap>
+          <iframe data-youtube-frame data-src="{{ embed_url }}" title="{{ video.title }}" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" allow="encrypted-media; picture-in-picture{% if video.autoplay %}; autoplay{% endif %}" referrerpolicy="{{ video.referrer_policy }}" loading="lazy" allowfullscreen></iframe>
+          </div>
+        </div>
+      </div>
+      <noscript><p class="muted">Enable JavaScript to load the privacy player, or use the YouTube link above.</p></noscript>
+      {% else %}
+      <p class="muted">Embedded playback is disabled by your subscription, reading preference, or instance policy.</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

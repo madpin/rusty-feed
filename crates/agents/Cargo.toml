@@ -19,14 +19,17 @@ rustss-llm = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 async-trait = "0.1"
+url = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
 wiremock = "0.6"
 sqlx = { workspace = true }
-url = { workspace = true }

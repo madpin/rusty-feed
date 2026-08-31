@@ -2,6 +2,7 @@
 //! Axum router. Require `TEST_DATABASE_URL`; skipped otherwise.
 
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Request, Response, StatusCode};
 use axum::routing::get;
 use axum::Router;
@@ -9,9 +10,10 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rustss_cache::Cache;
-use rustss_db::Db;
+use rustss_core::config::RegistrationMode;
+use rustss_db::{users, Db};
 use rustss_web::auth::AdminUser;
-use rustss_web::{router, AppSettings, AppState};
+use rustss_web::{router, AppSettings, AppState, ReverseProxyAuthSettings};
 
 async fn test_state() -> Option<AppState> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
@@ -65,6 +67,74 @@ fn unique_email() -> String {
 }
 
 #[tokio::test]
+async fn reverse_proxy_auth_requires_a_trusted_immediate_peer() {
+    let Some(base_state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let trusted_email = format!("proxy-{}@example.test", uuid::Uuid::now_v7());
+    let spoofed_email = format!("spoof-{}@example.test", uuid::Uuid::now_v7());
+    let mut settings = (*base_state.settings).clone();
+    settings.reverse_proxy_auth = ReverseProxyAuthSettings {
+        enabled: true,
+        trusted_cidrs: vec!["10.20.0.0/16".parse().unwrap()],
+        user_header: "x-auth-email".to_string(),
+        name_header: "x-auth-name".to_string(),
+        auto_provision: true,
+        allowed_domains: vec!["example.test".to_string()],
+        admin_emails: vec![trusted_email.clone()],
+        logout_url: Some("/upstream/logout".to_string()),
+    };
+    let state = AppState::new(
+        base_state.db,
+        Cache::in_memory().await,
+        settings,
+        String::new,
+    );
+    let app = router(state.clone());
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/admin")
+                .header("x-auth-email", &trusted_email)
+                .header("x-auth-name", "Proxy Administrator")
+                .extension(ConnectInfo(
+                    "10.20.3.4:4321".parse::<std::net::SocketAddr>().unwrap(),
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let provisioned = users::find_by_email(state.db.pool(), &trusted_email)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(provisioned.role, "admin");
+    assert_eq!(provisioned.name.as_deref(), Some("Proxy Administrator"));
+
+    let response = app
+        .oneshot(
+            Request::get("/articles")
+                .header("x-auth-email", &spoofed_email)
+                .extension(ConnectInfo(
+                    "203.0.113.50:4321".parse::<std::net::SocketAddr>().unwrap(),
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(users::find_by_email(state.db.pool(), &spoofed_email)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
 async fn register_login_logout_flow() {
     let Some(state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
@@ -80,6 +150,13 @@ async fn register_login_logout_flow() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
+    let csp = resp
+        .headers()
+        .get("content-security-policy")
+        .and_then(|value| value.to_str().ok())
+        .expect("default CSP");
+    assert!(csp.contains("script-src 'self'"));
+    assert!(!csp.contains("'unsafe-inline'"));
     let cookies = set_cookies(&resp);
     let csrf = find_cookie(&cookies, "rustss_csrf")
         .expect("csrf cookie")
@@ -136,6 +213,13 @@ async fn register_login_logout_flow() {
     let home_csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
         .expect("articles csrf")
         .to_string();
+    let html = body_string(resp).await;
+    for forbidden in ["<script>", " style=", " onclick=", " onsubmit="] {
+        assert!(
+            !html.contains(forbidden),
+            "authenticated shell contains inline CSP violation: {forbidden}"
+        );
+    }
 
     // 4. Logout deletes the session server-side.
     let resp = app
@@ -458,4 +542,148 @@ async fn admin_extractor_enforces_role() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
+    let Some(mut state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    std::sync::Arc::make_mut(&mut state.settings).registration_mode = RegistrationMode::Invite;
+    let inviter_email = format!("admin-{}@example.com", uuid::Uuid::now_v7());
+    let inviter =
+        rustss_db::users::create(state.db.pool(), &inviter_email, None, None, "admin", None)
+            .await
+            .unwrap();
+    let invitation = rustss_web::auth::token::generate();
+    let invited_email = format!("invited-{}@example.com", uuid::Uuid::now_v7());
+    rustss_db::invitations::create(
+        state.db.pool(),
+        inviter.id,
+        &invitation.hash,
+        Some(&invited_email),
+        7,
+    )
+    .await
+    .unwrap();
+    let app = router(state.clone());
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/register?invite={}", invitation.raw))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    assert!(body_string(resp).await.contains("Create your account"));
+
+    let resp =
+        app.clone()
+            .oneshot(
+                Request::post("/register")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                    .body(Body::from(format!(
+                    "name=Invited&email={}&password=password123&invite_token={}&csrf_token={csrf}",
+                    invited_email.replace('@', "%40"), invitation.raw
+                )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    let sid = find_cookie(&set_cookies(&resp), "rustss_sid")
+        .unwrap()
+        .to_string();
+    let user = rustss_db::users::find_by_email(state.db.pool(), &invited_email)
+        .await
+        .unwrap()
+        .unwrap();
+    let subscription_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM user_feeds WHERE user_id = $1")
+            .bind(user.id)
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap();
+    let featured_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM feed_catalog_entries WHERE published AND featured",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(subscription_count, featured_count);
+    assert!(!rustss_db::invitations::is_valid(
+        state.db.pool(),
+        &invitation.hash,
+        Some(&invited_email)
+    )
+    .await
+    .unwrap());
+
+    rustss_db::sessions::create(
+        state.db.pool(),
+        user.id,
+        "a-different-session-hash",
+        time::OffsetDateTime::now_utc() + time::Duration::days(30),
+    )
+    .await
+    .unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/settings/sessions")
+                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let session_csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    assert!(body_string(resp).await.contains("This session"));
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/settings/sessions/revoke-others")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header(
+                    "cookie",
+                    cookie_header(&[("rustss_sid", &sid), ("rustss_csrf", &session_csrf)]),
+                )
+                .body(Body::from(format!("csrf_token={session_csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(resp)
+        .await
+        .contains("Signed out 1 other session"));
+    assert_eq!(
+        rustss_db::sessions::list_for_user(state.db.pool(), user.id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let resp = app
+        .oneshot(
+            Request::get(format!("/register?invite={}", invitation.raw))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(resp)
+        .await
+        .contains("Registration is currently closed"));
 }

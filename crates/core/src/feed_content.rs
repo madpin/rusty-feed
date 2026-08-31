@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::content_rules::{rewrite_rules_from_json, RewriteRule};
+
+/// Default retention period for a shared public-page copy.
+pub const DEFAULT_CONTENT_LIFETIME_DAYS: u16 = 30;
+/// Longest finite public-page lifetime accepted from a subscription.
+pub const MAX_CONTENT_LIFETIME_DAYS: u16 = 3650;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedContentMode {
@@ -41,6 +48,7 @@ impl FeedContentMode {
 pub struct FeedContentSettings {
     pub mode: FeedContentMode,
     pub selector: Option<String>,
+    pub rewrite_rules: Vec<RewriteRule>,
 }
 
 impl Default for FeedContentSettings {
@@ -48,6 +56,7 @@ impl Default for FeedContentSettings {
         Self {
             mode: FeedContentMode::Rss,
             selector: None,
+            rewrite_rules: Vec::new(),
         }
     }
 }
@@ -73,13 +82,224 @@ impl FeedContentSettings {
             .map(str::trim)
             .filter(|selector| !selector.is_empty())
             .map(str::to_string);
-        Self { mode, selector }
+        let rewrite_rules = rewrite_rules_from_json(Some(value));
+        Self {
+            mode,
+            selector,
+            rewrite_rules,
+        }
     }
 
     pub fn to_json(&self) -> Value {
         json!({
             "mode": self.mode.as_str(),
             "selector": self.selector,
+            "rewrite_rules": self.rewrite_rules,
+        })
+    }
+}
+
+/// How long a subscriber asks RustSS to retain a fetched public article page.
+/// RSS content is always stored with the shared article and is not governed by
+/// this lifetime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentLifetime {
+    Days(u16),
+    Infinite,
+}
+
+impl Default for ContentLifetime {
+    fn default() -> Self {
+        Self::Days(DEFAULT_CONTENT_LIFETIME_DAYS)
+    }
+}
+
+impl ContentLifetime {
+    /// Parse a settings-form value (`infinite` or a bounded day count).
+    pub fn parse(value: &str) -> Option<Self> {
+        if value == "infinite" {
+            return Some(Self::Infinite);
+        }
+        value
+            .parse::<u16>()
+            .ok()
+            .filter(|days| (1..=MAX_CONTENT_LIFETIME_DAYS).contains(days))
+            .map(Self::Days)
+    }
+
+    /// Return the finite day count, or `None` for an infinite lifetime.
+    pub fn days(self) -> Option<u16> {
+        match self {
+            Self::Days(days) => Some(days),
+            Self::Infinite => None,
+        }
+    }
+
+    /// Serialize the lifetime to the value used by the HTML settings form.
+    pub fn form_value(self) -> String {
+        match self {
+            Self::Days(days) => days.to_string(),
+            Self::Infinite => "infinite".to_string(),
+        }
+    }
+
+    /// Merge subscriber requests for one shared copy. Infinite dominates;
+    /// otherwise the longest requested lifetime wins.
+    pub fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Infinite, _) | (_, Self::Infinite) => Self::Infinite,
+            (Self::Days(left), Self::Days(right)) => Self::Days(left.max(right)),
+        }
+    }
+}
+
+/// The content choice owned by one user's subscription.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubscriptionContentSettings {
+    /// Which stored body this subscriber wants to read.
+    pub mode: FeedContentMode,
+    /// Requested lifetime for the shared public-page copy.
+    pub lifetime: ContentLifetime,
+}
+
+/// Per-subscription rendering override for enclosure delivery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SubscriptionEnclosureDelivery {
+    #[default]
+    Inherit,
+    Proxy,
+    MixedContent,
+    Direct,
+}
+
+impl SubscriptionEnclosureDelivery {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "inherit" => Some(Self::Inherit),
+            "proxy" => Some(Self::Proxy),
+            "mixed-content" => Some(Self::MixedContent),
+            "direct" => Some(Self::Direct),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inherit => "inherit",
+            Self::Proxy => "proxy",
+            Self::MixedContent => "mixed-content",
+            Self::Direct => "direct",
+        }
+    }
+}
+
+/// Per-subscription rendering override for attachment player loading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SubscriptionEnclosureLoad {
+    #[default]
+    Inherit,
+    OnDemand,
+    Metadata,
+    LinksOnly,
+}
+
+impl SubscriptionEnclosureLoad {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "inherit" => Some(Self::Inherit),
+            "on-demand" => Some(Self::OnDemand),
+            "metadata" => Some(Self::Metadata),
+            "links-only" => Some(Self::LinksOnly),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inherit => "inherit",
+            Self::OnDemand => "on-demand",
+            Self::Metadata => "metadata",
+            Self::LinksOnly => "links-only",
+        }
+    }
+}
+
+/// Personal attachment overrides stored on one subscription. These affect
+/// rendering only; enclosure metadata and proxied bytes remain shared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SubscriptionEnclosureSettings {
+    pub delivery: SubscriptionEnclosureDelivery,
+    pub load: SubscriptionEnclosureLoad,
+}
+
+impl SubscriptionEnclosureSettings {
+    pub fn from_json(value: Option<&Value>) -> Self {
+        let Some(value) = value else {
+            return Self::default();
+        };
+        Self {
+            delivery: value
+                .get("enclosure_delivery_mode")
+                .and_then(Value::as_str)
+                .and_then(SubscriptionEnclosureDelivery::parse)
+                .unwrap_or_default(),
+            load: value
+                .get("enclosure_load_mode")
+                .and_then(Value::as_str)
+                .and_then(SubscriptionEnclosureLoad::parse)
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn to_json(self) -> Value {
+        json!({
+            "enclosure_delivery_mode": self.delivery.as_str(),
+            "enclosure_load_mode": self.load.as_str(),
+        })
+    }
+}
+
+impl Default for SubscriptionContentSettings {
+    fn default() -> Self {
+        Self {
+            mode: FeedContentMode::Rss,
+            lifetime: ContentLifetime::default(),
+        }
+    }
+}
+
+impl SubscriptionContentSettings {
+    /// Parse content fields from `user_feeds.settings`, using safe defaults for
+    /// missing or malformed values.
+    pub fn from_json(value: Option<&Value>) -> Self {
+        let Some(value) = value else {
+            return Self::default();
+        };
+        let mode = value
+            .get("content_mode")
+            .and_then(Value::as_str)
+            .and_then(FeedContentMode::parse)
+            .unwrap_or_default();
+        let lifetime = match value.get("content_lifetime_days") {
+            Some(Value::Null) => ContentLifetime::Infinite,
+            Some(Value::Number(days)) => days
+                .as_u64()
+                .and_then(|days| u16::try_from(days).ok())
+                .filter(|days| (1..=MAX_CONTENT_LIFETIME_DAYS).contains(days))
+                .map(ContentLifetime::Days)
+                .unwrap_or_default(),
+            Some(Value::String(value)) => ContentLifetime::parse(value).unwrap_or_default(),
+            _ => ContentLifetime::default(),
+        };
+        Self { mode, lifetime }
+    }
+
+    /// JSON fields to merge into `user_feeds.settings` without disturbing
+    /// unrelated per-subscription preferences.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "content_mode": self.mode.as_str(),
+            "content_lifetime_days": self.lifetime.days(),
         })
     }
 }
@@ -127,5 +347,44 @@ mod tests {
             "enabled": true,
         })));
         assert_eq!(settings.mode, FeedContentMode::Rss);
+    }
+
+    #[test]
+    fn parses_personal_content_settings_and_infinite_lifetime() {
+        let settings = SubscriptionContentSettings::from_json(Some(&json!({
+            "content_mode": "article_page",
+            "content_lifetime_days": null,
+        })));
+        assert_eq!(settings.mode, FeedContentMode::ArticlePage);
+        assert_eq!(settings.lifetime, ContentLifetime::Infinite);
+        assert_eq!(settings.to_json()["content_lifetime_days"], Value::Null);
+    }
+
+    #[test]
+    fn merges_shared_lifetime_using_longest_request() {
+        assert_eq!(
+            ContentLifetime::Days(7).merge(ContentLifetime::Days(30)),
+            ContentLifetime::Days(30)
+        );
+        assert_eq!(
+            ContentLifetime::Days(30).merge(ContentLifetime::Infinite),
+            ContentLifetime::Infinite
+        );
+    }
+
+    #[test]
+    fn enclosure_overrides_are_bounded_and_default_to_inherit() {
+        let settings = SubscriptionEnclosureSettings::from_json(Some(&json!({
+            "enclosure_delivery_mode": "proxy",
+            "enclosure_load_mode": "links-only",
+        })));
+        assert_eq!(settings.delivery, SubscriptionEnclosureDelivery::Proxy);
+        assert_eq!(settings.load, SubscriptionEnclosureLoad::LinksOnly);
+        assert_eq!(
+            SubscriptionEnclosureSettings::from_json(Some(&json!({
+                "enclosure_delivery_mode": "anything",
+            }))),
+            SubscriptionEnclosureSettings::default()
+        );
     }
 }

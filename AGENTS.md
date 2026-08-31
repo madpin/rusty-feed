@@ -20,17 +20,18 @@ Read these before coding (in order):
 1. `docs/PRD.md` — what we're building and why (requirements, targets).
 2. `docs/ARCHITECTURE.md` — how it's built (stack, data model, AGENTS framework, algorithms/constants).
 3. `docs/DEVELOPMENT_PLAN.md` — the milestone-by-milestone plan; pick up the current milestone.
-4. `docs/FINDINGS.md` — known smells/bugs/risks. **Add to it** whenever you find something.
+4. `docs/MINIFLUX_PARITY.md` — living feature-parity and customization status; update it with parity work.
+5. `docs/FINDINGS.md` — known smells/bugs/risks. **Add to it** whenever you find something.
 
 ---
 
 ## 2. Tech stack (quick reference)
 
-- **Runtime:** Rust (stable) + Tokio. **Web:** Axum + tower/tower-http. **UI:** Askama templates + HTMX + Alpine.js + Tailwind (server-rendered; no SPA).
+- **Runtime:** Rust (stable) + Tokio. **Web:** Axum + tower/tower-http. **UI:** Askama templates + embedded curated CSS + dependency-free progressive JavaScript (server-rendered; no SPA).
 - **DB:** PostgreSQL 17 + pgvector via **SQLx** (runtime-checked SQL). **Cache:** moka (L1) + optional Redis (L2).
-- **Background work (AGENTS):** apalis over a Postgres queue; advisory-lock singletons; outbox events.
-- **Feeds/extract:** `feed-rs`, `reqwest` (rustls), `article_scraper`, `chromiumoxide`, `ammonia`.
-- **AI:** deterministic local hash embeddings (one model space per instance; fastembed ONNX is pending) + OpenAI-compatible HTTP clients.
+- **Background work (AGENTS):** custom durable Postgres `SKIP LOCKED` queue, bounded lane-isolated workers, UTC cron schedules, transactional outbox dispatch, lease/advisory singleton guards, run records, and heartbeats.
+- **Feeds/extract:** `feed-rs`, `reqwest` (rustls), `dom_smoothie` + `scraper` fallback, bounded remote `chromiumoxide`, `ammonia`.
+- **AI:** production local fastembed/BGE embeddings with guarded one-model space, explicit hash fallback for tests/emergencies, and OpenAI-compatible HTTP clients.
 - **Auth:** local accounts (`argon2`) + custom DB-backed sessions (opaque token cookie, hash in `sessions`) + double-submit CSRF + per-IP rate limiting; OAuth (Google/GitHub/generic OIDC) via direct `reqwest` (PKCE + state). **Crypto:** XChaCha20-Poly1305 + HKDF-SHA256.
 - **Errors:** `thiserror` (libs) + `anyhow` (bins). **Config:** `figment`. **Obs:** `tracing` + `metrics`.
 
@@ -42,11 +43,11 @@ Full rationale: `docs/ARCHITECTURE.md` §3.
 
 ```
 crates/
-  core/    domain types, config, errors, port traits (no I/O)
+  core/    domain types, config, errors, shared policies (no app-specific I/O)
   db/      SQLx repositories + migrations + pgvector
   cache/   moka L1 + redis L2
   feeds/   SafeFetchClient + feed-rs parse + dedup
-  extract/ readability + chromium + rate limiter + robots + sanitize
+  extract/ readability + bounded Chromium fallback + rate limiter + robots + sanitize
   embed/   deterministic local + OpenAI embedders (single active space)
   llm/     OpenAI/Ollama clients + summarization + cost meter
   search/  semantic search, saved-search DSL/matcher, scoring, patterns
@@ -55,10 +56,11 @@ crates/
 bins/
   server/  HTTP server (optionally embeds the worker)
   worker/  standalone AGENTS runtime
-  cli/     migrate, create-admin, fetch-model, reindex, backfill, migrate-secrets
-templates/  Askama .html   assets/  tailwind + htmx + alpine (embedded)
+  cli/     migrate, create-admin, fetch-model, reindex, backfill, config-check
+crates/web/templates/  Askama HTML
+crates/web/static/     embedded CSS, JavaScript, icons, and service worker
 docker/     Dockerfile, compose.yaml, entrypoint.sh
-docs/       PRD, ARCHITECTURE, DEVELOPMENT_PLAN, FINDINGS, MIGRATION
+docs/       PRD, ARCHITECTURE, DEVELOPMENT_PLAN, MINIFLUX_PARITY, FINDINGS
 ```
 
 **Layering rule:** `core` depends on nothing app-specific; domain crates depend on `core`; `agents`/`web` depend on domain crates; `bins` wire everything (DI at startup). Never reach sideways into another adapter's internals.
@@ -67,7 +69,7 @@ docs/       PRD, ARCHITECTURE, DEVELOPMENT_PLAN, FINDINGS, MIGRATION
 
 ## 4. Commands
 
-> Some commands become available as milestones land (see `docs/DEVELOPMENT_PLAN.md`). The workspace scaffold is M0.
+> These commands are available in the current workspace. See `docs/DEVELOPMENT_PLAN.md` for the remaining milestone acceptance work.
 
 ```bash
 # Build / lint / format / test  (run before every commit)
@@ -95,11 +97,9 @@ cargo run -p rustss-cli -- migrate          # apply migrations (needs DATABASE_U
 # Run
 cargo run -p rustss-server                  # server (embedded worker by default)
 cargo run -p rustss-worker                  # standalone AGENTS worker
-cargo run -p rustss-cli -- create-admin     # bootstrap admin
-cargo run -p rustss-cli -- fetch-model      # pre-download the embedding model (offline installs)
+# The first registered account becomes admin. create-admin/fetch-model/reindex/
 
-# Frontend assets (Tailwind standalone CLI at build time; no Node runtime dep)
-# see docker/ + build script; CSS is compiled and embedded via rust-embed
+# Frontend CSS/JS/icons are embedded directly via rust-embed.
 
 # Full stack
 docker compose --env-file .env -f docker/compose.yaml up -d # app + postgres + redis + chromium
@@ -132,6 +132,7 @@ docker compose --env-file .env -f docker/compose.yaml up -d # app + postgres + r
 - [ ] New env/config in `.env.example` + `docs/ARCHITECTURE.md` §16
 - [ ] DB integration tests pass with `TEST_DATABASE_URL` set (dedup invariants stay green)
 - [ ] New smells/risks/bugs recorded in `docs/FINDINGS.md` (reference the `FND-*` id in the commit)
+- [ ] `docs/MINIFLUX_PARITY.md` status/evidence updated when a parity capability changes
 - [ ] Conventional Commit with a body explaining **why** (see §7)
 
 ---
@@ -157,4 +158,4 @@ docker compose --env-file .env -f docker/compose.yaml up -d # app + postgres + r
 
 ## 9. Status
 
-Design phase complete (PRD, Architecture, plan). Implementation follows `docs/DEVELOPMENT_PLAN.md` starting at **M0 (workspace scaffold)**. Update this file and the docs as reality changes.
+The fourteen-milestone v1 implementation is complete and under release-candidate validation. The broader Miniflux audit is 65/67 complete; full translated-string coverage and exact turnkey adapters for every advertised hosted integration remain partial. `docs/DEVELOPMENT_PLAN.md` is the v1 milestone source of truth, `docs/RELEASE_EVIDENCE.md` records acceptance results, and `docs/MINIFLUX_PARITY.md` is the extended-capability source of truth. Update all applicable documents whenever reality changes.

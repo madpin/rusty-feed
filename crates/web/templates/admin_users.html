@@ -12,6 +12,58 @@
 </div>
 {% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
 {% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
+{% if let Some(link) = invitation_link %}
+<div class="panel" role="status">
+  <h2>Invitation link</h2>
+  <p>Copy this link now. It cannot be recovered after leaving this page.</p>
+  <input type="text" readonly value="{{ link }}" aria-label="New invitation link" data-select-on-click />
+</div>
+{% endif %}
+<section class="panel stack" aria-labelledby="invite-heading">
+  <div>
+    <h2 id="invite-heading">Invite a person</h2>
+    <p class="muted">Invitations are one-use bearer links. Restrict one to an email when you know the recipient.</p>
+  </div>
+  <form method="post" action="/admin/invitations" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Email restriction (optional)
+      <input type="email" name="email" maxlength="320" autocomplete="off" />
+    </label>
+    <label>Expires after
+      <select name="lifetime_days">
+        <option value="1">1 day</option>
+        <option value="7" selected>7 days</option>
+        <option value="30">30 days</option>
+        <option value="90">90 days</option>
+      </select>
+    </label>
+    <div class="form-actions"><button type="submit" class="primary">Create invitation</button></div>
+  </form>
+</section>
+{% if !invitations.is_empty() %}
+<div class="table-wrap">
+  <table>
+    <caption>Recent invitations</caption>
+    <thead><tr><th>Recipient</th><th>Created</th><th>Expires</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for invitation in invitations %}
+      <tr>
+        <td>{{ invitation.email }}</td>
+        <td>{{ invitation.created }}</td>
+        <td>{{ invitation.expires }}</td>
+        <td>{{ invitation.status }}</td>
+        <td>{% if invitation.can_revoke %}
+          <form method="post" action="/admin/invitations/{{ invitation.id }}/revoke">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button type="submit" class="button-quiet">Revoke</button>
+          </form>
+        {% else %}<span class="muted">—</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 <div class="table-wrap">
   <table>
     <thead><tr><th>User</th><th>Joined</th><th>Role</th><th>Update</th></tr></thead>

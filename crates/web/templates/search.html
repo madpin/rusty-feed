@@ -5,22 +5,32 @@
 <div class="page-header">
   <div>
     <p class="eyebrow">Discover</p>
-    <h1>Semantic search</h1>
-    <p class="muted">Search your subscriptions by meaning, not only exact words.</p>
+    <h1>Search</h1>
+    <p class="muted">Find exact words, quoted phrases, exclusions, or meaning across your subscriptions.</p>
   </div>
 </div>
 <form method="get" action="/search" class="stack panel">
   <label>Search your subscriptions
-    <input type="search" name="q" value="{{ query }}" placeholder="What is new in async Rust?" autofocus />
+    <input type="search" name="q" value="{{ query }}" maxlength="512" placeholder="What is new in async Rust?" autofocus />
+  </label>
+  <label>Search with
+    <select name="mode">
+      <option value="preferred"{% if requested_mode == "preferred" %} selected{% endif %}>My preferred mode</option>
+      <option value="hybrid"{% if requested_mode == "hybrid" %} selected{% endif %}>Hybrid: words + meaning</option>
+      <option value="keyword"{% if requested_mode == "keyword" %} selected{% endif %}>Exact words and operators</option>
+      <option value="semantic"{% if requested_mode == "semantic" %} selected{% endif %}>Meaning only</option>
+    </select>
   </label>
   <div class="form-actions"><button type="submit" class="primary">Search</button></div>
+  <p class="muted">Exact search supports <code>"quoted phrases"</code>, uppercase <code>OR</code>, and <code>-excluded</code> terms. Current settings: {{ effective_mode }}, {{ effective_text_config }} text{% if effective_mode == "hybrid" %}, {{ semantic_weight_percent }}% meaning{% endif %}. <a href="/settings/preferences#search">Customize</a></p>
 </form>
 
 {% if searched %}
+{% if let Some(message) = fallback_notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
 {% if hits.is_empty() %}
 <div class="empty-state">
   <p><strong>No matches.</strong></p>
-  <p class="muted">Try different words, or subscribe to more feeds. Results appear once articles have been embedded.</p>
+  <p class="muted">Try fewer terms, a different mode, or subscribe to more feeds. Exact search works even before articles are embedded.</p>
 </div>
 {% else %}
 <ul class="article-list">
@@ -29,7 +39,9 @@
     <h3><a href="/articles/{{ h.id }}">{{ h.title }}</a></h3>
     <div class="meta">
       {{ h.feed_name }}{% if let Some(when) = h.published %} · {{ when }}{% endif %}
-      · <span class="badge">{{ h.similarity }}% match</span>
+      · <span class="badge">{{ h.score }}% match</span>
+      {% if let Some(score) = h.keyword_score %}<span class="badge badge-subtle">{{ score }}% words</span>{% endif %}
+      {% if let Some(score) = h.semantic_score %}<span class="badge badge-subtle">{{ score }}% meaning</span>{% endif %}
     </div>
     {% if let Some(excerpt) = h.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
   </li>

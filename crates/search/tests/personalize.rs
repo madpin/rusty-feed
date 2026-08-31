@@ -50,6 +50,7 @@ async fn make_article(db: &Db, title: &str, content: &str) -> Article {
             content: content.into(),
             excerpt: None,
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )

@@ -1,0 +1,71 @@
+{% extends "app_base.html" %}
+{% block title %}Preview OPML import{% endblock %}
+{% block body_class %}page-feeds page-opml{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Subscription import</p>
+    <h1>Preview {{ document_title }}</h1>
+    <p class="muted">Nothing has changed yet. Review the folder mapping and select the subscriptions you want.</p>
+  </div>
+  <a class="btn" href="/feeds">Cancel import</a>
+</div>
+
+{% if skipped_count > 0 %}
+<details class="panel compact-panel">
+  <summary>{{ skipped_count }} invalid or duplicate item(s) will be skipped</summary>
+  {% if !skipped_examples.is_empty() %}
+  <ul class="compact-list">{% for item in skipped_examples %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+</details>
+{% endif %}
+
+{% if valid_count == 0 %}
+<section class="panel empty-state" role="alert">
+  <h2>No importable subscriptions found</h2>
+  <p>The document did not contain a valid, public HTTP or HTTPS feed URL.</p>
+  <a class="btn primary" href="/feeds">Choose another OPML source</a>
+</section>
+{% else %}
+<form method="post" action="/feeds/opml/import" class="stack opml-preview-form" data-opml-preview>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <section class="panel opml-import-options">
+    <div>
+      <h2>{{ valid_count }} subscription(s) ready</h2>
+      <p class="muted">{{ new_count }} new · {{ existing_count }} already subscribed</p>
+      <p class="muted" data-opml-selection-count>{{ valid_count }} selected.</p>
+    </div>
+    <label>When a subscription already exists
+      <select name="existing_policy">
+        <option value="keep" selected>Keep its current name and folder</option>
+        <option value="replace">Apply the OPML name and folder</option>
+      </select>
+    </label>
+    <div class="form-actions">
+      <button type="button" data-opml-select-all>Select all</button>
+      <button type="button" data-opml-select-none>Select none</button>
+      <button type="submit" class="primary" data-opml-import>Import selected</button>
+    </div>
+  </section>
+
+  {% for group in groups %}
+  <fieldset class="panel opml-group">
+    <legend>
+      <label class="check-row">
+        <input type="checkbox" checked data-opml-group-toggle data-opml-group-id="{{ group.id }}" />
+        <span>{{ group.name }} <span class="muted">({{ group.feeds.len() }})</span></span>
+      </label>
+    </legend>
+    <div id="{{ group.id }}" class="opml-feed-list">
+      {% for feed in group.feeds %}
+      <label class="opml-feed-option">
+        <input type="checkbox" name="entry" value="{{ feed.payload }}" checked data-opml-entry />
+        <span><strong>{{ feed.title }}</strong>{% if feed.existing %} <span class="badge">Already subscribed</span>{% endif %}<span class="meta">{{ feed.url }}</span></span>
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+</form>
+{% endif %}
+{% endblock %}

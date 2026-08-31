@@ -11,6 +11,25 @@
   <a href="/searches" class="btn">Back to searches</a>
 </div>
 
+<details class="panel">
+  <summary>Edit search</summary>
+  <form method="post" action="/searches/{{ id }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="form-grid">
+      <label>Name <input type="text" name="name" value="{{ name }}" required /></label>
+      <label>Query <input type="text" name="query" value="{{ query }}" required /></label>
+    </div>
+    <label class="check-row"><input type="checkbox" name="notify" value="true"{% if notify %} checked{% endif %} /><span>Notify me on strong matches</span></label>
+    <div class="form-actions">
+      <button type="submit" class="primary">Save and rematch</button>
+    </div>
+  </form>
+  <form method="post" action="/searches/{{ id }}/rematch" data-confirm="Clear these results and match all recent articles again?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit">Rematch from scratch</button>
+  </form>
+</details>
+
 {% if results.is_empty() %}
 <div class="empty-state">
   <p><strong>No matches yet.</strong></p>
@@ -29,5 +48,9 @@
   </li>
   {% endfor %}
 </ul>
+<nav class="pagination" aria-label="Saved search result pages">
+  {% if let Some(url) = previous_url %}<a class="btn" href="{{ url }}">Previous</a>{% endif %}
+  {% if let Some(url) = next_url %}<a class="btn" href="{{ url }}">Next</a>{% endif %}
+</nav>
 {% endif %}
 {% endblock %}

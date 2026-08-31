@@ -1,3 +1,5 @@
+use rustss_core::feed_content::{ContentLifetime, FeedContentMode, SubscriptionContentSettings};
+use rustss_core::youtube::SubscriptionYouTubeMode;
 use rustss_db::{articles, categories, feeds, read_articles, subscriptions, users, Db, NewArticle};
 
 fn unique(prefix: &str) -> String {
@@ -21,11 +23,90 @@ async fn add_article(db: &Db, feed_id: uuid::Uuid, title: &str) {
             content: title.to_string(),
             excerpt: None,
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn youtube_override_is_tenant_scoped_and_preserves_content_settings() {
+    let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&database_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let user = users::create(
+        db.pool(),
+        &format!("{}@example.test", unique("youtube-settings")),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let other = users::create(
+        db.pool(),
+        &format!("{}@example.test", unique("youtube-settings-other")),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!(
+            "https://youtube-settings.example/{}/feed",
+            uuid::Uuid::now_v7()
+        ),
+        "Video feed",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+    subscriptions::subscribe(db.pool(), other.id, feed.id, None)
+        .await
+        .unwrap();
+    subscriptions::update_content_and_youtube_settings(
+        db.pool(),
+        user.id,
+        feed.id,
+        SubscriptionContentSettings {
+            mode: FeedContentMode::ArticlePage,
+            lifetime: ContentLifetime::Infinite,
+        },
+        SubscriptionYouTubeMode::LinksOnly,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        subscriptions::youtube_mode_for_user(db.pool(), user.id, feed.id)
+            .await
+            .unwrap(),
+        Some(SubscriptionYouTubeMode::LinksOnly)
+    );
+    assert_eq!(
+        subscriptions::youtube_mode_for_user(db.pool(), other.id, feed.id)
+            .await
+            .unwrap(),
+        Some(SubscriptionYouTubeMode::Inherit)
+    );
+    let content = subscriptions::content_settings_for_user(db.pool(), user.id, feed.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(content.mode, FeedContentMode::ArticlePage);
+    assert_eq!(content.lifetime, ContentLifetime::Infinite);
 }
 
 #[tokio::test]

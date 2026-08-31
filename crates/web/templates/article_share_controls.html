@@ -1,0 +1,52 @@
+{% if share.enabled %}
+<details class="share-controls">
+  <summary>Public share</summary>
+  <div class="share-controls-body">
+    {% if share.active %}
+      <p class="muted">{{ share.expires_label.as_deref().unwrap_or("Active") }}. Anyone with this bearer link can read the selected stored copy.</p>
+      {% if let Some(url) = share.url %}
+      <div class="share-link-row">
+        <input type="text" value="{{ url }}" readonly aria-label="Public article link" data-share-link />
+        <button type="button" class="button-quiet" data-copy-share-link>Copy link</button>
+      </div>
+      {% else if share.token_unavailable %}
+      <p class="content-notice">The encrypted link can no longer be recovered. Rotate it to create a usable replacement.</p>
+      {% endif %}
+    {% else if let Some(status) = share.expires_label %}
+      <p class="muted">Previous link: {{ status }}.</p>
+    {% endif %}
+
+    <form method="post" action="/articles/{{ id }}/share" class="share-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <label>Link label
+        <input type="text" name="slug" value="{{ share.slug }}" maxlength="80" inputmode="url" />
+      </label>
+      <label>Stored content
+        <select name="content_source">
+          <option value="rss"{% if share.content_source == "rss" %} selected{% endif %}>RSS copy (always available)</option>
+          <option value="article_page"{% if share.content_source == "article_page" %} selected{% endif %}>Public-page copy, with RSS fallback</option>
+        </select>
+      </label>
+      <label>Lifetime in days
+        <input type="number" name="lifetime_days" min="1" max="{{ share.max_lifetime_days }}" value="{{ share.lifetime_days }}" data-share-lifetime{% if share.infinite %} disabled{% endif %} />
+      </label>
+      {% if share.allow_infinite %}<label class="check-row"><input type="checkbox" name="infinite" data-share-infinite{% if share.infinite %} checked{% endif %} /> No expiration</label>{% endif %}
+      <fieldset>
+        <legend>Visible on the public page</legend>
+        <label class="check-row"><input type="checkbox" name="show_title"{% if share.show_title %} checked{% endif %} /> Article title</label>
+        <label class="check-row"><input type="checkbox" name="show_metadata"{% if share.show_metadata %} checked{% endif %} /> Feed, author, and date</label>
+        <label class="check-row"><input type="checkbox" name="show_source_link"{% if share.show_source_link %} checked{% endif %} /> Privacy-clean source link</label>
+        <label class="check-row"><input type="checkbox" name="include_images"{% if share.include_images %} checked{% endif %} /> External images (may contact publisher servers)</label>
+      </fieldset>
+      <p class="muted">Saving rotates the bearer token, so the previous URL stops working immediately.</p>
+      <button type="submit" class="primary">{% if share.active %}Rotate and update link{% else %}Create public link{% endif %}</button>
+    </form>
+    {% if share.active %}
+    <form method="post" action="/articles/{{ id }}/share/revoke">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button type="submit" class="button-danger">Revoke public link</button>
+    </form>
+    {% endif %}
+  </div>
+</details>
+{% endif %}

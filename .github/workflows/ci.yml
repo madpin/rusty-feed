@@ -86,5 +86,8 @@ jobs:
           PLAYWRIGHT_REDIS_URL: redis://localhost:6379
         run: npm run test:e2e
 
+      - name: Validate automatic/custom TLS and inbound HTTP/2
+        run: scripts/test-tls-proxy.sh
+
       - name: Build (release)
         run: cargo build --release --workspace

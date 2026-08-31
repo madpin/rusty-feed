@@ -6,8 +6,7 @@ use serde_json::json;
 use time::Duration;
 use uuid::Uuid;
 
-use rustss_db::{agent_locks, feeds};
-use rustss_feeds::enqueue_fetch_feed;
+use rustss_db::{agent_locks, feeds, outbox};
 
 use crate::{Agent, AgentContext};
 
@@ -36,12 +35,21 @@ impl Agent for FeedRefreshAgent {
         }
 
         let due = feeds::list_due(pool, DUE_LIMIT).await?;
+        let mut transaction = pool.begin().await?;
         let mut enqueued = 0u64;
         for feed in &due {
-            if enqueue_fetch_feed(&ctx.db, feed.id).await?.is_some() {
-                enqueued += 1;
-            }
+            outbox::publish(
+                &mut transaction,
+                "fetch_feed",
+                json!({
+                    "feed_id": feed.id,
+                    "_dedup_key": format!("fetch_feed:{}", feed.id),
+                }),
+            )
+            .await?;
+            enqueued += 1;
         }
+        transaction.commit().await?;
 
         agent_locks::release(pool, "feed_refresh", &holder).await?;
         Ok(json!({ "due": due.len(), "enqueued": enqueued }))

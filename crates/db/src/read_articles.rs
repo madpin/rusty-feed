@@ -80,3 +80,31 @@ pub async fn mark_all_read(
     .await?;
     Ok(res.rows_affected())
 }
+
+/// Mark visible articles in a protocol stream read up to an inclusive cutoff.
+pub async fn mark_all_read_before(
+    pool: &PgPool,
+    user_id: Uuid,
+    feed_id: Option<Uuid>,
+    category_name: Option<&str>,
+    cutoff: time::OffsetDateTime,
+) -> Result<u64> {
+    let result = sqlx::query(
+        "INSERT INTO read_articles (id, user_id, article_id) \
+         SELECT gen_random_uuid(), $1, a.id FROM articles a \
+         JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+         WHERE ($2::uuid IS NULL OR a.feed_id = $2) \
+           AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
+               JOIN user_categories c ON c.id = ufc.user_category_id \
+               WHERE ufc.user_feed_id = uf.id AND c.user_id = $1 AND c.name = $3)) \
+           AND coalesce(a.published_at, a.created_at) <= $4 \
+         ON CONFLICT (user_id, article_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(feed_id)
+    .bind(category_name)
+    .bind(cutoff)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}

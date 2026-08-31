@@ -14,6 +14,25 @@ use rustss_agents::{process, Agent, AgentContext, FeedRefreshAgent, FetchFeedAge
 use rustss_db::{agent_runs, articles, feeds, jobs, subscriptions, users, Db};
 use rustss_feeds::SafeFetchClient;
 
+struct FailingAgent;
+
+#[async_trait::async_trait]
+impl Agent for FailingAgent {
+    fn name(&self) -> &'static str {
+        "failing_test_agent"
+    }
+
+    async fn run(
+        &self,
+        _ctx: &AgentContext,
+        _payload: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        anyhow::bail!(
+            "summary provider returned 401 at https://user:password@example.test/v1/chat?api_key=secret"
+        )
+    }
+}
+
 async fn connect() -> Option<Db> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = Db::connect(&url).await.expect("connect");
@@ -73,6 +92,9 @@ async fn feed_refresh_enqueues_one_fetch_regardless_of_subscribers() {
     let context = ctx(db.clone());
 
     FeedRefreshAgent.run(&context, json!({})).await.unwrap();
+    rustss_db::outbox::dispatch(db.pool(), &["fetch_feed".to_string()], 1_000)
+        .await
+        .unwrap();
     assert_eq!(
         jobs::count_active_by_dedup(db.pool(), &dedup)
             .await
@@ -83,12 +105,25 @@ async fn feed_refresh_enqueues_one_fetch_regardless_of_subscribers() {
 
     // Running again does not create a duplicate (dedup on active jobs).
     FeedRefreshAgent.run(&context, json!({})).await.unwrap();
+    rustss_db::outbox::dispatch(db.pool(), &["fetch_feed".to_string()], 1_000)
+        .await
+        .unwrap();
     assert_eq!(
         jobs::count_active_by_dedup(db.pool(), &dedup)
             .await
             .unwrap(),
         1
     );
+    sqlx::query("DELETE FROM job_queue WHERE dedup_key = $1")
+        .bind(dedup)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM outbox_events WHERE kind = 'fetch_feed' AND payload->>'feed_id' = $1")
+        .bind(feed.id.to_string())
+        .execute(db.pool())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -152,6 +187,82 @@ async fn fetch_feed_job_ingests_and_records_a_run() {
             .unwrap()
             >= 1
     );
+    sqlx::query("DELETE FROM job_queue WHERE id = $1")
+        .bind(id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM agent_runs WHERE agent_name = $1")
+        .bind(kind)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn process_persists_a_sanitized_actionable_error() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let kind = format!("failing_test_{}", uuid::Uuid::now_v7());
+    let mut registry = Registry::with_defaults();
+    registry.register(kind.clone(), Arc::new(FailingAgent));
+    let id = jobs::enqueue_in_lane(
+        db.pool(),
+        jobs::QueueLane::Interactive,
+        &kind,
+        json!({}),
+        None,
+        None,
+        1,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let job = jobs::claim_next_in_lane(
+        db.pool(),
+        "interactive#0",
+        jobs::QueueLane::Interactive,
+        std::slice::from_ref(&kind),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    process(&ctx(db.clone()), &registry, job).await;
+
+    assert_eq!(
+        jobs::get_status(db.pool(), id).await.unwrap().as_deref(),
+        Some("dead")
+    );
+    let queue_error: String = sqlx::query_scalar("SELECT last_error FROM job_queue WHERE id = $1")
+        .bind(id)
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert!(queue_error.contains("summary provider returned 401"));
+    assert!(queue_error.contains("https://example.test/v1/chat"));
+    assert!(!queue_error.contains("password"));
+    assert!(!queue_error.contains("secret"));
+    let run = agent_runs::list_recent(db.pool(), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|run| run.agent_name == kind)
+        .unwrap();
+    assert_eq!(run.error_message.as_deref(), Some(queue_error.as_str()));
+
+    sqlx::query("DELETE FROM job_queue WHERE id = $1")
+        .bind(id)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM agent_runs WHERE agent_name = $1")
+        .bind(kind)
+        .execute(db.pool())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -226,6 +337,11 @@ async fn failing_job_backs_off_then_dies() {
         jobs::get_status(db.pool(), id).await.unwrap().as_deref(),
         Some("dead")
     );
+    sqlx::query("DELETE FROM job_queue WHERE id = $1")
+        .bind(id)
+        .execute(db.pool())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -266,6 +382,149 @@ async fn skip_locked_prevents_double_claim() {
         3,
         "all three jobs should be claimed exactly once"
     );
+    sqlx::query("DELETE FROM job_queue WHERE kind = $1")
+        .bind(kind)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn worker_heartbeats_report_capacity_and_unregister_cleanly() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let worker_id = format!("test-worker-{}", uuid::Uuid::now_v7());
+    jobs::register_worker(db.pool(), &worker_id, 7, 2, true)
+        .await
+        .unwrap();
+
+    let workers = jobs::list_online_workers(db.pool()).await.unwrap();
+    let worker = workers
+        .iter()
+        .find(|worker| worker.worker_id == worker_id)
+        .expect("registered worker should be online");
+    assert_eq!(worker.concurrency, 9);
+    assert_eq!(worker.interactive_concurrency, 2);
+    assert!(worker.scheduler_enabled);
+
+    let kind = format!("heartbeat_queue_test_{}", uuid::Uuid::now_v7());
+    jobs::enqueue(db.pool(), &kind, json!({}), None, None, 2)
+        .await
+        .unwrap();
+    jobs::claim_next(
+        db.pool(),
+        &format!("{worker_id}#0"),
+        std::slice::from_ref(&kind),
+    )
+    .await
+    .unwrap()
+    .expect("heartbeat test job should be claimed");
+    let summary = jobs::queue_by_kind(db.pool())
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.kind == kind)
+        .unwrap();
+    assert_eq!(summary.running, 1);
+    assert_eq!(summary.stalled, 0);
+
+    jobs::heartbeat_worker(db.pool(), &worker_id).await.unwrap();
+    jobs::unregister_worker(db.pool(), &worker_id)
+        .await
+        .unwrap();
+    let summary = jobs::queue_by_kind(db.pool())
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.kind == kind)
+        .unwrap();
+    assert_eq!(summary.running, 0);
+    assert_eq!(summary.stalled, 1);
+    assert!(jobs::list_online_workers(db.pool())
+        .await
+        .unwrap()
+        .iter()
+        .all(|worker| worker.worker_id != worker_id));
+    sqlx::query("UPDATE job_queue SET locked_at = now() - interval '20 minutes' WHERE kind = $1")
+        .bind(&kind)
+        .execute(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        jobs::reclaim_stale(db.pool(), time::Duration::minutes(10))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        jobs::queue_by_kind(db.pool())
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.kind == kind)
+            .unwrap()
+            .pending_due,
+        1
+    );
+    sqlx::query("DELETE FROM job_queue WHERE kind = $1")
+        .bind(kind)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn interactive_lane_has_reserved_claimers() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let background_kind = format!("test_background_{}", uuid::Uuid::now_v7());
+    let interactive_kind = format!("test_interactive_{}", uuid::Uuid::now_v7());
+    jobs::enqueue(db.pool(), &background_kind, json!({}), None, None, 2)
+        .await
+        .unwrap();
+    jobs::enqueue_in_lane(
+        db.pool(),
+        jobs::QueueLane::Interactive,
+        &interactive_kind,
+        json!({}),
+        None,
+        None,
+        2,
+    )
+    .await
+    .unwrap();
+
+    let background = jobs::claim_next_in_lane(
+        db.pool(),
+        "background#0",
+        jobs::QueueLane::Background,
+        std::slice::from_ref(&background_kind),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let interactive = jobs::claim_next_in_lane(
+        db.pool(),
+        "interactive#0",
+        jobs::QueueLane::Interactive,
+        std::slice::from_ref(&interactive_kind),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(background.kind, background_kind);
+    assert_eq!(interactive.kind, interactive_kind);
+    assert_eq!(interactive.queue_name, "interactive");
+
+    sqlx::query("DELETE FROM job_queue WHERE kind = ANY($1)")
+        .bind(vec![background_kind, interactive_kind])
+        .execute(db.pool())
+        .await
+        .unwrap();
 }
 
 /// Helper: make a job runnable immediately again (bypass backoff for the test).

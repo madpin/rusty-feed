@@ -38,6 +38,7 @@ async fn add_embedded_article(db: &Db, feed_id: Uuid, title: &str, content: &str
             content: content.into(),
             excerpt: Some(content.into()),
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )

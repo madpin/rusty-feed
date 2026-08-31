@@ -1,47 +1,155 @@
 {% extends "app_base.html" %}
-{% block title %}Logs{% endblock %}
+{% block title %}Queue & logs{% endblock %}
 {% block body_class %}page-admin page-admin-logs{% endblock %}
 {% block content %}
 {% include "admin_nav.html" %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Administration</p>
-    <h1>Logs</h1>
-    <p class="muted">Recent shared-feed failures and background-worker activity. This view exposes safe classifications and counters, not raw request details or job payloads.</p>
+    <h1>Queue & logs</h1>
+    <p class="muted">Live capacity by queue lane, queued work, recent completions, and sanitized operational errors. Payloads, unreviewed legacy errors, URL credentials, and secret-bearing details are never shown.</p>
+  </div>
+  <div class="header-actions">
+    <span class="muted admin-refresh-status" data-admin-refresh-status>Updates every 10 seconds</span>
+    <button type="button" data-admin-queue-refresh>Refresh now</button>
   </div>
 </div>
-<details class="panel admin-log-section" open>
-  <summary><span><strong>Feed errors</strong><span class="muted">{{ feed_errors.len() }} recent event(s)</span></span></summary>
-  {% if feed_errors.is_empty() %}
-  <p class="muted">No feed failures have been recorded.</p>
-  {% else %}
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Feed</th><th>Time</th><th>Class</th><th>Summary</th><th>HTTP</th><th>Health</th><th>Failures</th><th>State</th></tr></thead>
-      <tbody>
-      {% for error in feed_errors %}
-        <tr><td><a href="/feeds/{{ error.feed_id }}/settings">{{ error.feed_name }}</a></td><td>{{ error.occurred_at }}</td><td>{{ error.error_type }}</td><td>{{ error.summary }}</td><td>{{ error.http_status }}</td><td><span class="badge health-{{ error.health_status }}">{{ error.health_status }}</span></td><td>{{ error.consecutive_failures }}</td><td>{% if error.resolved %}<span class="badge health-healthy">Resolved</span>{% else %}<span class="badge health-error">Open</span>{% endif %}</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+
+<section class="panel">
+  <h2>Maintenance controls</h2>
+  <p class="muted">Actions enqueue or recover bounded durable work. They do not run publisher fetches inside this web request.</p>
+  <div class="row-actions">
+    <form method="post" action="/admin/maintenance"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="refresh_due" /><button type="submit">Scan due feeds</button></form>
+    <form method="post" action="/admin/maintenance"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="cleanup" /><button type="submit">Queue cleanup</button></form>
+    <form method="post" action="/admin/maintenance" data-confirm="Recover jobs whose worker heartbeat has been absent for at least 10 minutes?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="reclaim_stalled" /><button type="submit">Recover stalled jobs</button></form>
+    <form method="post" action="/admin/maintenance" data-confirm="Retry up to 100 most recent dead-letter jobs?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="retry_dead" /><button type="submit">Retry dead letters</button></form>
   </div>
-  {% endif %}
-</details>
-<details class="panel admin-log-section" open>
-  <summary><span><strong>Background runs</strong><span class="muted">{{ agent_runs.len() }} recent run(s)</span></span></summary>
-  {% if agent_runs.is_empty() %}
-  <p class="muted">No background runs have been recorded.</p>
-  {% else %}
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Agent</th><th>State</th><th>Started</th><th>Duration</th><th>Stats</th></tr></thead>
-      <tbody>
-      {% for run in agent_runs %}
-        <tr><td>{{ run.agent_name }}</td><td><span class="badge{% if run.has_error %} health-error{% endif %}">{{ run.status }}</span></td><td>{{ run.started_at }}</td><td>{{ run.duration }}</td><td><code>{{ run.stats }}</code></td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-</details>
+</section>
+
+<div data-admin-queue-snapshot>
+  <section class="admin-stat-grid" aria-label="Queue status">
+    <span class="admin-stat"><strong>{{ queue.workers_online }}</strong><span>Workers online</span></span>
+    <span class="admin-stat"><strong>{{ queue.worker_capacity }}</strong><span>Execution slots</span></span>
+    <span class="admin-stat"><strong>{{ queue.background_capacity }}</strong><span>Background slots</span></span>
+    <span class="admin-stat"><strong>{{ queue.interactive_capacity }}</strong><span>Priority slots</span></span>
+    <span class="admin-stat"><strong>{{ queue.interactive_pending }}</strong><span>Priority waiting</span></span>
+    <span class="admin-stat"><strong>{{ queue.interactive_running }}</strong><span>Priority running</span></span>
+    <span class="admin-stat"><strong>{{ queue.background_pending }}</strong><span>Background waiting</span></span>
+    <span class="admin-stat"><strong>{{ queue.background_running }}</strong><span>Background running</span></span>
+    <span class="admin-stat"><strong>{{ queue.pending_due }}</strong><span>Pending now</span></span>
+    <span class="admin-stat"><strong>{{ queue.pending_scheduled }}</strong><span>Scheduled later</span></span>
+    <span class="admin-stat"><strong>{{ queue.running }}</strong><span>Running</span></span>
+    <span class="admin-stat"><strong>{{ queue.stalled }}</strong><span>Stalled</span></span>
+    <span class="admin-stat"><strong>{{ queue.finished_last_hour }}</strong><span>Finished in 1 hour</span></span>
+    <span class="admin-stat"><strong>{{ queue.dead }}</strong><span>Dead-letter jobs</span></span>
+  </section>
+
+  <details class="panel admin-log-section" data-admin-section="workers" open>
+    <summary><span><strong>Workers</strong><span class="muted">{{ workers.len() }} online process(es), {{ queue.worker_capacity }} execution slot(s)</span></span></summary>
+    {% if workers.is_empty() %}
+    <p class="notice error">No worker heartbeat has been received in the last 15 seconds. Pending work will remain queued until an embedded or standalone worker is online.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Worker</th><th>Total slots</th><th>Background</th><th>Priority</th><th>Scheduler</th><th>Started</th><th>Last heartbeat</th></tr></thead>
+        <tbody>
+        {% for worker in workers %}
+          <tr><td><code>{{ worker.id }}</code></td><td>{{ worker.concurrency }}</td><td>{{ worker.background_concurrency }}</td><td>{{ worker.interactive_concurrency }}</td><td>{{ worker.scheduler }}</td><td>{{ worker.started_at }}</td><td>{{ worker.heartbeat_at }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </details>
+
+  <details class="panel admin-log-section" data-admin-section="active" open>
+    <summary><span><strong>Active queue</strong><span class="muted">{{ active_jobs.len() }} visible due, scheduled, or running job(s)</span></span></summary>
+    {% if active_jobs.is_empty() %}
+    <p class="muted">No work is pending or running.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Lane</th><th>Job</th><th>State</th><th>Attempts</th><th>Queued</th><th>Available at</th><th>Worker slot</th><th>Updated</th><th>Last error</th></tr></thead>
+        <tbody>
+        {% for job in active_jobs %}
+          <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td><span class="badge{% if !job.tone.is_empty() %} health-{{ job.tone }}{% endif %}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.run_at }}</td><td><code>{{ job.worker }}</code></td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </details>
+
+  <details class="panel admin-log-section" data-admin-section="kinds" open>
+    <summary><span><strong>Queue by job type</strong><span class="muted">Pending, running, and dead-letter totals</span></span></summary>
+    {% if queue_by_kind.is_empty() %}
+    <p class="muted">The queue is empty.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Lane</th><th>Job</th><th>Pending now</th><th>Scheduled</th><th>Running</th><th>Stalled</th><th>Dead</th></tr></thead>
+        <tbody>
+        {% for row in queue_by_kind %}
+          <tr><td><span class="badge">{{ row.lane }}</span></td><td><code>{{ row.kind }}</code></td><td>{{ row.pending_due }}</td><td>{{ row.pending_scheduled }}</td><td>{{ row.running }}</td><td>{{ row.stalled }}</td><td>{{ row.dead }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </details>
+
+  <details class="panel admin-log-section" data-admin-section="finished" open>
+    <summary><span><strong>Just finished</strong><span class="muted">{{ recent_jobs.len() }} most recent completed or dead-letter job(s)</span></span></summary>
+    {% if recent_jobs.is_empty() %}
+    <p class="muted">No jobs have finished yet.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Lane</th><th>Job</th><th>State</th><th>Attempts</th><th>Queued</th><th>Finished</th><th>Error</th></tr></thead>
+        <tbody>
+        {% for job in recent_jobs %}
+          <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td><span class="badge health-{{ job.tone }}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </details>
+
+  <details class="panel admin-log-section" data-admin-section="runs" open>
+    <summary><span><strong>Agent runs</strong><span class="muted">{{ agent_runs.len() }} recent background and priority run(s)</span></span></summary>
+    {% if agent_runs.is_empty() %}
+    <p class="muted">No background runs have been recorded.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Agent</th><th>Outcome</th><th>Started</th><th>Duration</th><th>Safe result details</th><th>Sanitized error</th></tr></thead>
+        <tbody>
+        {% for run in agent_runs %}
+          <tr><td><code>{{ run.agent_name }}</code></td><td><span class="badge health-{{ run.tone }}">{{ run.status }}</span></td><td>{{ run.started_at }}</td><td>{{ run.duration }}</td><td class="admin-log-details"><code>{{ run.stats }}</code></td><td class="admin-log-error">{{ run.error }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </details>
+
+  <details class="panel admin-log-section" data-admin-section="errors" open>
+    <summary><span><strong>Feed errors</strong><span class="muted">{{ feed_errors.len() }} recent event(s)</span></span></summary>
+    {% if feed_errors.is_empty() %}
+    <p class="muted">No feed failures have been recorded.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Feed</th><th>Time</th><th>Class</th><th>Summary</th><th>HTTP</th><th>Health</th><th>Failures</th><th>State</th></tr></thead>
+        <tbody>
+        {% for error in feed_errors %}
+          <tr><td><a href="/feeds/{{ error.feed_id }}/settings">{{ error.feed_name }}</a></td><td>{{ error.occurred_at }}</td><td>{{ error.error_type }}</td><td>{{ error.summary }}</td><td>{{ error.http_status }}</td><td><span class="badge health-{{ error.health_status }}">{{ error.health_status }}</span></td><td>{{ error.consecutive_failures }}</td><td>{% if error.resolved %}<span class="badge health-healthy">Resolved</span>{% else %}<span class="badge health-error">Open</span>{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </details>
+</div>
 {% endblock %}

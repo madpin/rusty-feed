@@ -67,6 +67,39 @@ pub async fn delete_for_user(pool: &PgPool, user_id: Uuid) -> Result<u64> {
     Ok(res.rows_affected())
 }
 
+/// List a user's non-expired sessions, most recently active first.
+pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Session>> {
+    let sql = format!(
+        "SELECT {SESSION_COLUMNS} FROM sessions WHERE user_id = $1 AND expires_at > now() \
+         ORDER BY last_used_at DESC, created_at DESC"
+    );
+    Ok(sqlx::query_as(&sql).bind(user_id).fetch_all(pool).await?)
+}
+
+/// Delete one session, scoped to its owner.
+pub async fn delete_for_user_by_id(pool: &PgPool, user_id: Uuid, id: Uuid) -> Result<bool> {
+    let result = sqlx::query("DELETE FROM sessions WHERE id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Delete every session except the current opaque-token hash.
+pub async fn delete_other_sessions(
+    pool: &PgPool,
+    user_id: Uuid,
+    current_token_hash: &str,
+) -> Result<u64> {
+    let result = sqlx::query("DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2")
+        .bind(user_id)
+        .bind(current_token_hash)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 /// Delete expired sessions (housekeeping; called by a maintenance agent later).
 pub async fn delete_expired(pool: &PgPool) -> Result<u64> {
     let res = sqlx::query("DELETE FROM sessions WHERE expires_at <= now()")

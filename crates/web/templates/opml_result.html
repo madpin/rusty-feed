@@ -1,0 +1,37 @@
+{% extends "app_base.html" %}
+{% block title %}OPML import result{% endblock %}
+{% block body_class %}page-feeds page-opml{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Subscription import</p>
+    <h1>Import complete</h1>
+    <p class="muted">RustSS processed {{ report.selected }} selected subscription(s) without duplicating shared feed work.</p>
+  </div>
+  <a class="btn primary" href="/feeds">Back to feeds</a>
+</div>
+
+<section class="panel">
+  <h2>Result</h2>
+  <dl class="stats-grid opml-result-stats">
+    <div><dt>New subscriptions</dt><dd>{{ report.created }}</dd></div>
+    <div><dt>Existing updated</dt><dd>{{ report.updated }}</dd></div>
+    <div><dt>Existing unchanged</dt><dd>{{ report.unchanged }}</dd></div>
+    <div><dt>Folders created</dt><dd>{{ report.folders_created }}</dd></div>
+    <div><dt>Refreshes queued</dt><dd>{{ report.refreshes_queued }}</dd></div>
+    <div><dt>Already queued</dt><dd>{{ report.refreshes_already_queued }}</dd></div>
+    <div><dt>Failed</dt><dd>{{ report.failed }}</dd></div>
+  </dl>
+</section>
+
+{% if report.failed > 0 %}
+<section class="panel" role="alert">
+  <h2>Subscriptions that need attention</h2>
+  <p>These entries were not fully imported. Retry them from Manage feeds.</p>
+  <ul class="compact-list">
+    {% for failure in report.failures %}<li><strong>{{ failure.title }}</strong> — {{ failure.reason }}</li>{% endfor %}
+  </ul>
+  {% if additional_failures > 0 %}<p class="muted">And {{ additional_failures }} additional failure(s).</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

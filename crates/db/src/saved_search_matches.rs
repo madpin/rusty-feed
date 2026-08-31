@@ -83,3 +83,15 @@ pub async fn list_for_search(
     .fetch_all(pool)
     .await?)
 }
+
+/// Clear matches for an explicit full rematch. The parent ownership check is
+/// performed by the caller before this shared helper is invoked.
+pub async fn clear_for_search(pool: &PgPool, saved_search_id: Uuid) -> Result<u64> {
+    Ok(
+        sqlx::query("DELETE FROM saved_search_matches WHERE saved_search_id = $1")
+            .bind(saved_search_id)
+            .execute(pool)
+            .await?
+            .rows_affected(),
+    )
+}

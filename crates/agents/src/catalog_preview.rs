@@ -165,6 +165,7 @@ mod tests {
             title: None,
             extractor: "readability",
             verified_html: false,
+            blocked_tracking_pixels: 0,
         };
         assert_eq!(
             extracted_sample(&candidate, extracted).status,

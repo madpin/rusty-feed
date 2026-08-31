@@ -8,12 +8,11 @@ Rust knowledge required. Pick the option that matches where you want to run it:
 - [C. Dokploy](#c-dokploy) — one-click-ish self-hosted PaaS
 - [D. Proxmox](#d-proxmox) — home-lab / self-hosted server
 
-> **Current status (early development).** RustSS is being built milestone by
-> milestone. Right now the app boots, connects to its database, applies its
-> schema, and serves health/metrics endpoints (`/api/health`, `/metrics`). The
-> full reading web UI is still under construction. These install steps are
-> correct and will keep working as features land — you'll just see more of the
-> app over time. If you only see a health JSON response for now, that's expected.
+> **Current status (v1 release candidate).** The complete reading, discovery,
+> search, AI, API, and administration application is implemented and validated.
+> The repository has not been publicly tagged from this worktree; production
+> operators should deploy an immutable maintainer-published version tag/digest
+> rather than an arbitrary branch build.
 
 ---
 
@@ -173,7 +172,7 @@ cp .env.example .env       # then edit .env and set SESSION_SECRET + ENCRYPTION_
 # Minimal development stack: PostgreSQL only.
 docker compose --env-file .env -f docker/compose.yaml up -d postgres
 
-# Optional Redis L2 cache and future Chrome extraction service.
+# Optional Redis L2 cache and bounded Chromium extraction fallback.
 docker compose --env-file .env -f docker/compose.yaml up -d redis chromium
 ```
 
@@ -270,6 +269,48 @@ automatically on boot. Verify at `https://your-domain/api/health`.
 
 ---
 
+## C.1 Built-in HTTPS with Docker Compose
+
+RustSS ships optional Caddy profiles; choose exactly one. For automatic
+Let's Encrypt certificates, point public DNS at the host, allow inbound TCP 80
+and TCP/UDP 443, then set:
+
+```dotenv
+BASE_URL=https://reader.example.com
+APP_BIND_IP=127.0.0.1
+RUSTSS_DOMAIN=reader.example.com
+TLS_EMAIL=admin@example.com
+```
+
+Start the automatic profile:
+
+```bash
+docker compose --env-file .env -f docker/compose.yaml \
+  --profile https-auto up -d
+```
+
+Caddy redirects HTTP to HTTPS, obtains and renews the certificate, and
+negotiates HTTP/2. Its certificate state lives in named volumes. Keep the
+application's optional port 8080 bound to loopback as shown.
+
+For an existing certificate, put the full chain and unencrypted private key in
+a root-readable host directory, set `TLS_CERT_DIR`, `TLS_CERT_FILE`, and
+`TLS_KEY_FILE`, then use `--profile https-custom`. After atomically replacing
+the two files, validate and reload without restarting RustSS:
+
+```bash
+docker compose --env-file .env -f docker/compose.yaml \
+  exec caddy-custom caddy validate --config /etc/caddy/Caddyfile
+docker compose --env-file .env -f docker/compose.yaml \
+  exec caddy-custom caddy reload --config /etc/caddy/Caddyfile
+openssl s_client -connect reader.example.com:443 \
+  -servername reader.example.com </dev/null 2>/dev/null | openssl x509 -noout -dates
+```
+
+Do not enable both profiles: they intentionally compete for ports 80 and 443.
+
+---
+
 ## D. Proxmox
 
 On Proxmox VE you first create a small Linux machine, then run RustSS inside it
@@ -320,6 +361,7 @@ full list). The ones you're most likely to touch:
 | `DATABASE_URL` | PostgreSQL 17 connection string (SQLite is not supported) | set by compose |
 | `REDIS_URL` | Optional Redis L2 cache connection string | `redis://localhost:6379` |
 | `CACHE_ENABLED` | Enable Redis L2; set `false` for in-process cache only | `true` |
+| `CACHE_NAMESPACE` | Isolate keys and cross-instance invalidations; make unique when installations share Redis | `rustss` |
 | `POSTGRES_PORT` | PostgreSQL port published on the host | `5432` |
 | `REDIS_PORT` | Redis port published on the host | `6379` |
 | `CHROMIUM_PORT` | Chromium CDP port published on the host | `9222` |

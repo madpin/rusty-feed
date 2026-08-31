@@ -55,12 +55,10 @@ async fn download_icon(
     client: &SafeFetchClient,
     source_url: &str,
 ) -> std::result::Result<(&'static str, Vec<u8>), String> {
-    client
-        .validate_url(source_url)
-        .map_err(|error| error.to_string())?;
     let response = client
-        .client()
         .get(source_url)
+        .await
+        .map_err(|error| error.to_string())?
         .header(
             ACCEPT,
             "image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/vnd.microsoft.icon",

@@ -5,7 +5,7 @@
 <div class="page-header">
   <div>
     <a href="/feeds" class="back-link">Back to feeds</a>
-    <p class="eyebrow">Shared source policy</p>
+    <p class="eyebrow">Content settings</p>
     <h1>{{ feed.name }}</h1>
     <p class="muted">{{ feed.url }}</p>
   </div>
@@ -14,47 +14,101 @@
 {% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
 {% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
 
-<section class="panel">
-  <h2>Content source</h2>
-  <p class="muted">This policy applies to the shared feed. RustSS performs one acquisition/enrichment pass for all subscribers.</p>
-  <form method="post" action="/feeds/{{ feed.id }}/settings" class="stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+<form method="post" action="/feeds/{{ feed.id }}/settings" class="stack">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+  {% if feed.is_subscribed %}
+  <section class="panel">
+    <h2>Your stored content</h2>
+    <p class="muted">This choice belongs to your subscription. RSS content is always stored. If any subscriber requests the public page, RustSS fetches and stores one shared copy for everyone who requests it.</p>
     <fieldset>
-      <legend>Choose what RustSS stores</legend>
+      <legend>What do you want to read?</legend>
       <label class="radio-row">
         <input type="radio" name="content_mode" value="rss"{% if feed.content_mode == "rss" %} checked{% endif %} />
-        <span><strong>RSS content only</strong><small>Use the body included by the feed. Fastest and safest option.</small></span>
+        <span><strong>RSS content</strong><small>Always available from the feed and stored independently of public-page content.</small></span>
       </label>
       <label class="radio-row">
         <input type="radio" name="content_mode" value="article_page"{% if feed.content_mode == "article_page" %} checked{% endif %} />
-        <span><strong>Fetch public article pages</strong><small>RustSS anonymously fetches and extracts publicly available page content. RSS content remains the fallback when extraction cannot run or fails.</small></span>
+        <span><strong>Public article page</strong><small>Use one anonymously fetched, shared page copy, with RSS as the immediate fallback.</small></span>
       </label>
     </fieldset>
+    <label>Public-page content lifetime
+      <select name="content_lifetime">
+        <option value="1"{% if feed.content_lifetime == "1" %} selected{% endif %}>1 day</option>
+        <option value="7"{% if feed.content_lifetime == "7" %} selected{% endif %}>7 days</option>
+        <option value="30"{% if feed.content_lifetime == "30" %} selected{% endif %}>30 days</option>
+        <option value="90"{% if feed.content_lifetime == "90" %} selected{% endif %}>90 days</option>
+        <option value="365"{% if feed.content_lifetime == "365" %} selected{% endif %}>1 year</option>
+        <option value="infinite"{% if feed.content_lifetime == "infinite" %} selected{% endif %}>Infinite</option>
+      </select>
+    </label>
+    <p class="muted">For a shared page, the longest lifetime requested by any current subscriber wins. Missing or expired content is queued immediately when you open the article.</p>
+    <label>YouTube playback for this subscription
+      <select name="youtube_player_mode">
+        <option value="inherit"{% if feed.youtube_player_mode == "inherit" %} selected{% endif %}>Inherit my reading preference</option>
+        <option value="privacy"{% if feed.youtube_player_mode == "privacy" %} selected{% endif %}{% if !youtube_embeds_enabled %} disabled{% endif %}>Privacy-enhanced player</option>
+        <option value="links_only"{% if feed.youtube_player_mode == "links_only" %} selected{% endif %}>Links only</option>
+      </select>
+    </label>
+    {% if !youtube_embeds_enabled %}<p class="notice">The instance administrator has disabled embedded YouTube playback, so links-only is the effective mode.</p>{% endif %}
+    <p class="muted">The privacy player always uses <code>youtube-nocookie.com</code> and loads only after you choose it. This override changes rendering only; shared feed and article storage stays unchanged.</p>
+    <div class="form-grid">
+      <label>Attachment delivery for this subscription
+        <select name="enclosure_delivery_mode">
+          <option value="inherit"{% if feed.enclosure_delivery_mode == "inherit" %} selected{% endif %}>Inherit my reading preference</option>
+          <option value="proxy"{% if feed.enclosure_delivery_mode == "proxy" %} selected{% endif %}>Always use RustSS proxy</option>
+          <option value="mixed-content"{% if feed.enclosure_delivery_mode == "mixed-content" %} selected{% endif %}>Proxy HTTP media only</option>
+          <option value="direct"{% if feed.enclosure_delivery_mode == "direct" %} selected{% endif %}>Load directly from publisher</option>
+        </select>
+      </label>
+      <label>Attachment loading for this subscription
+        <select name="enclosure_load_mode">
+          <option value="inherit"{% if feed.enclosure_load_mode == "inherit" %} selected{% endif %}>Inherit my reading preference</option>
+          <option value="on-demand"{% if feed.enclosure_load_mode == "on-demand" %} selected{% endif %}>Load players on demand</option>
+          <option value="metadata"{% if feed.enclosure_load_mode == "metadata" %} selected{% endif %}>Preload metadata</option>
+          <option value="links-only"{% if feed.enclosure_load_mode == "links-only" %} selected{% endif %}>Links only</option>
+        </select>
+      </label>
+    </div>
+    <p class="muted">Choose Inherit to reset an override. These controls change your rendering only; enclosure metadata and proxy cache entries remain one shared copy.</p>
+    <label>Personal entry filters (JSON)
+      <textarea name="entry_filters_json" rows="8" spellcheck="false">{{ feed.entry_filters_json }}</textarea>
+      <small>Ordered include/exclude filters use Rust's bounded linear-time regex engine. Targets are <code>title</code>, <code>content</code>, <code>author</code>, or <code>url</code>; shared ingestion is never discarded.</small>
+    </label>
+  </section>
+  {% endif %}
 
-    <fieldset>
-      <legend>Public page extraction options</legend>
-      <label>Optional CSS selector for the article body
-        <input type="text" name="selector" value="{{ feed.selector }}" placeholder="article .entry-content" />
+  {% if is_admin %}
+  <section class="panel">
+    <h2>Shared acquisition controls</h2>
+    <p class="muted">These administrator-owned safety and pacing controls apply to the one shared public-page request. They do not decide what an individual subscriber reads.</p>
+    <label>Optional CSS selector for the article body
+      <input type="text" name="selector" value="{{ feed.selector }}" placeholder="article .entry-content" />
+    </label>
+    <label>Shared rewrite rules (JSON)
+      <textarea name="rewrite_rules_json" rows="10" spellcheck="false">{{ feed.rewrite_rules_json }}</textarea>
+      <small>Ordered rules may remove a CSS selector or replace matching text inside one. Rules are versionable data—not code—and RustSS sanitizes the result again before storage.</small>
+    </label>
+    {% if !rewrite_versions.is_empty() %}<details><summary>Rewrite rule history</summary><ul class="token-list">{% for version in rewrite_versions %}<li class="token-row"><span>Version {{ version.version }} · {{ version.rule_count }} rule(s) · {{ version.created_at }}</span><button type="submit" formaction="/feeds/{{ feed.id }}/rules/{{ version.id }}/restore" formmethod="post">Restore as new version</button></li>{% endfor %}</ul></details>{% endif %}
+    <div class="form-grid">
+      <label>Feed refresh interval (minutes)
+        <input type="number" name="fetch_interval_minutes" min="5" max="1440" value="{{ feed.fetch_interval_minutes }}" required />
       </label>
-      <div class="form-grid">
-        <label>Refresh interval (minutes)
-          <input type="number" name="fetch_interval_minutes" min="5" max="1440" value="{{ feed.fetch_interval_minutes }}" required />
-        </label>
-        <label>Extraction delay override (milliseconds)
-          <input type="number" name="extraction_delay_ms" min="250" max="120000"{% if let Some(delay) = feed.extraction_delay_ms %} value="{{ delay }}"{% endif %} placeholder="Use instance default" />
-        </label>
-      </div>
-      <p class="muted">Robots policy applies only when public-page extraction is selected. It is shared by every subscriber.</p>
-      <label class="radio-row">
-        <input type="radio" name="respect_robots_txt" value="true"{% if feed.respect_robots_txt %} checked{% endif %} />
-        <span><strong>Respect robots.txt</strong><small>Use publisher crawl rules and any declared crawl delay.</small></span>
+      <label>Extraction delay override (milliseconds)
+        <input type="number" name="extraction_delay_ms" min="250" max="120000"{% if let Some(delay) = feed.extraction_delay_ms %} value="{{ delay }}"{% endif %} placeholder="Use instance default" />
       </label>
-      <label class="radio-row">
-        <input type="radio" name="respect_robots_txt" value="false"{% if !feed.respect_robots_txt %} checked{% endif %} />
-        <span><strong>Ignore robots.txt for this feed</strong><small>Skip publisher crawl rules while retaining the configured delay and adaptive backoff.</small></span>
-      </label>
-    </fieldset>
-    <div class="form-actions"><button type="submit" class="primary">Save source policy and queue processing</button></div>
-  </form>
-</section>
+    </div>
+    <label class="radio-row">
+      <input type="radio" name="respect_robots_txt" value="true"{% if feed.respect_robots_txt %} checked{% endif %} />
+      <span><strong>Respect robots.txt</strong><small>Use publisher crawl rules and any declared crawl delay.</small></span>
+    </label>
+    <label class="radio-row">
+      <input type="radio" name="respect_robots_txt" value="false"{% if !feed.respect_robots_txt %} checked{% endif %} />
+      <span><strong>Ignore robots.txt for this feed</strong><small>Retain the configured delay and adaptive backoff.</small></span>
+    </label>
+  </section>
+  {% endif %}
+
+  <div class="form-actions"><button type="submit" class="primary">Save content settings</button><button type="submit" formaction="/feeds/{{ feed.id }}/rules/preview" formmethod="post">Preview rules on recent articles</button></div>
+</form>
 {% endblock %}

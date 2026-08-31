@@ -21,7 +21,9 @@ rustss-agents = { workspace = true }
 rustss-embed = { workspace = true }
 rustss-llm = { workspace = true }
 rustss-feeds = { workspace = true }
+rustss-extract = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+sd-notify = { workspace = true }

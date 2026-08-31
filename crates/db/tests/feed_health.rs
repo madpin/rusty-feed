@@ -1,4 +1,4 @@
-use rustss_db::{feeds, jobs, subscriptions, users, Db};
+use rustss_db::{feeds, jobs, notifications, subscriptions, users, Db};
 
 fn unique(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::now_v7())
@@ -57,6 +57,10 @@ async fn repeated_failures_move_from_normal_to_daily_then_weekly_checks() {
     assert_eq!(failed.consecutive_failures, 3);
     assert!(failed.failure_started_at.is_some());
     assert!(!is_due(&db, feed.id).await);
+    let health_notifications = notifications::list(db.pool(), user.id, 10).await.unwrap();
+    assert_eq!(health_notifications.len(), 1);
+    assert_eq!(health_notifications[0].kind, "feed_health");
+    assert!(health_notifications[0].title.contains("attention"));
 
     sqlx::query(
         "UPDATE feeds SET failure_started_at = now() - interval '13 days 23 hours', \
@@ -95,10 +99,37 @@ async fn repeated_failures_move_from_normal_to_daily_then_weekly_checks() {
     assert_eq!(recovered.health_status, "healthy");
     assert_eq!(recovered.consecutive_failures, 0);
     assert!(recovered.failure_started_at.is_none());
+    let health_notifications = notifications::list(db.pool(), user.id, 10).await.unwrap();
+    assert_eq!(health_notifications.len(), 2);
+    assert!(health_notifications[0].title.contains("recovered"));
     let errors = feeds::list_recent_errors(db.pool(), 100).await.unwrap();
     assert!(errors
         .iter()
         .any(|error| error.feed_id == feed.id && error.resolved));
+
+    feeds::set_paused(db.pool(), feed.id, true).await.unwrap();
+    assert_eq!(
+        feeds::find_by_id(db.pool(), feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .health_status,
+        "disabled"
+    );
+    assert!(!is_due(&db, feed.id).await);
+    feeds::set_paused(db.pool(), feed.id, false).await.unwrap();
+    assert_eq!(
+        feeds::find_by_id(db.pool(), feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .health_status,
+        "healthy"
+    );
+    assert!(
+        is_due(&db, feed.id).await,
+        "resume makes the source due now"
+    );
 }
 
 #[tokio::test]
@@ -260,4 +291,9 @@ async fn forced_refresh_schedule_preserves_paused_sources() {
             .unwrap();
     assert!(active_ready);
     assert!(!paused_ready);
+    sqlx::query("DELETE FROM job_queue WHERE id = ANY($1)")
+        .bind([active_job, paused_job])
+        .execute(db.pool())
+        .await
+        .unwrap();
 }

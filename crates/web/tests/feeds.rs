@@ -88,6 +88,56 @@ async fn register(app: &Router) -> (String, String) {
 }
 
 #[tokio::test]
+async fn bookmarklet_discovers_feeds_and_requires_confirmation() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/story"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html; charset=utf-8")
+                .set_body_string(
+                    r#"<html><head><link rel="alternate" type="application/rss+xml" title="News feed" href="/feed.xml"></head><body>Story</body></html>"#,
+                ),
+        )
+        .mount(&server)
+        .await;
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    )
+    .with_fetch(SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap());
+    let app = router(state);
+    let (sid, _) = register(&app).await;
+
+    let page_url = format!("{}/story", server.uri());
+    let encoded: String = url::form_urlencoded::byte_serialize(page_url.as_bytes()).collect();
+    let response = app
+        .oneshot(
+            Request::get(format!("/bookmarklet/subscribe?url={encoded}"))
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    assert!(body.contains("Choose a feed to subscribe"));
+    assert!(body.contains("News feed"));
+    assert!(body.contains(&format!("{}/feed.xml", server.uri())));
+    assert!(body.contains("action=\"/feeds\""));
+    assert!(!body.contains("Subscribed to"));
+}
+
+#[tokio::test]
 async fn add_feed_ingests_and_shows_articles() {
     let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
@@ -158,8 +208,10 @@ async fn add_feed_ingests_and_shows_articles() {
     let subs = feeds::list_for_user(state.db.pool(), user.id)
         .await
         .unwrap();
-    assert_eq!(subs.len(), 1);
-    let feed = &subs[0];
+    let feed = subs
+        .iter()
+        .find(|feed| feed.url == feed_url)
+        .expect("newly added feed must be among the user's subscriptions");
     assert!(
         subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
             .await
@@ -228,7 +280,7 @@ async fn add_feed_ingests_and_shows_articles() {
 }
 
 #[tokio::test]
-async fn admin_can_set_shared_article_page_policy() {
+async fn subscriber_owns_content_choice_while_admin_controls_shared_acquisition() {
     let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -279,7 +331,7 @@ async fn admin_can_set_shared_article_page_policy() {
         .unwrap()
         .to_string();
     let body = body_string(response).await;
-    assert!(body.contains("Content source"));
+    assert!(body.contains("Your stored content"));
     assert!(body.contains("Ignore robots.txt for this feed"));
 
     let response = app
@@ -288,7 +340,7 @@ async fn admin_can_set_shared_article_page_policy() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "csrf_token={csrf}&content_mode=article_page&selector=article&respect_robots_txt=false&extraction_delay_ms=500&fetch_interval_minutes=30"
+                    "csrf_token={csrf}&content_mode=article_page&content_lifetime=infinite&youtube_player_mode=links_only&enclosure_delivery_mode=proxy&enclosure_load_mode=links-only&selector=article&respect_robots_txt=false&extraction_delay_ms=500&fetch_interval_minutes=30"
                 )))
                 .unwrap(),
         )
@@ -297,18 +349,45 @@ async fn admin_can_set_shared_article_page_policy() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(body_string(response)
         .await
-        .contains("Shared source policy saved"));
+        .contains("Your content preference was saved"));
 
     let saved = feeds::find_by_id(state.db.pool(), feed.id)
         .await
         .unwrap()
         .unwrap();
     let settings = saved.extraction_settings.unwrap();
-    assert_eq!(settings["mode"], "article_page");
+    assert_eq!(settings["mode"], "rss");
     assert_eq!(settings["selector"], "article");
     assert!(!saved.respect_robots_txt);
     assert_eq!(saved.extraction_delay_ms, Some(500));
     assert_eq!(saved.fetch_interval_minutes, 30);
+    let personal = subscriptions::content_settings_for_user(state.db.pool(), user.id, feed.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(personal.mode.as_str(), "article_page");
+    assert!(personal.lifetime.days().is_none());
+    assert_eq!(
+        subscriptions::youtube_mode_for_user(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap(),
+        Some(rustss_core::youtube::SubscriptionYouTubeMode::LinksOnly)
+    );
+    let subscription = subscriptions::find(state.db.pool(), user.id, feed.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let enclosure_settings = rustss_core::feed_content::SubscriptionEnclosureSettings::from_json(
+        subscription.settings.as_ref(),
+    );
+    assert_eq!(
+        enclosure_settings.delivery,
+        rustss_core::feed_content::SubscriptionEnclosureDelivery::Proxy
+    );
+    assert_eq!(
+        enclosure_settings.load,
+        rustss_core::feed_content::SubscriptionEnclosureLoad::LinksOnly
+    );
     assert_eq!(
         jobs::count_active_by_dedup(state.db.pool(), &format!("fetch_feed:{}", feed.id))
             .await
@@ -448,6 +527,7 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
             content: "body".to_string(),
             excerpt: None,
             image_url: None,
+            enclosures: Vec::new(),
             published_at: None,
         },
     )
@@ -645,6 +725,26 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
     let response = app
         .clone()
         .oneshot(
+            Request::post(format!("/feeds/categories/{}/collapse", folder.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}&collapsed=true")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let saved_folder = categories::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|category| category.id == folder.id)
+        .unwrap();
+    assert!(saved_folder.collapsed);
+    let response = app
+        .clone()
+        .oneshot(
             Request::post("/feeds/refresh-everything")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
@@ -736,13 +836,14 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .oneshot(
             Request::post(format!("/feeds/{}/folder", first.id))
                 .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
                 .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
                 .body(Body::from(format!("csrf_token={csrf}&folder_id=")))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
     let first_organization = subscriptions::list_organization(state.db.pool(), user.id)
         .await
         .unwrap()
@@ -800,6 +901,251 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn opml_preview_import_url_and_export_round_trip() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    )
+    .with_fetch(SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap());
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let feeds_page = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&feeds_page), "rustss_csrf")
+        .unwrap()
+        .to_string();
+    let run = uuid::Uuid::now_v7();
+    let empty_boundary = format!("rustss-empty-{run}");
+    let empty_multipart = format!(
+        "--{empty_boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+         --{empty_boundary}\r\nContent-Disposition: form-data; name=\"opml_url\"\r\n\r\n\r\n\
+         --{empty_boundary}\r\nContent-Disposition: form-data; name=\"opml_file\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n\
+         --{empty_boundary}--\r\n"
+    );
+    let empty_preview = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/opml/preview")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={empty_boundary}"),
+                )
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(empty_multipart))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(empty_preview.status(), StatusCode::OK);
+    let empty_preview = body_string(empty_preview).await;
+    assert!(empty_preview.contains("Import needs attention"));
+    assert!(empty_preview.contains("Choose either one OPML file or one OPML URL"));
+
+    let first_url = format!("https://opml-{run}.example/one.xml");
+    let second_url = format!("https://opml-{run}.example/two.xml");
+    let document = format!(
+        r#"<?xml version="1.0"?><opml version="2.0"><head><title>Portable library</title></head><body>
+        <outline text="Work"><outline text="News"><outline text="One" xmlUrl="{first_url}" htmlUrl="https://one.example/"/></outline></outline>
+        <outline text="Personal"><outline text="News"><outline text="Two" xmlUrl="{second_url}"/></outline></outline>
+        <outline text="Duplicate" xmlUrl="{first_url}"/>
+        </body></opml>"#
+    );
+    let boundary = format!("rustss-{run}");
+    let multipart = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"opml_url\"\r\n\r\n\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"opml_file\"; filename=\"subscriptions.opml\"\r\nContent-Type: text/x-opml\r\n\r\n{document}\r\n\
+         --{boundary}--\r\n"
+    );
+    let preview = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/opml/preview")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(multipart))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.status(), StatusCode::OK);
+    let preview = body_string(preview).await;
+    assert!(preview.contains("Preview Portable library"));
+    assert!(preview.contains("2 subscription(s) ready"));
+    assert!(preview.contains("1 invalid or duplicate item(s) will be skipped"));
+    assert!(preview.contains("Work / News"));
+    assert!(preview.contains("Personal / News"));
+    let entries = attribute_values(&preview, "name=\"entry\" value=\"");
+    assert_eq!(entries.len(), 2);
+
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    serializer.append_pair("csrf_token", &csrf);
+    serializer.append_pair("existing_policy", "keep");
+    for entry in &entries {
+        serializer.append_pair("entry", entry);
+    }
+    let imported = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/opml/import")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(serializer.finish()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(imported.status(), StatusCode::OK);
+    let imported = body_string(imported).await;
+    assert!(imported.contains("Import complete"));
+    assert!(imported.contains("New subscriptions"));
+
+    let user = users::find_by_email(state.db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    let subscribed_feeds = feeds::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    assert!(subscribed_feeds.iter().any(|feed| feed.url == first_url));
+    assert!(subscribed_feeds.iter().any(|feed| feed.url == second_url));
+    let category_rows = categories::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    let news_count = category_rows
+        .iter()
+        .filter(|category| category.name == "News")
+        .count();
+    assert_eq!(
+        news_count, 2,
+        "same-named folders under different parents must survive"
+    );
+
+    let exported = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds/opml/export")
+                .header("cookie", format!("rustss_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exported.status(), StatusCode::OK);
+    assert_eq!(
+        exported.headers().get("content-type").unwrap(),
+        "text/x-opml; charset=utf-8"
+    );
+    let exported = body_string(exported).await;
+    let round_trip = rustss_feeds::parse_opml(exported.as_bytes(), 2_000).unwrap();
+    assert!(round_trip.subscriptions.len() >= 2);
+    assert!(round_trip
+        .subscriptions
+        .iter()
+        .any(|subscription| subscription.category_path == ["Work", "News"]));
+    assert!(round_trip
+        .subscriptions
+        .iter()
+        .any(|subscription| subscription.category_path == ["Personal", "News"]));
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/subscriptions.opml"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(document))
+        .mount(&server)
+        .await;
+    let boundary = format!("rustss-url-{run}");
+    let multipart = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"opml_url\"\r\n\r\n{}/subscriptions.opml\r\n\
+         --{boundary}\r\nContent-Disposition: form-data; name=\"opml_file\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n\
+         --{boundary}--\r\n",
+        server.uri()
+    );
+    let url_preview = app
+        .clone()
+        .oneshot(
+            Request::post("/feeds/opml/preview")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .body(Body::from(multipart))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(url_preview.status(), StatusCode::OK);
+    let url_preview = body_string(url_preview).await;
+    assert!(url_preview.contains("2 subscription(s) ready"));
+    assert!(url_preview.contains("0 new · 2 already subscribed"));
+    assert!(url_preview.contains("Already subscribed"));
+
+    let feed_ids: Vec<_> = feeds::list_for_user(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|feed| feed.url == first_url || feed.url == second_url)
+        .map(|feed| feed.id)
+        .collect();
+    assert_eq!(feed_ids.len(), 2);
+    sqlx::query("DELETE FROM job_queue WHERE dedup_key = ANY($1)")
+        .bind(
+            feed_ids
+                .iter()
+                .map(|feed_id| format!("fetch_feed:{feed_id}"))
+                .collect::<Vec<_>>(),
+        )
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user.id)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM feeds WHERE id = ANY($1)")
+        .bind(&feed_ids)
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+}
+
+fn attribute_values(document: &str, marker: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut remainder = document;
+    while let Some(index) = remainder.find(marker) {
+        remainder = &remainder[index + marker.len()..];
+        let Some(end) = remainder.find('"') else {
+            break;
+        };
+        values.push(remainder[..end].to_string());
+        remainder = &remainder[end + 1..];
+    }
+    values
 }
 
 /// Minimal application/x-www-form-urlencoded encoding for our test URL values.
