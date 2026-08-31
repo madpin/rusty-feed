@@ -373,6 +373,8 @@ struct BulkForm {
     folder_id: Option<Uuid>,
     tags: Vec<String>,
     tag_operation: subscriptions::BulkTagOperation,
+    content_mode: Option<String>,
+    content_lifetime: Option<String>,
 }
 
 fn parse_bulk_form(values: Vec<(String, String)>) -> Result<BulkForm, String> {
@@ -381,6 +383,8 @@ fn parse_bulk_form(values: Vec<(String, String)>) -> Result<BulkForm, String> {
     let mut folder_id = None;
     let mut tags = None;
     let mut tag_operation = None;
+    let mut content_mode = None;
+    let mut content_lifetime = None;
     for (name, value) in values {
         match name.as_str() {
             "csrf_token" if csrf_token.is_none() => csrf_token = Some(value),
@@ -392,6 +396,8 @@ fn parse_bulk_form(values: Vec<(String, String)>) -> Result<BulkForm, String> {
             "folder_id" if folder_id.is_none() => folder_id = Some(parse_folder_id(&value)?),
             "tags" if tags.is_none() => tags = Some(value),
             "tag_operation" if tag_operation.is_none() => tag_operation = Some(value),
+            "content_mode" if content_mode.is_none() => content_mode = Some(value),
+            "content_lifetime" if content_lifetime.is_none() => content_lifetime = Some(value),
             _ => return Err("The bulk feed action could not be processed.".to_string()),
         }
     }
@@ -417,6 +423,8 @@ fn parse_bulk_form(values: Vec<(String, String)>) -> Result<BulkForm, String> {
         folder_id: folder_id.flatten(),
         tags: normalize_tags(&tags.unwrap_or_default())?,
         tag_operation,
+        content_mode,
+        content_lifetime,
     })
 }
 
@@ -1341,6 +1349,102 @@ pub async fn bulk_tags(
         }
         Err(error) => Err(error.into()),
     }
+}
+
+/// Apply a personal content source + public-page lifetime to every selected
+/// feed at once. Scoped strictly to the caller's own subscription rows.
+pub async fn bulk_content(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(values): Form<Vec<(String, String)>>,
+) -> Result<Response, AppError> {
+    let is_admin = user.role == "admin";
+    let form = match parse_bulk_form(values) {
+        Ok(form) => form,
+        Err(error) => {
+            return render_page(
+                &state,
+                user.id,
+                user.email,
+                is_admin,
+                jar,
+                None,
+                Some(error),
+            )
+            .await
+        }
+    };
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let (Some(content_mode), Some(content_lifetime)) = (
+        form.content_mode.as_deref(),
+        form.content_lifetime.as_deref(),
+    ) else {
+        return render_page(
+            &state,
+            user.id,
+            user.email,
+            is_admin,
+            jar,
+            None,
+            Some("Choose a content source and lifetime.".to_string()),
+        )
+        .await;
+    };
+    // Validate the selection once so an invalid choice fails fast and cleanly.
+    if FeedContentMode::parse(content_mode).is_none()
+        || ContentLifetime::parse(content_lifetime).is_none()
+    {
+        return render_page(
+            &state,
+            user.id,
+            user.email,
+            is_admin,
+            jar,
+            None,
+            Some("Choose a valid content source and lifetime.".to_string()),
+        )
+        .await;
+    }
+    let mut updated = 0_usize;
+    let mut queued = 0_usize;
+    for feed_id in &form.feed_ids {
+        // The bulk checkboxes only list the caller's feeds, but re-check so a
+        // forged feed id cannot touch a subscription the user does not own.
+        if !subscriptions::is_subscribed(state.db.pool(), user.id, *feed_id).await? {
+            continue;
+        }
+        queued += save_personal_content_settings(
+            &state,
+            user.id,
+            *feed_id,
+            content_mode,
+            content_lifetime,
+            None,
+            None,
+        )
+        .await?;
+        updated += 1;
+    }
+    let message = if queued > 0 {
+        format!(
+            "Updated content settings for {updated} feed(s); queued {queued} page extraction(s)."
+        )
+    } else {
+        format!("Updated content settings for {updated} feed(s).")
+    };
+    render_page(
+        &state,
+        user.id,
+        user.email,
+        is_admin,
+        jar,
+        Some(message),
+        None,
+    )
+    .await
 }
 
 /// Destructive bulk operation scoped strictly to the caller's personal

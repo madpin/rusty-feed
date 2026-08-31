@@ -124,6 +124,7 @@ pub fn router(state: AppState) -> Router {
         .route("/feeds/refresh-selected", post(feeds::refresh_selected))
         .route("/feeds/bulk-move", post(feeds::bulk_move))
         .route("/feeds/bulk-tags", post(feeds::bulk_tags))
+        .route("/feeds/bulk-content", post(feeds::bulk_content))
         .route("/feeds/bulk-unsubscribe", post(feeds::bulk_unsubscribe))
         .route("/feeds/categories", post(feeds::create_category))
         .route(
