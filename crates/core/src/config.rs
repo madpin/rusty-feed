@@ -549,6 +549,9 @@ pub struct AppConfig {
     /// Provision a read-only admin demo account ("see as admin").
     #[serde(default = "defaults::bool_true")]
     pub demo_admin_readonly: bool,
+    /// Lifetime of a demo session cookie, in hours (well under the daily reset).
+    #[serde(default = "defaults::demo_session_ttl_hours")]
+    pub demo_session_ttl_hours: u32,
 }
 
 impl AppConfig {
@@ -1284,6 +1287,9 @@ mod defaults {
     }
     pub fn demo_max_subscriptions() -> u32 {
         20
+    }
+    pub fn demo_session_ttl_hours() -> u32 {
+        24
     }
 }
 

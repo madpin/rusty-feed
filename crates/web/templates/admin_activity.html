@@ -1,0 +1,55 @@
+{% extends "app_base.html" %}
+{% block title %}Abuse &amp; activity{% endblock %}
+{% block body_class %}page-admin{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-header"><div><p class="eyebrow">Administration</p><h1>Abuse &amp; activity</h1><p class="muted">Per-user signals for a public instance: recent signups, locked accounts, AI usage, and open reports.</p></div></div>
+{% if admin_readonly %}<p class="notice" role="status">Read-only view — emails are masked and per-user cost is hidden.</p>{% endif %}
+
+<section class="panel">
+  <h2>Open abuse reports</h2>
+  <p><strong>{{ open_reports }}</strong> open · <a href="/admin/feeds/blocklist">Review the moderation queue</a></p>
+</section>
+
+<section class="panel">
+  <h2>Top AI usage (last 24h)</h2>
+  {% if ai_users.is_empty() %}<p class="muted">No attributed AI usage in the last 24 hours.</p>{% else %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>User</th><th>Calls</th><th>Cost</th></tr></thead>
+    <tbody>
+    {% for row in ai_users %}
+      <tr><td>{{ row.email }}</td><td>{{ row.calls }}</td><td>{{ row.cost_usd }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Locked accounts</h2>
+  {% if locked.is_empty() %}<p class="muted">No locked accounts.</p>{% else %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>User</th><th>Locked until</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for row in locked %}
+      <tr><td>{{ row.email }}</td><td>{{ row.detail }}</td><td>{{ row.tags }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Recent signups</h2>
+  {% if signups.is_empty() %}<p class="muted">No accounts yet.</p>{% else %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>User</th><th>Joined</th><th>Flags</th></tr></thead>
+    <tbody>
+    {% for row in signups %}
+      <tr><td>{{ row.email }}</td><td>{{ row.detail }}</td><td>{{ row.tags }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1497,3 +1497,21 @@ body.landing { max-width: none; }
 .wizard-preview .preview-list { border-right: 1px solid var(--color-border, #3333); padding-right: 1rem; }
 .wizard-steps { display: grid; gap: 1.5rem; }
 .wizard-swatches { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* First-run wizard: no-JS theme swatches (P8 §8.4) — a visual cue per theme so
+   the choice stays visual even without the live preview. */
+.wizard-swatches label { display: inline-flex; align-items: center; gap: 0.4rem; margin: 0 0.75rem 0.5rem 0; }
+.theme-swatch {
+  display: inline-block;
+  width: 2.5rem; height: 1.1rem;
+  border-radius: 4px;
+  border: 1px solid rgba(128,128,128,0.4);
+  vertical-align: middle;
+}
+.theme-swatch--system { background: linear-gradient(90deg, #fff 50%, #1e293b 50%); }
+.theme-swatch--light { background: linear-gradient(90deg, #ffffff 60%, #2563eb 60%); }
+.theme-swatch--dark { background: linear-gradient(90deg, #0f172a 60%, #38bdf8 60%); }
+.theme-swatch--ocean { background: linear-gradient(90deg, #0b2f3a 60%, #22d3ee 60%); }
+.theme-swatch--forest { background: linear-gradient(90deg, #14251a 60%, #34d399 60%); }
+.theme-swatch--plum { background: linear-gradient(90deg, #241826 60%, #c084fc 60%); }
+.theme-swatch--sunset { background: linear-gradient(90deg, #2a1712 60%, #fb923c 60%); }

@@ -221,6 +221,7 @@ async fn main() -> anyhow::Result<()> {
         demo_mode: config.demo_mode,
         demo_max_subscriptions: config.demo_max_subscriptions,
         demo_admin_readonly: config.demo_admin_readonly,
+        demo_session_ttl_hours: config.demo_session_ttl_hours,
     };
 
     // SSRF-safe fetch client (opt into private/loopback for trusted intranet

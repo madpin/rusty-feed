@@ -196,6 +196,7 @@ struct ArticleTemplate {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    show_ai_key_cue: bool,
     external_new_tab: bool,
     share: ShareControls,
 }
@@ -230,6 +231,7 @@ struct ArticlePanelTemplate {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    show_ai_key_cue: bool,
     external_new_tab: bool,
     share: ShareControls,
 }
@@ -260,6 +262,7 @@ struct ReaderView {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    show_ai_key_cue: bool,
     external_new_tab: bool,
     share: ShareControls,
 }
@@ -1534,6 +1537,13 @@ async fn reader_view(
         stored_blocked_tracking_pixels.saturating_add(content_report.blocked_tracking_pixels);
     let stored_summary = articles::get_summary(state.db.pool(), id).await?;
     let can_summarize = state.settings.summarization_enabled && stored_summary.is_none();
+    // Nudge keyless users to bring their own AI key instead of a dead control
+    // (§8.1.3). Users with a personal key already see the summarize action.
+    let show_ai_key_cue = stored_summary.is_none()
+        && state.settings.summarization_enabled
+        && !rustss_db::llm_profiles::has_enabled_user_profile(state.db.pool(), user_id)
+            .await
+            .unwrap_or(false);
     let (summary, key_points, topics) = match stored_summary {
         Some(s) => (Some(s.summary), s.key_points, s.topics),
         None => (None, Vec::new(), Vec::new()),
@@ -1720,6 +1730,7 @@ async fn reader_view(
         key_points,
         topics,
         can_summarize,
+        show_ai_key_cue,
         external_new_tab,
         share,
     })
@@ -1767,6 +1778,7 @@ pub async fn read(
         key_points: article.key_points,
         topics: article.topics,
         can_summarize: article.can_summarize,
+        show_ai_key_cue: article.show_ai_key_cue,
         external_new_tab: article.external_new_tab,
         share: article.share,
     }
@@ -1818,6 +1830,7 @@ pub async fn side_panel(
         key_points: article.key_points,
         topics: article.topics,
         can_summarize: article.can_summarize,
+        show_ai_key_cue: article.show_ai_key_cue,
         external_new_tab: article.external_new_tab,
         share: article.share,
     }

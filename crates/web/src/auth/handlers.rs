@@ -181,7 +181,10 @@ pub async fn demo_start(
     };
     let user = users::create_demo(state.db.pool(), &email, name, role).await?;
     metrics::counter!("rustss_demo_provisions_total", "role" => role).increment(1);
-    let jar = session::login(jar, &state.db, user.id, state.settings.cookie_secure).await?;
+    // Demo sessions get a short TTL so abandoned ones expire before the reset.
+    let ttl = time::Duration::hours(i64::from(state.settings.demo_session_ttl_hours).max(1));
+    let jar =
+        session::login_with_ttl(jar, &state.db, user.id, state.settings.cookie_secure, ttl).await?;
     // A readable (non-HttpOnly) marker so the client shows the demo banner.
     let jar = jar.add(
         axum_extra::extract::cookie::Cookie::build(("rustss_demo", "1"))

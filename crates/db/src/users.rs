@@ -222,6 +222,29 @@ pub async fn touch_last_seen(pool: &PgPool, user_id: Uuid) -> Result<()> {
     Ok(())
 }
 
+/// Most recently created accounts, newest first (admin activity view, §10.1).
+pub async fn recent_signups(pool: &PgPool, limit: i64) -> Result<Vec<User>> {
+    let limit = limit.clamp(1, 100);
+    let sql = format!("SELECT {USER_COLUMNS} FROM users ORDER BY created_at DESC LIMIT $1");
+    Ok(sqlx::query_as::<_, User>(&sql)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?)
+}
+
+/// Accounts currently locked out from local login (admin activity view, §10.1).
+pub async fn locked_accounts(pool: &PgPool, limit: i64) -> Result<Vec<User>> {
+    let limit = limit.clamp(1, 100);
+    let sql = format!(
+        "SELECT {USER_COLUMNS} FROM users WHERE locked_until IS NOT NULL AND locked_until > now() \
+         ORDER BY locked_until DESC LIMIT $1"
+    );
+    Ok(sqlx::query_as::<_, User>(&sql)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?)
+}
+
 /// Stamp the first-run wizard as done (finished or skipped), idempotently (§8.4).
 pub async fn mark_onboarded(pool: &PgPool, user_id: Uuid) -> Result<()> {
     sqlx::query("UPDATE users SET onboarded_at = COALESCE(onboarded_at, now()) WHERE id = $1")

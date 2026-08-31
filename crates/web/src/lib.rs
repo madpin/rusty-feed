@@ -226,6 +226,7 @@ pub fn router(state: AppState) -> Router {
             get(admin::catalog_page).post(admin::create_catalog_entry),
         )
         .route("/admin/catalog/{id}", post(admin::update_catalog_entry))
+        .route("/admin/activity", get(admin::activity))
         .route("/admin/logs", get(admin::logs))
         .route("/admin/maintenance", post(admin::maintenance))
         .route("/admin/costs", get(admin::costs))
@@ -322,6 +323,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/manifest.webmanifest", get(web_manifest))
         .route("/service-worker.js", get(service_worker))
+        .route("/robots.txt", get(robots_txt))
+        .route("/sitemap.xml", get(sitemap_xml))
         .route("/static/{*path}", get(static_handler))
         .route("/api/health", get(health))
         .route("/api/health/ready", get(ready))
@@ -576,6 +579,64 @@ async fn web_manifest(State(state): State<AppState>) -> Response {
                 { "name": "Discover feeds", "short_name": "Discover", "url": "/catalog", "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }] }
             ]
         })),
+    )
+        .into_response()
+}
+
+/// `GET /robots.txt` — index the public marketing/legal pages, disallow every
+/// authenticated app surface (§8.2). Points crawlers at the sitemap.
+async fn robots_txt(State(state): State<AppState>) -> Response {
+    let base = state.settings.base_url.trim_end_matches('/');
+    let body = format!(
+        "User-agent: *\n\
+         Disallow: /admin\n\
+         Disallow: /api\n\
+         Disallow: /articles\n\
+         Disallow: /feeds\n\
+         Disallow: /search\n\
+         Disallow: /settings\n\
+         Disallow: /catalog\n\
+         Disallow: /welcome\n\
+         Disallow: /verify\n\
+         Disallow: /demo\n\
+         Sitemap: {base}/sitemap.xml\n"
+    );
+    (
+        [
+            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// `GET /sitemap.xml` — the public, indexable pages only (§8.2).
+async fn sitemap_xml(State(state): State<AppState>) -> Response {
+    let base = state.settings.base_url.trim_end_matches('/');
+    let paths = [
+        "/",
+        "/terms",
+        "/privacy",
+        "/acceptable-use",
+        "/abuse",
+        "/login",
+        "/register",
+    ];
+    let urls: String = paths
+        .iter()
+        .map(|path| format!("  <url><loc>{base}{path}</loc></url>\n"))
+        .collect();
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n{urls}</urlset>\n"
+    );
+    (
+        [
+            (header::CONTENT_TYPE, "application/xml; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        body,
     )
         .into_response()
 }

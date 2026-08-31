@@ -122,3 +122,32 @@ pub async fn total_micro_usd(pool: &PgPool) -> Result<i64> {
             .await?,
     )
 }
+
+/// Per-user AI usage since `since`, for the admin abuse/activity view (§10.1).
+/// Only rows attributed to a user (`billed_to_user` / `user_id`) are counted.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserUsageRow {
+    pub email: Option<String>,
+    pub calls: i64,
+    pub cost_micro_usd: i64,
+}
+
+/// Top AI spenders since `since` (busiest first), capped at `limit`.
+pub async fn usage_by_user_since(
+    pool: &PgPool,
+    since: OffsetDateTime,
+    limit: i64,
+) -> Result<Vec<UserUsageRow>> {
+    let limit = limit.clamp(1, 100);
+    Ok(sqlx::query_as::<_, UserUsageRow>(
+        "SELECT u.email AS email, count(*) AS calls, \
+                COALESCE(sum(c.cost_micro_usd), 0)::bigint AS cost_micro_usd \
+         FROM cost_ledger c LEFT JOIN users u ON u.id = c.user_id \
+         WHERE c.user_id IS NOT NULL AND c.occurred_at >= $1 \
+         GROUP BY u.email ORDER BY calls DESC LIMIT $2",
+    )
+    .bind(since)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
+}

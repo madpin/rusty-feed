@@ -1526,3 +1526,116 @@ pub async fn costs(
     )
         .into_response())
 }
+
+#[derive(Template)]
+#[template(path = "admin_activity.html")]
+struct ActivityTemplate {
+    theme: String,
+    user_email: String,
+    csrf_token: String,
+    ui: prefs::Preferences,
+    is_admin: bool,
+    admin_readonly: bool,
+    open_reports: i64,
+    signups: Vec<ActivityUserRow>,
+    locked: Vec<ActivityUserRow>,
+    ai_users: Vec<AiUsageRow>,
+}
+
+struct ActivityUserRow {
+    email: String,
+    detail: String,
+    tags: String,
+}
+
+struct AiUsageRow {
+    email: String,
+    calls: i64,
+    cost_usd: String,
+}
+
+/// `GET /admin/activity` — per-user abuse/activity signals (§10.1): recent
+/// signups, locked accounts, top AI usage, and the open-report count. PII is
+/// masked and per-user cost is hidden for read-only admins (§7.6).
+pub async fn activity(
+    State(state): State<AppState>,
+    AdminReadUser(user): AdminReadUser,
+    jar: CookieJar,
+) -> Result<Response, AppError> {
+    let admin_readonly = user.role == "admin_readonly";
+    let ui = prefs::load(&state.db, user.id).await;
+    let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
+    let mask = |email: String| {
+        if admin_readonly {
+            mask_email(&email)
+        } else {
+            email
+        }
+    };
+    let day_ago = time::OffsetDateTime::now_utc() - time::Duration::days(1);
+    let (signups_raw, locked_raw, ai_raw, open_reports) = tokio::try_join!(
+        users::recent_signups(state.db.pool(), 20),
+        users::locked_accounts(state.db.pool(), 20),
+        cost_ledger::usage_by_user_since(state.db.pool(), day_ago, 20),
+        rustss_db::abuse_reports::count_open(state.db.pool()),
+    )?;
+    let signups = signups_raw
+        .into_iter()
+        .map(|u| ActivityUserRow {
+            email: mask(u.email),
+            detail: u.created_at.date().to_string(),
+            tags: {
+                let mut tags = Vec::new();
+                if u.is_demo {
+                    tags.push("demo");
+                }
+                if u.email_verified_at.is_none() && u.password_hash.is_some() {
+                    tags.push("unverified");
+                }
+                if u.role != "user" {
+                    tags.push("staff");
+                }
+                tags.join(", ")
+            },
+        })
+        .collect();
+    let locked = locked_raw
+        .into_iter()
+        .map(|u| ActivityUserRow {
+            email: mask(u.email),
+            detail: u
+                .locked_until
+                .map(|t| t.date().to_string())
+                .unwrap_or_default(),
+            tags: format!("{} failed logins", u.failed_login_count),
+        })
+        .collect();
+    let ai_users = ai_raw
+        .into_iter()
+        .map(|row| AiUsageRow {
+            email: mask(row.email.unwrap_or_else(|| "(deleted)".to_string())),
+            calls: row.calls,
+            cost_usd: if admin_readonly {
+                "—".to_string()
+            } else {
+                micro_to_usd(row.cost_micro_usd)
+            },
+        })
+        .collect();
+    Ok((
+        jar,
+        render(ActivityTemplate {
+            theme: ui.theme.clone(),
+            user_email: user.email,
+            csrf_token,
+            ui,
+            is_admin: true,
+            admin_readonly,
+            open_reports,
+            signups,
+            locked,
+            ai_users,
+        })?,
+    )
+        .into_response())
+}

@@ -403,6 +403,7 @@ other users' PII (emails, cost breakdown) is masked.
 | `DEMO_RESET_SCHEDULE` | `0 4 * * *` | UTC cron for the daily demo wipe. |
 | `DEMO_MAX_SUBSCRIPTIONS` | `20` | Tighter subscription cap for demo accounts. |
 | `DEMO_ADMIN_READONLY` | `true` | Expose the read-only admin demo CTA. |
+| `DEMO_SESSION_TTL_HOURS` | `24` | Demo session cookie lifetime (kept under the daily reset). |
 
 Demo accounts cannot spend money or cause outbound/persistent side effects
 (summaries, BYO-key AI, integrations, public shares, API tokens, and arbitrary

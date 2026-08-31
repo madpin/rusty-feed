@@ -229,6 +229,8 @@ pub struct AppSettings {
     pub demo_max_subscriptions: u32,
     /// Expose the read-only admin demo ("Try the admin demo").
     pub demo_admin_readonly: bool,
+    /// Demo session cookie lifetime, in hours (§7.5).
+    pub demo_session_ttl_hours: u32,
 }
 
 impl Default for AppSettings {
@@ -290,6 +292,7 @@ impl Default for AppSettings {
             demo_mode: false,
             demo_max_subscriptions: 20,
             demo_admin_readonly: true,
+            demo_session_ttl_hours: 24,
         }
     }
 }

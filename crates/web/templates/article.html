@@ -70,6 +70,9 @@
           <span data-summary-progress role="status"></span>
         </form>
         {% endif %}
+        {% if show_ai_key_cue %}
+        <p class="muted ai-key-cue">Want AI summaries? <a href="/settings/ai">Add your own OpenAI key</a> — it's encrypted and used only for your summaries.</p>
+        {% endif %}
         <details class="report-control">
           <summary class="btn">Report</summary>
           <form method="post" action="/articles/{{ id }}/report" class="stack">

@@ -104,8 +104,19 @@ async fn read_only_admin_can_read_but_not_write_admin_routes() {
     let cookie = session_cookie(&state, ro.id).await;
     let app = router(state.clone());
 
-    // Read-only admin can GET admin pages.
-    for path in ["/admin", "/admin/users", "/admin/feeds", "/admin/costs"] {
+    // Read-only admin can GET every admin page.
+    for path in [
+        "/admin",
+        "/admin/users",
+        "/admin/feeds",
+        "/admin/feeds/blocklist",
+        "/admin/catalog",
+        "/admin/acquisition",
+        "/admin/activity",
+        "/admin/logs",
+        "/admin/costs",
+        "/admin/ai",
+    ] {
         let response = app
             .clone()
             .oneshot(
@@ -123,13 +134,31 @@ async fn read_only_admin_can_read_but_not_write_admin_routes() {
         );
     }
 
-    // But every admin write is a structural 403 (no CSRF needed — the extractor
-    // rejects before the handler body).
-    for path in [
-        "/admin/maintenance",
-        "/admin/invitations",
-        &format!("/admin/feeds/{}/status", uuid::Uuid::now_v7()),
-    ] {
+    // Every admin write is a structural 403 (the extractor rejects before the
+    // handler body, so no CSRF token is needed to prove the gate). Covered
+    // route-by-route per §7.6 DoD.
+    let id = uuid::Uuid::now_v7();
+    let writes = [
+        format!("/admin/users/{id}/role"),
+        "/admin/invitations".to_string(),
+        format!("/admin/invitations/{id}/revoke"),
+        "/admin/feeds/blocklist".to_string(),
+        format!("/admin/feeds/blocklist/{id}/delete"),
+        format!("/admin/feeds/{id}/block"),
+        format!("/admin/feeds/{id}/status"),
+        format!("/admin/articles/{id}/takedown"),
+        format!("/admin/abuse/{id}/resolve"),
+        "/admin/catalog".to_string(),
+        format!("/admin/catalog/{id}"),
+        "/admin/maintenance".to_string(),
+        "/admin/acquisition".to_string(),
+        "/admin/acquisition/assign".to_string(),
+        format!("/admin/acquisition/{id}/delete"),
+        "/admin/ai".to_string(),
+        format!("/admin/ai/{id}/toggle"),
+        format!("/admin/ai/{id}/delete"),
+    ];
+    for path in &writes {
         let response = app
             .clone()
             .oneshot(
@@ -230,6 +259,35 @@ fn set_cookies_value(resp: &axum::response::Response, name: &str) -> Option<Stri
             let (k, v) = s.split_once('=')?;
             (k.trim() == name).then(|| v.trim().to_string())
         })
+}
+
+#[tokio::test]
+async fn robots_and_sitemap_are_served() {
+    let Some(state) = state().await else { return };
+    let app = router(state.clone());
+    let robots = app
+        .clone()
+        .oneshot(Request::get("/robots.txt").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(robots.status(), StatusCode::OK);
+    let robots_body = robots.into_body().collect().await.unwrap().to_bytes();
+    let robots_body = String::from_utf8_lossy(&robots_body);
+    assert!(
+        robots_body.contains("Disallow: /admin"),
+        "app is disallowed"
+    );
+    assert!(robots_body.contains("Sitemap:"), "points at the sitemap");
+
+    let sitemap = app
+        .oneshot(Request::get("/sitemap.xml").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(sitemap.status(), StatusCode::OK);
+    let sitemap_body = sitemap.into_body().collect().await.unwrap().to_bytes();
+    let sitemap_body = String::from_utf8_lossy(&sitemap_body);
+    assert!(sitemap_body.contains("<urlset"));
+    assert!(sitemap_body.contains("/terms"), "lists public pages");
 }
 
 #[tokio::test]

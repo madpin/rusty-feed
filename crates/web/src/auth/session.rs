@@ -20,8 +20,20 @@ pub async fn login(
     user_id: Uuid,
     secure: bool,
 ) -> Result<CookieJar, rustss_db::DbError> {
+    login_with_ttl(jar, db, user_id, secure, Duration::days(SESSION_TTL_DAYS)).await
+}
+
+/// Create a session with an explicit lifetime. Demo accounts (§7.5) use a short
+/// TTL so abandoned sessions expire well before the daily reset.
+pub async fn login_with_ttl(
+    jar: CookieJar,
+    db: &Db,
+    user_id: Uuid,
+    secure: bool,
+    ttl: Duration,
+) -> Result<CookieJar, rustss_db::DbError> {
     let generated = token::generate();
-    let expires = OffsetDateTime::now_utc() + Duration::days(SESSION_TTL_DAYS);
+    let expires = OffsetDateTime::now_utc() + ttl;
     rustss_db::sessions::create(db.pool(), user_id, &generated.hash, expires).await?;
 
     let cookie = Cookie::build((SESSION_COOKIE, generated.raw))
@@ -29,7 +41,7 @@ pub async fn login(
         .secure(secure)
         .same_site(SameSite::Lax)
         .path("/")
-        .max_age(Duration::days(SESSION_TTL_DAYS))
+        .max_age(ttl)
         .build();
     Ok(jar.add(cookie))
 }

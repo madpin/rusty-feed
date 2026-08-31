@@ -21,14 +21,15 @@
 
   <fieldset class="panel">
     <legend>2. Theme &amp; colors</legend>
+    <p class="muted">Each swatch previews the theme; it also updates live above.</p>
     <div class="wizard-swatches">
-      <label><input type="radio" name="theme" value="system" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "system" %} checked{% endif %}> System</label>
-      <label><input type="radio" name="theme" value="light" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "light" %} checked{% endif %}> Light</label>
-      <label><input type="radio" name="theme" value="dark" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "dark" %} checked{% endif %}> Dark</label>
-      <label><input type="radio" name="theme" value="ocean" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "ocean" %} checked{% endif %}> Ocean</label>
-      <label><input type="radio" name="theme" value="forest" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "forest" %} checked{% endif %}> Forest</label>
-      <label><input type="radio" name="theme" value="plum" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "plum" %} checked{% endif %}> Plum</label>
-      <label><input type="radio" name="theme" value="sunset" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "sunset" %} checked{% endif %}> Sunset</label>
+      <label><input type="radio" name="theme" value="system" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "system" %} checked{% endif %}> <span class="theme-swatch theme-swatch--system" aria-hidden="true"></span> System</label>
+      <label><input type="radio" name="theme" value="light" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "light" %} checked{% endif %}> <span class="theme-swatch theme-swatch--light" aria-hidden="true"></span> Light</label>
+      <label><input type="radio" name="theme" value="dark" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "dark" %} checked{% endif %}> <span class="theme-swatch theme-swatch--dark" aria-hidden="true"></span> Dark</label>
+      <label><input type="radio" name="theme" value="ocean" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "ocean" %} checked{% endif %}> <span class="theme-swatch theme-swatch--ocean" aria-hidden="true"></span> Ocean</label>
+      <label><input type="radio" name="theme" value="forest" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "forest" %} checked{% endif %}> <span class="theme-swatch theme-swatch--forest" aria-hidden="true"></span> Forest</label>
+      <label><input type="radio" name="theme" value="plum" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "plum" %} checked{% endif %}> <span class="theme-swatch theme-swatch--plum" aria-hidden="true"></span> Plum</label>
+      <label><input type="radio" name="theme" value="sunset" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "sunset" %} checked{% endif %}> <span class="theme-swatch theme-swatch--sunset" aria-hidden="true"></span> Sunset</label>
     </div>
   </fieldset>
 
