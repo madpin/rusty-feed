@@ -85,6 +85,7 @@ struct QueueKindRow {
 struct QueueItemRow {
     lane: String,
     kind: String,
+    target: String,
     status: String,
     tone: String,
     attempts: String,
@@ -563,6 +564,7 @@ fn queue_item(item: jobs::QueueItemSummary) -> QueueItemRow {
     QueueItemRow {
         lane: item.queue_name,
         kind: item.kind,
+        target: item.target.unwrap_or_else(|| "—".to_string()),
         status,
         tone: tone.to_string(),
         attempts: format!("{} / {}", item.attempts, item.max_attempts),

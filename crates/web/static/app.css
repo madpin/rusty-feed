@@ -576,7 +576,8 @@ code { padding: 0.1rem 0.3rem; border-radius: 0.25rem; background: var(--surface
 .page-settings .content,
 .page-tokens .content,
 .page-admin .content { max-width: 72rem; margin-inline: auto; }
-.page-admin-logs .content { max-width: none; }
+.page-admin-logs .content,
+.page-admin-feeds .content { max-width: none; }
 
 .page-header,
 .content-header {
@@ -1203,6 +1204,7 @@ a.admin-stat { cursor: pointer; }
 .admin-log-details { min-width: 18rem; white-space: normal; }
 .admin-log-details code { white-space: normal; overflow-wrap: anywhere; }
 .admin-log-error { min-width: 24rem; max-width: 42rem; white-space: normal; overflow-wrap: anywhere; }
+.admin-log-target { max-width: 22rem; color: var(--text-strong); overflow-wrap: anywhere; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 table { width: 100%; border-collapse: collapse; text-align: left; }
 th,

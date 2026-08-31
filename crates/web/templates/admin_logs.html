@@ -69,10 +69,10 @@
     {% else %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Lane</th><th>Job</th><th>State</th><th>Attempts</th><th>Queued</th><th>Available at</th><th>Worker slot</th><th>Updated</th><th>Last error</th></tr></thead>
+        <thead><tr><th>Lane</th><th>Job</th><th title="The feed or article this job is working on">Target</th><th>State</th><th>Attempts</th><th>Queued</th><th>Available at</th><th>Worker slot</th><th>Updated</th><th>Last error</th></tr></thead>
         <tbody>
         {% for job in active_jobs %}
-          <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td><span class="badge{% if !job.tone.is_empty() %} health-{{ job.tone }}{% endif %}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.run_at }}</td><td><code>{{ job.worker }}</code></td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
+          <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td class="admin-log-target">{{ job.target }}</td><td><span class="badge{% if !job.tone.is_empty() %} health-{{ job.tone }}{% endif %}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.run_at }}</td><td><code>{{ job.worker }}</code></td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
         {% endfor %}
         </tbody>
       </table>
@@ -105,10 +105,10 @@
     {% else %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Lane</th><th>Job</th><th>State</th><th>Attempts</th><th>Queued</th><th>Finished</th><th>Error</th></tr></thead>
+        <thead><tr><th>Lane</th><th>Job</th><th title="The feed or article this job worked on">Target</th><th>State</th><th>Attempts</th><th>Queued</th><th>Finished</th><th>Error</th></tr></thead>
         <tbody>
         {% for job in recent_jobs %}
-          <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td><span class="badge health-{{ job.tone }}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
+          <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td class="admin-log-target">{{ job.target }}</td><td><span class="badge health-{{ job.tone }}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
         {% endfor %}
         </tbody>
       </table>

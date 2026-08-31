@@ -53,6 +53,10 @@ pub struct QueueItemSummary {
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     pub last_error: Option<String>,
+    /// Human-readable subject of the job (feed name for `fetch_feed`, article
+    /// title for `extract_content`/`embed_article`/`summarize_article`), resolved
+    /// from the payload's `feed_id`/`article_id`. Never the raw payload.
+    pub target: Option<String>,
 }
 
 /// A worker process that has sent a recent heartbeat.
@@ -456,18 +460,25 @@ pub async fn queue_by_kind(pool: &PgPool) -> Result<Vec<QueueKindSummary>> {
     .await?)
 }
 
-/// List due, scheduled, and running jobs without their payloads or errors.
+/// SQL expression resolving a safe, human-readable subject for a queue row from
+/// its payload id references (never the raw payload).
+const JOB_TARGET_SQL: &str = "COALESCE(\
+    (SELECT f.name FROM feeds f WHERE f.id::text = job_queue.payload->>'feed_id'), \
+    (SELECT left(a.title, 120) FROM articles a WHERE a.id::text = job_queue.payload->>'article_id'))";
+
+/// List due, scheduled, and running jobs (with a resolved subject, never the raw payload).
 pub async fn list_active(pool: &PgPool, limit: i64) -> Result<Vec<QueueItemSummary>> {
-    Ok(sqlx::query_as(
+    Ok(sqlx::query_as(&format!(
         "SELECT queue_name, kind, status, attempts, max_attempts, run_at, locked_by, created_at, updated_at, \
                 CASE WHEN last_error_is_safe THEN last_error END AS last_error, \
                 EXISTS (SELECT 1 FROM job_worker_heartbeats worker \
                     WHERE worker.last_heartbeat_at >= now() - interval '15 seconds' \
-                      AND starts_with(COALESCE(job_queue.locked_by, ''), worker.worker_id || '#')) AS worker_online \
+                      AND starts_with(COALESCE(job_queue.locked_by, ''), worker.worker_id || '#')) AS worker_online, \
+                {JOB_TARGET_SQL} AS target \
          FROM job_queue WHERE status IN ('pending', 'running') \
          ORDER BY CASE WHEN status = 'running' THEN 0 WHEN run_at <= now() THEN 1 ELSE 2 END, \
                   run_at, created_at LIMIT $1",
-    )
+    ))
     .bind(limit)
     .fetch_all(pool)
     .await?)
@@ -475,13 +486,14 @@ pub async fn list_active(pool: &PgPool, limit: i64) -> Result<Vec<QueueItemSumma
 
 /// List the most recently completed or dead-lettered queue items.
 pub async fn list_recent_finished(pool: &PgPool, limit: i64) -> Result<Vec<QueueItemSummary>> {
-    Ok(sqlx::query_as(
+    Ok(sqlx::query_as(&format!(
         "SELECT queue_name, kind, status, attempts, max_attempts, run_at, locked_by, created_at, updated_at, \
                 CASE WHEN last_error_is_safe THEN last_error END AS last_error, \
-                false AS worker_online \
+                false AS worker_online, \
+                {JOB_TARGET_SQL} AS target \
          FROM job_queue WHERE status IN ('done', 'dead') \
          ORDER BY updated_at DESC LIMIT $1",
-    )
+    ))
     .bind(limit)
     .fetch_all(pool)
     .await?)

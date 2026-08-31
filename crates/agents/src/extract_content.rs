@@ -101,6 +101,12 @@ impl Agent for ExtractContentAgent {
         }
         let content_settings = FeedContentSettings::from_json(feed.extraction_settings.as_ref());
         let canonical_url = ctx.tracking_url_policy.clean(&article.url);
+        tracing::info!(
+            article_id = %article_id,
+            feed = %feed.name,
+            url = %canonical_url,
+            "extract_content: fetching publisher page"
+        );
         let acquisition_fetch = ctx.fetch_for_feed(article.feed_id).await?;
 
         match self

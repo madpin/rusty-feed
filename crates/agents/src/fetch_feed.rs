@@ -99,6 +99,7 @@ impl Agent for FetchFeedAgent {
         let feed = feeds::find_by_id(ctx.db.pool(), feed_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("feed {feed_id} not found"))?;
+        tracing::info!(feed_id = %feed_id, feed = %feed.name, url = %feed.url, "fetch_feed: refreshing feed");
         if feed.health_status == "disabled" {
             return Ok(json!({ "feed_id": feed_id, "skipped": "feed is paused" }));
         }
