@@ -294,8 +294,8 @@ cleanup enforces the configured lifetime and aggregate budget.
 | `RUN_EMBEDDED_WORKER` | `true` | Consume jobs in the web process |
 | `FEED_REFRESH_SCHEDULE` | `*/5 * * * *` | Validated five-field UTC cron schedule for the due-feed scan |
 | `CLEANUP_SCHEDULE` | `0 3 * * *` | Validated five-field UTC cron schedule for retention/cleanup |
-| `FEED_REFRESH_CONCURRENCY` | `3` | Positive background-lane capacity |
-| `INTERACTIVE_JOB_CONCURRENCY` | `1` | Positive reserved interactive capacity |
+| `FEED_REFRESH_CONCURRENCY` | `6` | Background-lane worker slots shared by feed refresh, extraction, embedding, and summarization. This work is network-bound (it waits on remote hosts and LLM APIs), so more slots than CPU cores is expected — raise it when extraction or LLM summaries back up, lower it if local embeddings saturate the CPU. |
+| `INTERACTIVE_JOB_CONCURRENCY` | `2` | Reserved low-latency slots for user-triggered work (on-demand extraction and summaries). Increase on busy multi-user instances. |
 | `SAVED_SEARCH_CONCURRENCY` | `5` | Reserved saved-search worker capacity |
 | `JOB_LOCK_TIMEOUT_MS` | `600000` | Reserved configurable lease duration |
 

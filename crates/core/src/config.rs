@@ -1021,10 +1021,17 @@ mod defaults {
         "0 3 * * *".to_string()
     }
     pub fn feed_refresh_concurrency() -> usize {
-        3
+        // Background jobs (feed fetch, extraction, embedding, summarization) are
+        // overwhelmingly network-bound and spend most of their time awaiting a
+        // remote response, so default to more slots than CPUs. Operators with
+        // heavy LLM/extraction workloads can raise this further.
+        6
     }
     pub fn interactive_job_concurrency() -> usize {
-        1
+        // Two reserved low-latency slots so an on-demand extraction and an
+        // on-demand summary can run at the same time without queuing behind
+        // each other.
+        2
     }
     pub fn saved_search_concurrency() -> usize {
         5
@@ -1076,7 +1083,8 @@ mod tests {
         assert_eq!(cfg.search_mode, SearchMode::Hybrid);
         assert_eq!(cfg.search_text_config, SearchTextConfig::Simple);
         assert_eq!(cfg.search_semantic_weight_percent, 60);
-        assert_eq!(cfg.interactive_job_concurrency, 1);
+        assert_eq!(cfg.feed_refresh_concurrency, 6);
+        assert_eq!(cfg.interactive_job_concurrency, 2);
         assert!(cfg.cache_enabled);
         assert_eq!(cfg.cache_namespace, "rustss");
         assert_eq!(cfg.registration_mode, RegistrationMode::Open);
