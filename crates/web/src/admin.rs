@@ -144,6 +144,7 @@ struct UserRow {
     name: String,
     role: String,
     created: String,
+    last_seen: String,
     can_change: bool,
 }
 
@@ -591,6 +592,10 @@ async fn render_users(
             name: candidate.name.unwrap_or_else(|| "—".to_string()),
             role: candidate.role,
             created: candidate.created_at.date().to_string(),
+            last_seen: candidate
+                .last_seen_at
+                .map(|seen| seen.date().to_string())
+                .unwrap_or_else(|| "—".to_string()),
             can_change: candidate.id != user.id,
         })
         .collect();

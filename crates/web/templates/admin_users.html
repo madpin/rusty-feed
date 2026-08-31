@@ -66,12 +66,13 @@
 {% endif %}
 <div class="table-wrap">
   <table>
-    <thead><tr><th>User</th><th>Joined</th><th>Role</th><th>Update</th></tr></thead>
+    <thead><tr><th>User</th><th>Joined</th><th title="Most recent authenticated request">Last accessed</th><th>Role</th><th>Update</th></tr></thead>
     <tbody>
     {% for member in users %}
       <tr>
         <td><strong>{{ member.email }}</strong><br><span class="muted">{{ member.name }}</span></td>
         <td>{{ member.created }}</td>
+        <td>{{ member.last_seen }}</td>
         <td>{{ member.role }}</td>
         <td>
           {% if member.can_change && member.role != "guest" %}

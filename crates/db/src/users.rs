@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::models::User;
 
 const USER_COLUMNS: &str =
-    "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at";
+    "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at, last_seen_at";
 
 /// Create a user. `role` must be one of `admin` | `user` | `guest`.
 pub async fn create(
@@ -167,6 +167,19 @@ pub async fn list(pool: &PgPool, limit: i64) -> Result<Vec<User>> {
         .bind(limit)
         .fetch_all(pool)
         .await?)
+}
+
+/// Record that a user was just seen, throttled to at most once per minute per
+/// user so busy sessions do not write on every request. Best-effort.
+pub async fn touch_last_seen(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET last_seen_at = now() \
+         WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 pub async fn count_admins(pool: &PgPool) -> Result<i64> {

@@ -21,6 +21,8 @@ pub struct User {
     pub email_verified_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+    /// Last authenticated request time, updated (throttled) on session use.
+    pub last_seen_at: Option<OffsetDateTime>,
 }
 
 /// A shared feed (one row per normalized URL, regardless of subscribers).

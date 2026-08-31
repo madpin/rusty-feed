@@ -42,8 +42,9 @@ async fn load_session_user(state: &AppState, parts: &Parts) -> Option<User> {
         .ok()
         .flatten()?;
 
-    // Best-effort: refresh last_used_at (ignore errors).
+    // Best-effort: refresh last_used_at and the user's last-seen (throttled).
     let _ = rustss_db::sessions::touch(state.db.pool(), session.id).await;
+    let _ = rustss_db::users::touch_last_seen(state.db.pool(), user.id).await;
     Some(user)
 }
 
