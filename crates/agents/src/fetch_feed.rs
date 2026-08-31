@@ -125,12 +125,17 @@ impl Agent for FetchFeedAgent {
         let mut embed_jobs = 0u64;
         let mut summarize_jobs = 0u64;
         if article_page_lifetime.is_some() {
-            extract_jobs = jobs::enqueue_extractions_for_feed(
-                ctx.db.pool(),
-                feed_id,
-                EXTRACT_ENQUEUE_LIMIT as usize,
-            )
-            .await?;
+            // Only pre-extract public pages in the background when eager
+            // extraction is enabled; otherwise a page is fetched lazily on the
+            // first reader access (in the interactive lane).
+            if ctx.eager_extraction {
+                extract_jobs = jobs::enqueue_extractions_for_feed(
+                    ctx.db.pool(),
+                    feed_id,
+                    EXTRACT_ENQUEUE_LIMIT as usize,
+                )
+                .await?;
+            }
             if ctx.embed_on_ingest {
                 let pending = articles::list_ready_for_embedding(
                     ctx.db.pool(),

@@ -96,6 +96,9 @@ pub struct WorkerConfig {
     /// Enqueue embedding jobs for new/extracted articles.
     pub embed_on_ingest: bool,
     pub auto_summarize: bool,
+    /// Proactively backfill public-page extraction on feed ingest. When false,
+    /// pages are extracted lazily on first reader access via the interactive lane.
+    pub eager_extraction: bool,
     /// Shared URL privacy policy used by feed and content processing agents.
     pub tracking_url_policy: TrackingUrlPolicy,
     /// Shared tracking-image privacy policy.
@@ -126,6 +129,7 @@ impl Default for WorkerConfig {
             extraction_config: rustss_extract::ExtractConfig::default(),
             embed_on_ingest: false,
             auto_summarize: false,
+            eager_extraction: true,
             tracking_url_policy: TrackingUrlPolicy::default(),
             tracking_pixel_policy: TrackingPixelPolicy::default(),
             article_retention_days: 0,
@@ -190,6 +194,7 @@ impl Worker {
         let ctx = AgentContext::new(db, fetch)
             .with_embed_on_ingest(config.embed_on_ingest)
             .with_auto_summarize(config.auto_summarize && summarization_available)
+            .with_eager_extraction(config.eager_extraction)
             .with_tracking_url_policy(config.tracking_url_policy.clone())
             .with_tracking_pixel_policy(config.tracking_pixel_policy.clone());
         let ctx = ctx.with_integration_credentials(config.integration_credentials.clone());

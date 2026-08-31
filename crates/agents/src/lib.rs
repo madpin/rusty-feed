@@ -51,6 +51,10 @@ pub struct AgentContext {
     pub embed_on_ingest: bool,
     /// Admin-owned automatic shared summarization policy.
     pub auto_summarize: bool,
+    /// Whether feed ingest proactively backfills public-page extraction for
+    /// article-page subscribers. When false, extraction happens lazily on the
+    /// first user access (via the interactive lane) instead.
+    pub eager_extraction: bool,
     /// Immutable instance-wide URL privacy policy used by shared processing.
     pub tracking_url_policy: TrackingUrlPolicy,
     /// Immutable tracking-image policy used by shared processing.
@@ -69,6 +73,7 @@ impl AgentContext {
             fetch,
             embed_on_ingest: false,
             auto_summarize: false,
+            eager_extraction: true,
             tracking_url_policy: TrackingUrlPolicy::default(),
             tracking_pixel_policy: TrackingPixelPolicy::default(),
             integration_credentials: Cryptor::new(b"rustss-agent-test-integration-key"),
@@ -89,6 +94,11 @@ impl AgentContext {
 
     pub fn with_auto_summarize(mut self, enabled: bool) -> Self {
         self.auto_summarize = enabled;
+        self
+    }
+
+    pub fn with_eager_extraction(mut self, enabled: bool) -> Self {
+        self.eager_extraction = enabled;
         self
     }
 

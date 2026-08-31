@@ -227,6 +227,7 @@ async fn main() -> anyhow::Result<()> {
                 extraction_config: extraction_config(&config),
                 embed_on_ingest: config.embedding_auto_generate,
                 auto_summarize: config.llm_auto_summarize,
+                eager_extraction: config.article_page_eager_extraction,
                 tracking_url_policy,
                 tracking_pixel_policy,
                 article_retention_days: config.article_retention_days,

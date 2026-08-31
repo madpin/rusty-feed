@@ -344,6 +344,11 @@ pub struct AppConfig {
     pub extraction_timeout_ms: u64,
     #[serde(default = "defaults::extraction_delay_ms")]
     pub extraction_delay_ms: u64,
+    /// When true (default), feed ingest proactively backfills public-page
+    /// extraction for article-page subscribers. When false, a page is extracted
+    /// lazily on the first reader access, using the interactive priority lane.
+    #[serde(default = "defaults::bool_true")]
+    pub article_page_eager_extraction: bool,
     #[serde(default = "defaults::bool_true")]
     pub respect_robots_txt: bool,
     /// Instance-wide identity sent to public feed, page, robots, icon, and

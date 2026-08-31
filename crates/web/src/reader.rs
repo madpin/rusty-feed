@@ -285,8 +285,12 @@ async fn enqueue_article_page_on_access(
     article: &rustss_db::Article,
 ) -> Result<(), AppError> {
     let dedup = format!("extract:{}:{}", article.id, article.content_revision);
-    jobs::enqueue(
+    // A user is actively waiting on this page, so use the reserved interactive
+    // lane rather than the background lane it would share with feed refreshes
+    // and bulk backfills.
+    jobs::enqueue_in_lane(
         state.db.pool(),
+        jobs::QueueLane::Interactive,
         "extract_content",
         serde_json::json!({
             "article_id": article.id,

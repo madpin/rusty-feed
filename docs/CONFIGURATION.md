@@ -232,6 +232,7 @@ state, interactive lane, and wide admin operations view.
 | `CHROMIUM_CDP_URL` | unset | Remote Chrome DevTools endpoint |
 | `EXTRACTION_TIMEOUT_MS` | `30000` | Bounded extraction request time |
 | `EXTRACTION_DELAY_MS` | `3000` | Per-domain politeness delay |
+| `ARTICLE_PAGE_EAGER_EXTRACTION` | `true` | When true, feed ingest pre-extracts public article pages for article-page subscribers. Set false to extract lazily on first reader access (via the interactive priority lane), reducing background work and Chromium usage. |
 | `RESPECT_ROBOTS_TXT` | `true` | Enforce publisher robots policy |
 | `OUTBOUND_USER_AGENT` | `RustSS/0.1 (+https://github.com/madpin/rustss)` | 1–256 printable ASCII characters sent by the shared publisher client |
 | `OUTBOUND_HTTP1_ONLY` | `false` | Disable outbound HTTP/2 and force HTTP/1.1 |
