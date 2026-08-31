@@ -140,6 +140,7 @@ pub async fn ticket(
 pub async fn page(
     State(state): State<AppState>,
     Path(article_id): Path<Uuid>,
+    headers: HeaderMap,
     Query(query): Query<TicketQuery>,
 ) -> Result<Response, AppError> {
     let ticket: LivePageTicket = open(&state.live_view_tokens, &query.ticket)?;
@@ -154,6 +155,9 @@ pub async fn page(
         .ok_or(AppError::NotFound)?;
 
     let canonical_url = state.settings.tracking_url_policy.clean(&article.url);
+    // Absolute RustSS origin so proxied resource URLs escape the publisher
+    // `<base href>` and resolve back to this instance.
+    let origin = public_origin(&headers, &state.settings);
     let cache_key = format!("shared:live-view:page:{article_id}");
     let fetched = cached_page(&state, &cache_key, article_id, &canonical_url).await;
 
@@ -163,6 +167,7 @@ pub async fn page(
             &page.final_url,
             article_id,
             &state.live_view_tokens,
+            &origin,
         )
         .unwrap_or_else(|error| {
             tracing::warn!(%article_id, error = %error, "live view HTML rewrite failed");
@@ -214,7 +219,10 @@ pub async fn resource(
     if fetched.content_type.starts_with("text/css") {
         let css = String::from_utf8(BASE64.decode(&fetched.body).context("invalid cached CSS")?)
             .context("publisher CSS is not UTF-8")?;
-        let rewritten = rewrite_css_urls(&css, &ticket.url, article_id, &state.live_view_tokens)?;
+        // Nested url()s inside an already same-origin stylesheet resolve against
+        // the stylesheet URL, so path-absolute proxy links are correct here.
+        let rewritten =
+            rewrite_css_urls(&css, &ticket.url, article_id, &state.live_view_tokens, "")?;
         fetched.body = BASE64.encode(rewritten);
     }
 
@@ -374,28 +382,50 @@ async fn read_capped(mut response: reqwest::Response, max: usize) -> anyhow::Res
     Ok(body)
 }
 
+/// Attributes lazy-loading libraries use to defer the real media URL until their
+/// own JavaScript promotes it. Live View runs in an isolated sandbox where that
+/// script rarely executes, so we promote the deferred source ourselves.
+const LAZY_SRC_ATTRS: [&str; 8] = [
+    "data-src",
+    "data-lazy-src",
+    "data-original",
+    "data-original-src",
+    "data-actualsrc",
+    "data-hi-res-src",
+    "data-lazy",
+    "data-url",
+];
+const LAZY_SRCSET_ATTRS: [&str; 3] = ["data-srcset", "data-lazy-srcset", "data-original-srcset"];
+
 fn rewrite_publisher_html(
     html: &str,
     base_url: &str,
     article_id: Uuid,
     cryptor: &Cryptor,
+    origin: &str,
 ) -> anyhow::Result<String> {
     let base = Url::parse(base_url).context("invalid final publisher URL")?;
     let base_for_head = base.to_string();
     let script_base = base.clone();
     let style_base = base.clone();
-    let source_base = base.clone();
-    let srcset_base = base.clone();
+    let media_base = base.clone();
+    let video_base = base.clone();
     let inline_style_base = base.clone();
     let style_tag_base = base.clone();
     let anchor_base = base.clone();
     let form_base = base;
     let script_tokens = cryptor.clone();
     let style_tokens = cryptor.clone();
-    let source_tokens = cryptor.clone();
-    let srcset_tokens = cryptor.clone();
+    let media_tokens = cryptor.clone();
+    let video_tokens = cryptor.clone();
     let inline_style_tokens = cryptor.clone();
     let style_tag_tokens = cryptor.clone();
+    let script_origin = origin.to_string();
+    let style_origin = origin.to_string();
+    let media_origin = origin.to_string();
+    let video_origin = origin.to_string();
+    let inline_style_origin = origin.to_string();
+    let style_tag_origin = origin.to_string();
 
     rewrite_str(
         html,
@@ -435,6 +465,7 @@ fn rewrite_publisher_html(
                     article_id,
                     &script_tokens,
                     ResourceKind::Script,
+                    &script_origin,
                 )
             }))
             .append_element_content_handler(element!("link[href]", move |element| {
@@ -449,12 +480,69 @@ fn rewrite_publisher_html(
                         article_id,
                         &style_tokens,
                         ResourceKind::Stylesheet,
+                        &style_origin,
                     )?;
                 }
                 Ok(())
             }))
+            .append_element_content_handler(element!("img, source", move |element| {
+                // Promote deferred/lazy sources so images render without the
+                // publisher's own JavaScript, then proxy them like any asset.
+                let deferred_src = LAZY_SRC_ATTRS.iter().find_map(|attr| {
+                    element
+                        .get_attribute(attr)
+                        .filter(|value| !value.trim().is_empty())
+                });
+                let chosen_src = deferred_src.or_else(|| {
+                    element
+                        .get_attribute("src")
+                        .filter(|value| !value.trim().is_empty())
+                });
+                if let Some(raw) = chosen_src {
+                    if let Some(absolute) = resolve_public_url(&media_base, &raw) {
+                        element.set_attribute(
+                            "src",
+                            &resource_url(
+                                &media_tokens,
+                                article_id,
+                                absolute.as_str(),
+                                ResourceKind::Asset,
+                                &media_origin,
+                            )?,
+                        )?;
+                    }
+                }
+                let deferred_srcset = LAZY_SRCSET_ATTRS.iter().find_map(|attr| {
+                    element
+                        .get_attribute(attr)
+                        .filter(|value| !value.trim().is_empty())
+                });
+                let chosen_srcset = deferred_srcset.or_else(|| {
+                    element
+                        .get_attribute("srcset")
+                        .filter(|value| !value.trim().is_empty())
+                });
+                if let Some(raw) = chosen_srcset {
+                    let rewritten = rewrite_srcset(
+                        &raw,
+                        &media_base,
+                        article_id,
+                        &media_tokens,
+                        &media_origin,
+                    )?;
+                    element.set_attribute("srcset", &rewritten)?;
+                }
+                // Drop the now-redundant deferral hints so any lazy-loader
+                // script that survives the sandbox cannot re-point src/srcset at
+                // an un-proxied publisher URL. Load eagerly, too.
+                for attr in LAZY_SRC_ATTRS.iter().chain(LAZY_SRCSET_ATTRS.iter()) {
+                    element.remove_attribute(attr);
+                }
+                element.remove_attribute("loading");
+                Ok(())
+            }))
             .append_element_content_handler(element!(
-                "img[src],source[src],video[src],audio[src],video[poster]",
+                "video[src],audio[src],video[poster]",
                 move |element| {
                     let attribute = if element.has_attribute("src") {
                         "src"
@@ -464,23 +552,12 @@ fn rewrite_publisher_html(
                     rewrite_resource_attribute(
                         element,
                         attribute,
-                        &source_base,
+                        &video_base,
                         article_id,
-                        &source_tokens,
+                        &video_tokens,
                         ResourceKind::Asset,
+                        &video_origin,
                     )
-                }
-            ))
-            .append_element_content_handler(element!(
-                "img[srcset],source[srcset]",
-                move |element| {
-                    let Some(srcset) = element.get_attribute("srcset") else {
-                        return Ok(());
-                    };
-                    let rewritten =
-                        rewrite_srcset(&srcset, &srcset_base, article_id, &srcset_tokens)?;
-                    element.set_attribute("srcset", &rewritten)?;
-                    Ok(())
                 }
             ))
             .append_element_content_handler(element!("[style]", move |element| {
@@ -494,6 +571,7 @@ fn rewrite_publisher_html(
                         inline_style_base.as_str(),
                         article_id,
                         &inline_style_tokens,
+                        &inline_style_origin,
                     )?,
                 )?;
                 Ok(())
@@ -504,6 +582,7 @@ fn rewrite_publisher_html(
                     style_tag_base.as_str(),
                     article_id,
                     &style_tag_tokens,
+                    &style_tag_origin,
                 )?;
                 chunk.replace(&rewritten, ContentType::Html);
                 Ok(())
@@ -531,6 +610,7 @@ fn rewrite_publisher_html(
     .map_err(|error| anyhow!(error.to_string()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rewrite_resource_attribute(
     element: &mut lol_html::html_content::Element<'_, '_>,
     attribute: &str,
@@ -538,6 +618,7 @@ fn rewrite_resource_attribute(
     article_id: Uuid,
     cryptor: &Cryptor,
     kind: ResourceKind,
+    origin: &str,
 ) -> lol_html::HandlerResult {
     let Some(value) = element.get_attribute(attribute) else {
         return Ok(());
@@ -545,7 +626,7 @@ fn rewrite_resource_attribute(
     if let Some(absolute) = resolve_public_url(base, &value) {
         element.set_attribute(
             attribute,
-            &resource_url(cryptor, article_id, absolute.as_str(), kind)?,
+            &resource_url(cryptor, article_id, absolute.as_str(), kind, origin)?,
         )?;
     }
     Ok(())
@@ -556,6 +637,7 @@ fn rewrite_srcset(
     base: &Url,
     article_id: Uuid,
     cryptor: &Cryptor,
+    origin: &str,
 ) -> anyhow::Result<String> {
     if srcset
         .trim_start()
@@ -572,7 +654,13 @@ fn rewrite_srcset(
         };
         let descriptor = parts.collect::<Vec<_>>().join(" ");
         let rewritten = match resolve_public_url(base, source) {
-            Some(url) => resource_url(cryptor, article_id, url.as_str(), ResourceKind::Asset)?,
+            Some(url) => resource_url(
+                cryptor,
+                article_id,
+                url.as_str(),
+                ResourceKind::Asset,
+                origin,
+            )?,
             None => source.to_string(),
         };
         candidates.push(if descriptor.is_empty() {
@@ -589,6 +677,7 @@ fn rewrite_css_urls(
     base_url: &str,
     article_id: Uuid,
     cryptor: &Cryptor,
+    origin: &str,
 ) -> anyhow::Result<String> {
     let Ok(base) = Url::parse(base_url) else {
         return Ok(css.to_string());
@@ -613,6 +702,7 @@ fn rewrite_css_urls(
                 article_id,
                 url.as_str(),
                 ResourceKind::Asset,
+                origin,
             )?);
             output.push('"');
         } else {
@@ -647,6 +737,7 @@ fn resource_url(
     article_id: Uuid,
     url: &str,
     kind: ResourceKind,
+    origin: &str,
 ) -> anyhow::Result<String> {
     let ticket = seal(
         cryptor,
@@ -657,8 +748,11 @@ fn resource_url(
             expires_at: resource_ticket_expiry(),
         },
     )?;
+    // `origin` is the absolute RustSS origin when rewriting the top-level
+    // document (so proxied URLs bypass the publisher `<base href>`), or empty
+    // when rewriting an already same-origin stylesheet (path-absolute is fine).
     Ok(format!(
-        "/articles/{article_id}/live/resource?ticket={}",
+        "{origin}/articles/{article_id}/live/resource?ticket={}",
         percent_encode(&ticket)
     ))
 }
@@ -683,6 +777,36 @@ fn open<T: DeserializeOwned>(cryptor: &Cryptor, ticket: &str) -> Result<T, AppEr
 
 fn percent_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+/// Best-effort external origin (`scheme://host`) the browser used to reach us,
+/// preferring forwarded proxy headers, then the request `Host`, then the
+/// configured base URL. Used to make Live View proxy links absolute so they
+/// escape the injected publisher `<base href>`.
+fn public_origin(headers: &HeaderMap, settings: &crate::state::AppSettings) -> String {
+    fn first(headers: &HeaderMap, name: &str) -> Option<String> {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    if let Some(host) = first(headers, "x-forwarded-host").or_else(|| first(headers, "host")) {
+        let scheme = first(headers, "x-forwarded-proto")
+            .map(|scheme| scheme.to_ascii_lowercase())
+            .filter(|scheme| scheme == "http" || scheme == "https")
+            .unwrap_or_else(|| {
+                if settings.base_url.starts_with("https") {
+                    "https".to_string()
+                } else {
+                    "http".to_string()
+                }
+            });
+        return format!("{scheme}://{host}");
+    }
+    settings.base_url.trim_end_matches('/').to_string()
 }
 
 fn safe_resource_content_type(kind: ResourceKind, upstream: &str) -> anyhow::Result<String> {
@@ -821,18 +945,25 @@ mod tests {
         let cryptor = Cryptor::new(b"test-live-view-secret");
         let article_id = Uuid::now_v7();
         let rewritten = rewrite_publisher_html(
-            r#"<!doctype html><html><head><base href="https://wrong.test/"><meta http-equiv="Content-Security-Policy" content="frame-ancestors 'none'"><link rel="stylesheet" href="/site.css"><style>.hero{background:url('cover.jpg')}</style></head><body><script src="app.js"></script><img src="hero.jpg"><div style="background:url('hero-bg.jpg')"></div><a href="/story">Story</a></body></html>"#,
+            r#"<!doctype html><html><head><base href="https://wrong.test/"><meta http-equiv="Content-Security-Policy" content="frame-ancestors 'none'"><link rel="stylesheet" href="/site.css"><style>.hero{background:url('cover.jpg')}</style></head><body><script src="app.js"></script><img src="hero.jpg"><img data-src="lazy.jpg" loading="lazy"><div style="background:url('hero-bg.jpg')"></div><a href="/story">Story</a></body></html>"#,
             "https://publisher.example/posts/one",
             article_id,
             &cryptor,
+            "https://rustss.example",
         )
         .unwrap();
 
         assert!(rewritten.contains("<base href=\"https://publisher.example/posts/one\">"));
         assert!(!rewritten.contains("frame-ancestors 'none'"));
-        assert!(rewritten.contains(&format!("/articles/{article_id}/live/resource?ticket=")));
+        // Proxy links are absolute to the RustSS origin so they bypass the base.
+        assert!(rewritten.contains(&format!(
+            "https://rustss.example/articles/{article_id}/live/resource?ticket="
+        )));
         assert!(!rewritten.contains("hero-bg.jpg"));
         assert!(!rewritten.contains("cover.jpg"));
+        // Deferred/lazy image source was promoted and proxied; the eager hint removed.
+        assert!(!rewritten.contains("lazy.jpg"));
+        assert!(!rewritten.contains("loading=\"lazy\""));
         assert!(rewritten.contains("href=\"https://publisher.example/story\""));
         assert!(rewritten.contains("target=\"_blank\""));
     }
@@ -864,6 +995,7 @@ mod tests {
             "https://publisher.example/css/site.css",
             article_id,
             &cryptor,
+            "",
         )
         .unwrap();
         assert!(css.contains(&format!("/articles/{article_id}/live/resource?ticket=")));
