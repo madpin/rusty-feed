@@ -13,7 +13,8 @@ so they can be refreshed whenever the UI changes.
 | `ai-providers.png` | Managed AI providers (incl. the environment default) |
 | `integrations.png` | Integrations & webhooks with per-destination guidance |
 | `admin-overview.png` | Admin instance overview (stat cards + storage/memory) |
-| `admin-feeds.png` | Admin shared feeds (stats, filters, pagination) |
+| `admin-feeds.png` | Admin shared feeds (full-width table with stats, filters, pagination) |
+| `admin-logs.png` | Admin queue & logs (per-job target column names the feed/article) |
 
 ## Regenerating
 

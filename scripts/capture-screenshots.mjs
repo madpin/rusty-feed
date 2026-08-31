@@ -103,6 +103,8 @@ if (await isAdmin()) {
   await shot("admin-overview");
   await page.goto(`${baseURL}/admin/feeds`);
   await shot("admin-feeds");
+  await page.goto(`${baseURL}/admin/logs`);
+  await shot("admin-logs");
 } else {
   console.log("account is not admin; skipping admin screenshots");
 }
