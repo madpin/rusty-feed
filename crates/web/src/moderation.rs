@@ -84,6 +84,7 @@ pub async fn report_article(
         &reason,
     )
     .await?;
+    metrics::counter!("rustss_abuse_reports_total", "target" => "article").increment(1);
     Ok(Redirect::to(&format!("/articles/{id}?reported=1")).into_response())
 }
 
@@ -118,6 +119,7 @@ pub async fn report_feed(
         &reason,
     )
     .await?;
+    metrics::counter!("rustss_abuse_reports_total", "target" => "feed").increment(1);
     Ok(Redirect::to("/feeds?reported=1").into_response())
 }
 
@@ -411,6 +413,7 @@ pub async fn block_feed(
         json!({ "feed_id": id, "domain": host }),
     )
     .await?;
+    metrics::counter!("rustss_moderation_actions_total", "action" => "feed.block").increment(1);
     Ok((jar, Redirect::to("/admin/feeds")).into_response())
 }
 
@@ -451,6 +454,8 @@ pub async fn takedown_article(
         json!({ "article_id": id, "title": article.title }),
     )
     .await?;
+    metrics::counter!("rustss_moderation_actions_total", "action" => "article.takedown")
+        .increment(1);
     Ok((jar, Redirect::to("/admin/feeds/blocklist")).into_response())
 }
 

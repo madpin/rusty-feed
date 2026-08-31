@@ -174,6 +174,7 @@ pub async fn demo_start(
         "Demo user"
     };
     let user = users::create_demo(state.db.pool(), &email, name, role).await?;
+    metrics::counter!("rustss_demo_provisions_total", "role" => role).increment(1);
     let jar = session::login(jar, &state.db, user.id, state.settings.cookie_secure).await?;
     // A readable (non-HttpOnly) marker so the client shows the demo banner.
     let jar = jar.add(
@@ -435,6 +436,7 @@ pub async fn register_submit(
         .await?
     };
 
+    metrics::counter!("rustss_signups_total").increment(1);
     // Record consent for lawful contact/consent (FND-195).
     if accepted_terms || state.settings.require_tos_acceptance {
         let _ = users::record_consent(state.db.pool(), user.id).await;

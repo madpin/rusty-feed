@@ -50,7 +50,7 @@ continues to define RustSS-specific architecture, priorities, and invariants.
 ### 2.2 Non-Goals (v1)
 
 - Reproducing the Next.js SPA's exact micro-interactions 1:1 (the server-rendered UI is functionally equivalent, not pixel-identical).
-- A public multi-tenant SaaS with billing/quotas (the target is self-hosted, small-to-medium user counts — think 1–500 users per instance).
+- Paid **billing** for a multi-tenant SaaS (the primary target is self-hosted, 1–500 users per instance). **Note:** open, anonymous public registration is now supported and hardened — AI cost/compute budgets, per-user quotas, rate limiting, signup anti-abuse, content moderation/takedown, a feed blacklist, legal surfaces, and an optional demo sandbox — see `docs/PUBLIC_LAUNCH_PLAN.md`. Metered billing remains out of scope.
 - A native mobile app (the web UI is responsive/mobile-friendly; native apps are out of scope).
 - Real-time collaborative features.
 - Migrating the reference implementation's exact encrypted-secret formats (we standardize on one AEAD scheme; a one-time migration path is provided instead — see §9).

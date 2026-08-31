@@ -98,6 +98,7 @@ cargo run -p rustss-cli -- migrate          # apply migrations (needs DATABASE_U
 cargo run -p rustss-server                  # server (embedded worker by default)
 cargo run -p rustss-worker                  # standalone AGENTS worker
 # The first registered account becomes admin. create-admin/fetch-model/reindex/
+cargo run -p rustss-cli -- demo-reset --confirm   # wipe all demo accounts (public launch §7)
 
 # Frontend CSS/JS/icons are embedded directly via rust-embed.
 
@@ -159,3 +160,5 @@ docker compose --env-file .env -f docker/compose.yaml up -d # app + postgres + r
 ## 9. Status
 
 The fourteen-milestone v1 implementation is complete and under release-candidate validation. The broader Miniflux audit is 65/67 complete; full translated-string coverage and exact turnkey adapters for every advertised hosted integration remain partial. `docs/DEVELOPMENT_PLAN.md` is the v1 milestone source of truth, `docs/RELEASE_EVIDENCE.md` records acceptance results, and `docs/MINIFLUX_PARITY.md` is the extended-capability source of truth. Update all applicable documents whenever reality changes.
+
+**Public launch (open registration):** the `docs/PUBLIC_LAUNCH_PLAN.md` phases are implemented — AI cost/compute budgets + metering (FND-187), per-user quotas (FND-188), ingest fan-out caps (FND-189), rate-limit coverage + trusted client IP (FND-190), signup anti-abuse (email verification, CAPTCHA, lockout, password hygiene — FND-191), content moderation/takedown + feed blacklist (FND-192), charset-correct extraction (FND-193), stored-body caps (FND-194), legal surfaces + data export/delete (FND-195), a demo sandbox + read-only admin, and doc reconciliation (FND-196). Flip `REGISTRATION_MODE=open` only after setting the public-tier config in `docs/CONFIGURATION.md` (budgets, quotas, SMTP, CAPTCHA, retention).

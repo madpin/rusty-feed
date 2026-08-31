@@ -69,7 +69,7 @@ Behavioral parity with the reference is the baseline; §21 and RustSS explicitly
 | Styling | **Curated CSS design system** | Tailwind | Embedded, offline, no frontend build/runtime dependency; FND-118 records the deliberate deviation |
 | Static assets | **`rust-embed`** (embed CSS/JS/templates) | tower-http `ServeDir` | Single-binary distribution; assets baked in |
 | CSRF | **custom double-submit token validation** | `axum-csrf` | Small auditable cookie-auth mutation protection integrated with the custom sessions |
-| Rate limiting | **bounded in-process per-IP limiter** | `tower_governor` | Focused throttling for authentication without another stateful dependency |
+| Rate limiting | **bounded in-process per-key limiter** (`crates/web/src/ratelimit.rs`) | — | Focused, dependency-free throttling for auth, API, feed-add, search, summarize, OPML, media, Fever, and GReader (configurable; `0` == unlimited) |
 
 ### 3.2 Data & Cache
 
@@ -649,8 +649,8 @@ Effective value = first present of **feed → category → user prefs → system
 - **Passkeys:** optional `webauthn-rs` passwordless authentication with a pure HTTPS origin (HTTP only for loopback development), multiple named public credentials, password confirmation for local-account enrollment or a session created within 15 minutes for passwordless/OAuth enrollment, recent-session revocation, one-use five-minute server-side ceremony state, signature-counter/backup-state updates, and a last-credential recovery guard. No biometric material is stored. The library's attestation verifier uses platform OpenSSL; application HTTP remains rustls-only (FND-177/FND-178).
 - **Trusted reverse proxy:** disabled by default. A verified email/name header is considered only when Axum's immediate TCP peer belongs to an explicitly parsed CIDR; forwarded client-address headers never grant trust. Local sessions take precedence and coexist for recovery. Auto-provision, exact domain/admin mappings, and upstream logout are bounded startup policy; roles become database-owned after creation.
 - **Sessions:** a small, dependency-light DB-backed scheme (FND-116) — the browser holds an opaque random token in a secure, HTTP-only, SameSite=Lax cookie; only its SHA-256 hash is stored in `sessions`, so a DB read never exposes live tokens. CSRF is a double-submit cookie token for cookie-auth mutations.
-- **Authorization:** role checks (`ADMIN|USER|GUEST`) via an extractor/middleware; every data query is **scoped by `user_id`** for per-user tables; shared-content reads require an active subscription where appropriate. Admin routes gated server-side.
-- **Rate limiting** on login/register/password endpoints (`tower_governor`).
+- **Authorization:** role checks (`admin`, `admin_readonly`, `user`, `guest`) via extractors; every data query is **scoped by `user_id`** for per-user tables; shared-content reads require an active subscription where appropriate. Admin GET routes accept `admin_readonly` (read-only view); every admin **write** requires full `admin` (structural 403 for read-only admins).
+- **Rate limiting**: a bounded in-process per-key limiter (`crates/web/src/ratelimit.rs`) covers auth, native API, feed-add/discovery, search, summarize, OPML, media proxy, Fever, and GReader; limits are configurable (`0` == unlimited). Forwarded client-IP headers are honored only from trusted-proxy CIDRs.
 - **Referrer isolation:** the outer router middleware overwrites every response—including static assets, errors, and unmatched-route fallbacks—with `Referrer-Policy: no-referrer`. Sanitized content links and explicit external-link templates also carry `rel="noopener noreferrer"` and `referrerpolicy="no-referrer"`; publisher-supplied link policy cannot weaken these attributes.
 
 ---
