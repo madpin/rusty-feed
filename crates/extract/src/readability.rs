@@ -342,6 +342,28 @@ fn boilerplate_label(value: &str) -> bool {
                     | "recommendations"
                     | "outbrain"
                     | "taboola"
+                    // Cookie/consent + comment widgets.
+                    | "cookie"
+                    | "cookies"
+                    | "consent"
+                    | "gdpr"
+                    | "comments"
+                    | "comment"
+                    | "disqus"
+                    | "livefyre"
+                    // Author bios, paywall gates, social, promos.
+                    | "author-bio"
+                    | "authorbio"
+                    | "byline"
+                    | "paywall"
+                    | "subscriber"
+                    | "socials"
+                    | "promo"
+                    | "promotion"
+                    | "advertisement"
+                    | "sponsored"
+                    | "breadcrumb"
+                    | "breadcrumbs"
             )
         })
 }

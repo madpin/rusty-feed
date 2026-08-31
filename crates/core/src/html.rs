@@ -131,6 +131,13 @@ pub fn sanitize_article_html_with_policy(
         .html
 }
 
+/// Upper bound on stored/rendered article body length. A large-but-under-fetch-
+/// cap body is a shared cost (it bloats the DB and every render), so cap it once
+/// at the sanitize choke point with a visible notice (FND-194). The input is
+/// truncated at a char boundary and then sanitized, so the parser re-balances
+/// any tag cut mid-way.
+pub const ARTICLE_MAX_STORED_CHARS: usize = 400_000;
+
 /// Sanitize article HTML and report images removed by the shared privacy policy.
 pub fn sanitize_article_html_with_policies(
     html: &str,
@@ -138,6 +145,14 @@ pub fn sanitize_article_html_with_policies(
     url_policy: &TrackingUrlPolicy,
     pixel_policy: &TrackingPixelPolicy,
 ) -> SanitizedArticleHtml {
+    let capped: std::borrow::Cow<'_, str> = if html.chars().count() > ARTICLE_MAX_STORED_CHARS {
+        let mut truncated: String = html.chars().take(ARTICLE_MAX_STORED_CHARS).collect();
+        truncated.push_str("<p><em>Content truncated — open the original.</em></p>");
+        std::borrow::Cow::Owned(truncated)
+    } else {
+        std::borrow::Cow::Borrowed(html)
+    };
+    let html = capped.as_ref();
     let (prepared, blocked_tracking_pixels) =
         prepare_media(html, base_url, pixel_policy).unwrap_or_else(|_| (html.to_string(), 0));
     let relative = Url::parse(base_url)
@@ -243,13 +258,39 @@ fn prepare_media(
                 let current = element.get_attribute("src").unwrap_or_default();
                 let mut restored_lazy_source = false;
                 if current.trim().is_empty() || current.starts_with("data:") {
-                    for attribute in ["data-src", "data-lazy-src", "data-original", "data-url"] {
+                    for attribute in [
+                        "data-src",
+                        "data-lazy-src",
+                        "data-original",
+                        "data-original-src",
+                        "data-url",
+                        "data-hi-res-src",
+                        "data-actualsrc",
+                        "data-echo",
+                        "data-image-src",
+                    ] {
                         if let Some(candidate) = element.get_attribute(attribute) {
                             if !candidate.trim().is_empty() {
                                 element.set_attribute("src", candidate.trim())?;
                                 restored_lazy_source = true;
                                 break;
                             }
+                        }
+                    }
+                }
+                // Recover a lazily-declared srcset into a sanitized srcset when the
+                // element has none (FND: content-cleaning §6.3).
+                let has_srcset = element
+                    .get_attribute("srcset")
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false);
+                if !has_srcset {
+                    for attribute in ["data-srcset", "data-lazy-srcset", "data-original-set"] {
+                        if let Some(candidate) = element.get_attribute(attribute) {
+                            if let Some(safe) = sanitize_srcset(&candidate, image_base.as_ref()) {
+                                element.set_attribute("srcset", &safe)?;
+                            }
+                            break;
                         }
                     }
                 }
@@ -520,6 +561,31 @@ mod tests {
         assert!(content.contains("loading=\"lazy\""));
         assert!(content.contains("<video controls"));
         assert!(content.contains("<tfoot>"));
+    }
+
+    #[test]
+    fn caps_oversized_bodies_with_a_notice() {
+        let huge = format!("<p>{}</p>", "word ".repeat(ARTICLE_MAX_STORED_CHARS));
+        let out = sanitize_article_html(&huge, "https://example.com");
+        assert!(
+            out.chars().count() < ARTICLE_MAX_STORED_CHARS + 200,
+            "oversized body must be capped, got {} chars",
+            out.chars().count()
+        );
+        assert!(out.contains("Content truncated"));
+    }
+
+    #[test]
+    fn recovers_lazy_srcset_from_data_attributes() {
+        let out = sanitize_article_html(
+            r#"<img src="data:image/gif;base64,R0lG" data-srcset="/small.webp 480w, /big.webp 1024w">"#,
+            "https://example.com",
+        );
+        assert!(
+            out.contains("srcset"),
+            "lazy data-srcset should be recovered"
+        );
+        assert!(out.contains("/small.webp"));
     }
 
     #[test]

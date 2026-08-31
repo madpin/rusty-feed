@@ -3940,6 +3940,7 @@ version = "0.1.0"
 dependencies = [
  "chromiumoxide",
  "dom_smoothie",
+ "encoding_rs",
  "futures-util",
  "html-escape",
  "lol_html",

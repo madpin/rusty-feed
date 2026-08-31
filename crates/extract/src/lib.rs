@@ -445,17 +445,20 @@ impl ExtractionService {
             return Ok(FetchResult::Status(status.as_u16()));
         }
         let final_url = resp.url().to_string();
-        let verified_html = resp
+        let content_type = resp
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| {
-                let value = value.to_ascii_lowercase();
-                value.starts_with("text/html") || value.starts_with("application/xhtml+xml")
-            });
+            .map(str::to_string);
+        let verified_html = content_type.as_deref().is_some_and(|value| {
+            let value = value.to_ascii_lowercase();
+            value.starts_with("text/html") || value.starts_with("application/xhtml+xml")
+        });
         let bytes = read_capped(resp, self.config.max_bytes).await?;
         Ok(FetchResult::Html {
-            body: String::from_utf8_lossy(&bytes).into_owned(),
+            // Decode using the page's declared charset (Content-Type → BOM →
+            // <meta charset> → UTF-8) so non-UTF-8 pages don't corrupt (FND-193).
+            body: decode_html_bytes(&bytes, content_type.as_deref()),
             final_url,
             verified_html,
         })
@@ -472,9 +475,60 @@ impl ExtractionService {
         if !resp.status().is_success() {
             return Ok(None);
         }
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let bytes = read_capped(resp, 512 * 1024).await?;
-        Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+        Ok(Some(decode_html_bytes(&bytes, content_type.as_deref())))
     }
+}
+
+/// Decode fetched page bytes to a `String` using, in priority order: the
+/// `Content-Type` charset, a byte-order mark, a `<meta charset>` declaration,
+/// then UTF-8. Non-UTF-8 pages (Windows-1252, Shift_JIS, GB2312, …) would
+/// otherwise corrupt to replacement characters (FND-193).
+pub fn decode_html_bytes(bytes: &[u8], content_type: Option<&str>) -> String {
+    let encoding = content_type
+        .and_then(charset_from_content_type)
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .or_else(|| sniff_meta_charset(bytes))
+        .unwrap_or(encoding_rs::UTF_8);
+    // `decode` honors a leading BOM (overriding the guess) and never fails.
+    let (text, _, _) = encoding.decode(bytes);
+    text.into_owned()
+}
+
+/// Extract the `charset` token from a `Content-Type` header value.
+fn charset_from_content_type(content_type: &str) -> Option<String> {
+    content_type.split(';').find_map(|part| {
+        let part = part.trim();
+        part.strip_prefix("charset=")
+            .or_else(|| part.strip_prefix("charset ="))
+            .map(|value| value.trim().trim_matches('"').to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+/// Sniff a `<meta charset>` / `<meta http-equiv="content-type">` declaration
+/// from the first 2 KiB of the document (the HTML spec's prescan window).
+fn sniff_meta_charset(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
+    let window = &bytes[..bytes.len().min(2048)];
+    let head = String::from_utf8_lossy(window).to_ascii_lowercase();
+    // <meta charset="...">
+    if let Some(idx) = head.find("charset=") {
+        let rest = &head[idx + "charset=".len()..];
+        let label: String = rest
+            .trim_start_matches(['"', '\'', ' '])
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.'))
+            .collect();
+        if !label.is_empty() {
+            return encoding_rs::Encoding::for_label(label.as_bytes());
+        }
+    }
+    None
 }
 
 impl Default for ExtractionService {
@@ -509,4 +563,46 @@ async fn read_capped(resp: reqwest::Response, max: usize) -> Result<Vec<u8>> {
         buf.extend_from_slice(&chunk);
     }
     Ok(buf)
+}
+
+#[cfg(test)]
+mod charset_tests {
+    use super::decode_html_bytes;
+
+    #[test]
+    fn windows_1252_from_content_type() {
+        // 0x92 is a right single quote in Windows-1252, invalid in UTF-8.
+        let bytes = [b'A', 0x92, b'B'];
+        let decoded = decode_html_bytes(&bytes, Some("text/html; charset=windows-1252"));
+        assert_eq!(decoded, "A\u{2019}B");
+    }
+
+    #[test]
+    fn shift_jis_from_content_type() {
+        // 日本 encoded in Shift_JIS.
+        let bytes = [0x93, 0xFA, 0x96, 0x7B];
+        let decoded = decode_html_bytes(&bytes, Some("text/html; charset=Shift_JIS"));
+        assert_eq!(decoded, "日本");
+    }
+
+    #[test]
+    fn meta_charset_is_sniffed_without_content_type() {
+        let mut bytes = b"<html><head><meta charset=\"windows-1252\"></head><body>".to_vec();
+        bytes.push(0x92);
+        bytes.extend_from_slice(b"</body></html>");
+        let decoded = decode_html_bytes(&bytes, None);
+        assert!(
+            decoded.contains('\u{2019}'),
+            "meta charset should be honored"
+        );
+    }
+
+    #[test]
+    fn utf8_is_unchanged() {
+        let text = "Café — 日本 — naïve";
+        let decoded = decode_html_bytes(text.as_bytes(), Some("text/html; charset=utf-8"));
+        assert_eq!(decoded, text);
+        // And with no content-type (UTF-8 fallback).
+        assert_eq!(decode_html_bytes(text.as_bytes(), None), text);
+    }
 }
