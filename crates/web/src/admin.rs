@@ -121,6 +121,7 @@ struct DashboardStats {
     article_storage: String,
     embedding_storage: String,
     media_storage: String,
+    process_memory: String,
 }
 
 struct PublicShareEventRow {
@@ -383,6 +384,27 @@ pub struct CatalogUpdateForm {
 
 fn micro_to_usd(micro: i64) -> String {
     format!("${:.4}", micro as f64 / 1_000_000.0)
+}
+
+/// Best-effort resident set size of the current process, in bytes. Reads
+/// `/proc/self/status` on Linux (the container runtime); returns `None`
+/// elsewhere (e.g. macOS development hosts).
+fn process_rss_bytes() -> Option<i64> {
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        for line in status.lines() {
+            if let Some(rest) = line.strip_prefix("VmRSS:") {
+                let kib: i64 = rest.split_whitespace().next()?.parse().ok()?;
+                return Some(kib * 1024);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
 }
 
 fn bytes_label(bytes: i64) -> String {
@@ -835,6 +857,9 @@ pub async fn dashboard(
                 article_storage: bytes_label(storage.articles_bytes),
                 embedding_storage: bytes_label(storage.embeddings_bytes),
                 media_storage: bytes_label(storage.media_cache_bytes),
+                process_memory: process_rss_bytes()
+                    .map(bytes_label)
+                    .unwrap_or_else(|| "Unavailable on this platform".to_string()),
             },
         })?,
     )

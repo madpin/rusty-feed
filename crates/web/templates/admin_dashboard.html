@@ -11,26 +11,27 @@
   </div>
 </div>
 <div class="admin-stat-grid">
-  <a class="admin-stat" href="/admin/users"><strong>{{ stats.users }}</strong><span>Users</span></a>
-  <a class="admin-stat" href="/admin/feeds"><strong>{{ stats.feeds }}</strong><span>Shared feeds</span></a>
-  <a class="admin-stat" href="/admin/catalog"><strong>{{ stats.catalog_entries }}</strong><span>Catalog entries</span></a>
-  <span class="admin-stat"><strong>{{ stats.articles }}</strong><span>Articles</span></span>
-  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.workers_online }}</strong><span>Workers online · {{ stats.worker_capacity }} slots</span></a>
-  <a class="admin-stat" href="/admin/logs"><strong>{{ ui.format_number(stats.pending_jobs) }}</strong><span>Pending jobs</span></a>
-  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.running_jobs }}</strong><span>Running jobs</span></a>
-  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.stalled_jobs }}</strong><span>Stalled jobs</span></a>
-  <a class="admin-stat" href="/admin/logs"><strong>{{ stats.dead_jobs }}</strong><span>Dead-letter jobs</span></a>
-  <span class="admin-stat"><strong>{{ stats.active_public_shares }}</strong><span>Active public shares</span></span>
+  <a class="admin-stat admin-stat-people" href="/admin/users" title="Total registered accounts (any role). Click to manage members."><strong>{{ stats.users }}</strong><span>Users</span></a>
+  <a class="admin-stat admin-stat-people" href="/admin/feeds" title="Distinct shared feeds fetched once and shared across all subscribers. Click to inspect them."><strong>{{ stats.feeds }}</strong><span>Shared feeds</span></a>
+  <a class="admin-stat admin-stat-content" href="/admin/catalog" title="Sources published in the discovery magazine. Click to curate."><strong>{{ stats.catalog_entries }}</strong><span>Catalog entries</span></a>
+  <span class="admin-stat admin-stat-content" title="Total shared article rows stored across every feed."><strong>{{ stats.articles }}</strong><span>Articles</span></span>
+  <a class="admin-stat admin-stat-work" href="/admin/logs" title="Worker processes with a live heartbeat, and their combined job slots (background + interactive)."><strong>{{ stats.workers_online }}</strong><span>Workers online · {{ stats.worker_capacity }} slots</span></a>
+  <a class="admin-stat admin-stat-work" href="/admin/logs" title="Jobs queued and waiting for a free worker slot."><strong>{{ ui.format_number(stats.pending_jobs) }}</strong><span>Pending jobs</span></a>
+  <a class="admin-stat admin-stat-work" href="/admin/logs" title="Jobs a worker is executing right now."><strong>{{ stats.running_jobs }}</strong><span>Running jobs</span></a>
+  <a class="admin-stat admin-stat-warn" href="/admin/logs" title="Jobs claimed by a worker that stopped heartbeating; they are reclaimed automatically."><strong>{{ stats.stalled_jobs }}</strong><span>Stalled jobs</span></a>
+  <a class="admin-stat admin-stat-warn" href="/admin/logs" title="Jobs that exhausted their retries and were moved to the dead-letter state for inspection."><strong>{{ stats.dead_jobs }}</strong><span>Dead-letter jobs</span></a>
+  <span class="admin-stat admin-stat-content" title="Public share links that are currently live (not expired or revoked)."><strong>{{ stats.active_public_shares }}</strong><span>Active public shares</span></span>
 </div>
 <section class="panel">
-  <h2>Storage</h2>
+  <h2>Storage &amp; memory</h2>
   <dl class="definition-list">
-    <div><dt>PostgreSQL database</dt><dd>{{ stats.database_size }}</dd></div>
-    <div><dt>Articles + indexes</dt><dd>{{ stats.article_storage }}</dd></div>
-    <div><dt>Embeddings + HNSW</dt><dd>{{ stats.embedding_storage }}</dd></div>
-    <div><dt>Shared media cache</dt><dd>{{ stats.media_storage }}</dd></div>
+    <div><dt title="Total on-disk size of the PostgreSQL database.">PostgreSQL database</dt><dd>{{ stats.database_size }}</dd></div>
+    <div><dt title="Article table plus its indexes and full-text search vectors.">Articles + indexes</dt><dd>{{ stats.article_storage }}</dd></div>
+    <div><dt title="Stored embedding vectors plus the pgvector HNSW index used for semantic search.">Embeddings + HNSW</dt><dd>{{ stats.embedding_storage }}</dd></div>
+    <div><dt title="Bytes cached by the privacy media proxy.">Shared media cache</dt><dd>{{ stats.media_storage }}</dd></div>
+    <div><dt title="Resident set size (RSS) of this web/worker process right now.">Process memory (RSS)</dt><dd>{{ stats.process_memory }}</dd></div>
   </dl>
-  <p class="muted">Process and container memory are exported through <a href="/metrics">Prometheus metrics</a>; use your runtime dashboard for historical capacity and alerts.</p>
+  <p class="muted">A typical loaded process sits around 250–300&nbsp;MB. The largest resident consumers are the local embedding model and ONNX runtime (loaded once into RAM), the SQLx/Redis connection pools, and template/asset buffers. Headless Chromium runs as a <strong>separate</strong> container, so it does not count toward this figure. To trim memory, use a hosted embedding provider (<code>EMBEDDING_PROVIDER=openai</code>) or lower <code>FEED_REFRESH_CONCURRENCY</code>. Historical/container memory is also exported via <a href="/metrics">Prometheus metrics</a>.</p>
 </section>
 <section class="panel admin-overview-actions">
   <h2>Quick administration</h2>

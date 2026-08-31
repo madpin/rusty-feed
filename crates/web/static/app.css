@@ -1173,10 +1173,16 @@ img.enclosure-image[data-image-modal] { cursor: zoom-in; }
 .page-admin-logs .admin-logs-link,
 .page-admin-costs .admin-costs-link { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .admin-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.8rem; margin-bottom: 1.2rem; }
-.admin-stat { display: grid; gap: 0.18rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); background: var(--surface); box-shadow: var(--shadow-sm); }
-.admin-stat:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
-.admin-stat strong { color: var(--text-strong); font-size: 1.55rem; }
-.admin-stat span { color: var(--muted); font-size: 0.86rem; font-weight: 650; }
+.admin-stat { position: relative; display: grid; gap: 0.18rem; padding: 1rem 1rem 1rem 1.15rem; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease; }
+.admin-stat::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 0.28rem; background: var(--accent); opacity: 0.85; }
+.admin-stat:hover { color: var(--text); border-color: var(--accent); text-decoration: none; transform: translateY(-1px); box-shadow: var(--shadow); }
+a.admin-stat { cursor: pointer; }
+.admin-stat strong { color: var(--text-strong); font-size: 1.6rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.admin-stat span { color: var(--muted); font-size: 0.82rem; font-weight: 650; }
+.admin-stat-people::before { background: var(--accent); }
+.admin-stat-content::before { background: #16a34a; }
+.admin-stat-work::before { background: #0891b2; }
+.admin-stat-warn::before { background: #d97706; }
 .admin-overview-actions h2 { margin-top: 0; }
 .admin-inline-form { display: flex; align-items: center; gap: 0.45rem; margin: 0; }
 .check-options { display: flex; flex-wrap: wrap; gap: 1rem; }
