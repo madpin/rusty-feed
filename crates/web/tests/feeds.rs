@@ -245,11 +245,12 @@ async fn add_feed_ingests_and_shows_articles() {
     assert!(feeds_page.contains("Last updated: just now"));
     assert!(feeds_page.contains("Last successful update:"));
 
-    // They show up in the reader.
+    // They show up in the reader. Scope to this feed so the assertion is robust
+    // to featured-catalog articles the new account inherits by default.
     let resp = app
         .clone()
         .oneshot(
-            Request::get("/articles")
+            Request::get(format!("/articles?feed={}", feed.id))
                 .header("cookie", format!("rustss_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -502,10 +503,15 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
     assert!(body.contains("Feed organization saved."));
     assert!(body.contains("Folder: Work / Research"));
     assert!(body.contains("#rust"));
-    let mut organizations = subscriptions::list_organization(state.db.pool(), user.id)
+    let organizations = subscriptions::list_organization(state.db.pool(), user.id)
         .await
         .unwrap();
-    let organization = organizations.pop().unwrap();
+    // Select this feed's organization explicitly (the account may also carry
+    // featured-catalog subscriptions), keeping the assertion isolation-robust.
+    let organization = organizations
+        .into_iter()
+        .find(|organization| organization.feed_id == feed.id)
+        .expect("organized feed must be present");
     assert_eq!(
         organization.tags,
         vec!["rust".to_string(), "work".to_string()]
