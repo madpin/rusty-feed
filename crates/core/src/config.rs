@@ -524,6 +524,17 @@ pub struct AppConfig {
     /// Secret CAPTCHA key (server-side verification only; never rendered).
     #[serde(default)]
     pub captcha_secret: Option<Secret>,
+
+    // ── Public launch: legal & compliance (FND-195) ──
+    /// Contact address shown on the Abuse/DMCA and Privacy pages.
+    #[serde(default)]
+    pub legal_contact_email: Option<String>,
+    /// Operator/entity name shown in the legal pages (defaults to the app name).
+    #[serde(default)]
+    pub legal_entity_name: Option<String>,
+    /// Require accepting the Terms + Privacy Policy at registration.
+    #[serde(default)]
+    pub require_tos_acceptance: bool,
 }
 
 impl AppConfig {

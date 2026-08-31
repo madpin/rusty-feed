@@ -217,6 +217,12 @@ pub struct AppSettings {
     pub login_lockout_seconds: u64,
     /// Registration CAPTCHA, if configured.
     pub captcha: Option<CaptchaSettings>,
+    /// Contact address for the Abuse/DMCA and Privacy pages (FND-195).
+    pub legal_contact_email: Option<String>,
+    /// Operator/entity name shown in the legal pages.
+    pub legal_entity_name: String,
+    /// Require accepting Terms + Privacy at registration.
+    pub require_tos_acceptance: bool,
 }
 
 impl Default for AppSettings {
@@ -272,6 +278,9 @@ impl Default for AppSettings {
             login_max_failures: 10,
             login_lockout_seconds: 900,
             captcha: None,
+            legal_contact_email: None,
+            legal_entity_name: "RustSS".to_string(),
+            require_tos_acceptance: false,
         }
     }
 }

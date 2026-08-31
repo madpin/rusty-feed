@@ -67,6 +67,7 @@ struct RegisterTemplate {
     min_password_length: usize,
     captcha_provider: Option<String>,
     captcha_site_key: Option<String>,
+    require_tos_acceptance: bool,
 }
 
 #[derive(Deserialize)]
@@ -91,6 +92,9 @@ pub struct RegisterForm {
     /// hCaptcha token, when that CAPTCHA is enabled.
     #[serde(default, rename = "h-captcha-response")]
     h_captcha_response: String,
+    /// Terms/Privacy acceptance (checkbox present only when required).
+    #[serde(default)]
+    accept_terms: String,
 }
 
 #[derive(Default, Deserialize)]
@@ -227,6 +231,7 @@ pub async fn register_page(
         min_password_length: state.settings.min_password_length,
         captcha_provider,
         captcha_site_key,
+        require_tos_acceptance: state.settings.require_tos_acceptance,
     })?;
     Ok((jar, body).into_response())
 }
@@ -287,6 +292,7 @@ pub async fn register_submit(
             min_password_length,
             captcha_provider: captcha_provider.clone(),
             captcha_site_key: captcha_site_key.clone(),
+            require_tos_acceptance: state.settings.require_tos_acceptance,
         })?;
         Ok((jar, body).into_response())
     };
@@ -302,6 +308,7 @@ pub async fn register_submit(
             min_password_length,
             captcha_provider: captcha_provider.clone(),
             captcha_site_key: captcha_site_key.clone(),
+            require_tos_acceptance: state.settings.require_tos_acceptance,
         })?;
         return Ok((jar, body).into_response());
     }
@@ -316,6 +323,14 @@ pub async fn register_submit(
         Ok(()) => {}
         Err(AppError::Validation(message)) => return reshow(jar, &message),
         Err(other) => return Err(other),
+    }
+
+    let accepted_terms = matches!(form.accept_terms.trim(), "on" | "true" | "1" | "yes");
+    if state.settings.require_tos_acceptance && !accepted_terms {
+        return reshow(
+            jar,
+            "Please accept the Terms and Privacy Policy to continue.",
+        );
     }
 
     let email = form.email.trim();
@@ -365,6 +380,11 @@ pub async fn register_submit(
         )
         .await?
     };
+
+    // Record consent for lawful contact/consent (FND-195).
+    if accepted_terms || state.settings.require_tos_acceptance {
+        let _ = users::record_consent(state.db.pool(), user.id).await;
+    }
 
     // Best-effort verification email (never fatal): local accounts start
     // unverified; privileged actions are gated until they confirm (FND-191).

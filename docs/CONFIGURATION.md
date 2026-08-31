@@ -371,6 +371,22 @@ can resend the verification email from Preferences. When CAPTCHA is enabled, the
 Cloudflare/hCaptcha origins are added to the CSP `script-src`/`frame-src` only
 for that purpose; the strict no-inline policy is otherwise unchanged.
 
+## Public launch: legal & compliance
+
+Static legal pages live at `/terms`, `/privacy`, `/acceptable-use`, and `/abuse`
+(linked in the footer, reachable pre-signup). Users export or delete their data
+at `/settings/account` (`docs/PUBLIC_LAUNCH_PLAN.md` §9).
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `LEGAL_CONTACT_EMAIL` | — | Contact shown on the Abuse/DMCA and Privacy pages. |
+| `LEGAL_ENTITY_NAME` | app name | Operator/entity name shown in the legal pages. |
+| `REQUIRE_TOS_ACCEPTANCE` | `false` | Require a Terms/Privacy checkbox at registration (consent is recorded). |
+
+Account deletion cascades all per-user rows and is guarded so the last
+administrator cannot orphan the instance. Review the shipped legal copy for your
+jurisdiction before launch.
+
 ## Docker Compose-only variables
 
 These values configure containers or port publishing and are not fields in

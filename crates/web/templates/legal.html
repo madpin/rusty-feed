@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} — RustSS{% endblock %}
+{% block content %}
+<h1>{{ heading }}</h1>
+<p class="muted">Operated by {{ entity_name }}.</p>
+
+{% if kind == "terms" %}
+<p>By creating an account or using this service you agree to these Terms and to the Acceptable Use and Privacy policies linked below.</p>
+<ul>
+  <li>The service is provided “as is”, without warranty; availability is best-effort.</li>
+  <li>You are responsible for the feeds you subscribe to and any content you submit or report.</li>
+  <li>You must not use the service to break the law, infringe others' rights, or attempt to disrupt or abuse the platform.</li>
+  <li>{{ entity_name }} may suspend or remove accounts and shared content that violate these terms.</li>
+  <li>These terms may change; continued use after a change constitutes acceptance.</li>
+</ul>
+<p>See also the <a href="/acceptable-use">Acceptable Use Policy</a> and <a href="/privacy">Privacy Policy</a>.</p>
+
+{% else if kind == "acceptable_use" %}
+<p>To keep the service safe for everyone, you must not:</p>
+<ul>
+  <li>Add feeds or submit content that is illegal, malicious (malware/phishing), or infringing.</li>
+  <li>Send spam, attempt to overload the service, or evade rate limits, quotas, or budgets.</li>
+  <li>Access accounts, data, or systems you are not authorized to use.</li>
+  <li>Use automated abuse of the AI, search, or fetch features.</li>
+</ul>
+<p>Violations may result in content takedown and account suspension. Report problems on the <a href="/abuse">Abuse page</a>.</p>
+
+{% else if kind == "privacy" %}
+<p>This policy explains what {{ entity_name }} stores and why.</p>
+<ul>
+  <li><strong>Account data:</strong> your email address and (for local accounts) a hashed password.</li>
+  <li><strong>Reading state:</strong> your subscriptions, categories, read/seen/bookmark state, feedback, saved searches, and preferences.</li>
+  <li><strong>Cookies:</strong> a functional, HTTP-only session cookie and a CSRF cookie. No third-party advertising cookies.</li>
+  <li><strong>Processors:</strong> depending on configuration, an SMTP provider (email verification), a CAPTCHA provider (sign-up anti-abuse), and — only if you enable it — an AI provider using your own API key.</li>
+  <li><strong>Retention:</strong> shared article content is retained per the instance policy; your personal data is removed when you delete your account.</li>
+</ul>
+<p>You can export or delete your data at any time from <a href="/settings/account">Account &amp; data</a>.</p>
+
+{% else %}
+<p>To report illegal content, abuse, or a copyright (DMCA) concern involving content on this instance, contact us with the feed or article URL and a description of the issue.</p>
+{% if has_contact %}
+<p>Contact: <a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>
+{% else %}
+<p>Contact: {{ contact_email }}.</p>
+{% endif %}
+<p>Signed-in users can also use the <strong>Report</strong> control on any article or feed, which routes to the moderation queue. We remove confirmed illegal or infringing shared content for all users.</p>
+{% endif %}
+
+<p class="muted"><a href="/">Back</a> · <a href="/terms">Terms</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/privacy">Privacy</a> · <a href="/abuse">Abuse</a></p>
+{% endblock %}

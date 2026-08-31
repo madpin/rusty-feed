@@ -8,6 +8,7 @@
 //! logout) with DB-backed sessions, and health/metrics. The reading UI and
 //! feature APIs arrive in later milestones per `docs/DEVELOPMENT_PLAN.md`.
 
+mod account;
 mod acquisition;
 mod admin;
 mod ai_settings;
@@ -23,6 +24,7 @@ mod feeds;
 mod fever;
 mod greader;
 mod integrations;
+mod legal;
 mod live_view;
 pub mod mailer;
 mod media_proxy;
@@ -84,6 +86,10 @@ pub fn router(state: AppState) -> Router {
             get(auth::handlers::register_page).post(auth::handlers::register_submit),
         )
         .route("/logout", post(auth::handlers::logout_submit))
+        .route("/terms", get(legal::terms))
+        .route("/acceptable-use", get(legal::acceptable_use))
+        .route("/privacy", get(legal::privacy))
+        .route("/abuse", get(legal::abuse))
         .route("/verify", get(verify::verify))
         .route("/verify/resend", post(verify::resend))
         .route("/auth/passkey/start", post(passkeys::authentication_start))
@@ -228,6 +234,9 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/ai/{id}/toggle", post(ai_settings::admin_toggle))
         .route("/admin/ai/{id}/delete", post(ai_settings::admin_delete))
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
+        .route("/settings/account", get(account::page))
+        .route("/settings/account/export", post(account::export))
+        .route("/settings/account/delete", post(account::delete))
         .route("/settings/passkeys", get(passkeys::page))
         .route(
             "/settings/passkeys/register/start",

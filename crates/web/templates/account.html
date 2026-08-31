@@ -1,0 +1,41 @@
+{% extends "app_base.html" %}
+{% block title %}Account &amp; data{% endblock %}
+{% block body_class %}page-settings{% endblock %}
+{% block content %}
+<div class="page-header"><div><p class="eyebrow">Settings</p><h1>Account &amp; data</h1><p class="muted">Export or permanently delete your account and personal data.</p></div></div>
+{% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
+
+<section class="panel">
+  <h2>Email</h2>
+  <p>{{ user_email }}
+    {% if email_verified %}<span class="badge">verified</span>{% else %}<span class="badge badge-warn">unverified</span>{% endif %}
+  </p>
+  {% if !email_verified && verification_required %}
+  <form method="post" action="/verify/resend">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit">Resend verification email</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Export your data</h2>
+  <p class="muted">Downloads your profile, preferences, subscriptions, categories, and saved searches as JSON. Your feeds are also available as <a href="/feeds/opml/export">OPML</a>.</p>
+  <form method="post" action="/settings/account/export">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit" class="primary">Download JSON export</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Delete account</h2>
+  <p class="alert">This permanently deletes your account and all personal data (subscriptions, reading state, bookmarks, saved searches, preferences, tokens). Shared feeds and articles are not affected. This cannot be undone.</p>
+  <form method="post" action="/settings/account/delete" class="stack" data-confirm="Permanently delete your account and all your data?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Type <code>DELETE</code> to confirm
+      <input name="confirm" autocomplete="off" placeholder="DELETE" required />
+    </label>
+    <button type="submit" class="danger">Delete my account</button>
+  </form>
+</section>
+{% endblock %}

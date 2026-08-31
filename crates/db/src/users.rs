@@ -8,7 +8,7 @@ use crate::models::User;
 
 const USER_COLUMNS: &str =
     "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at, \
-     last_seen_at, failed_login_count, locked_until";
+     last_seen_at, failed_login_count, locked_until, tos_accepted_at";
 
 /// Create a user. `role` must be one of `admin` | `user` | `guest`.
 pub async fn create(
@@ -181,6 +181,50 @@ pub async fn touch_last_seen(pool: &PgPool, user_id: Uuid) -> Result<()> {
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Record consent to the Terms/Privacy Policy at registration (idempotent).
+pub async fn record_consent(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET tos_accepted_at = COALESCE(tos_accepted_at, now()) WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Self-serve account deletion (GDPR/CCPA). Cascades all per-user rows. Guarded
+/// against removing the last administrator so an instance is never orphaned.
+/// Returns `Ok(false)` when blocked as the last admin.
+pub async fn delete(pool: &PgPool, user_id: Uuid) -> Result<bool> {
+    let mut tx = pool.begin().await?;
+    // Advisory lock keyed on the admin-role space (same key change_role uses is
+    // not required here; a simple guard suffices) — recount inside the tx.
+    let role: Option<String> =
+        sqlx::query_scalar("SELECT role FROM users WHERE id = $1 FOR UPDATE")
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some(role) = role else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+    if role == "admin" {
+        let admins: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE role = 'admin'")
+            .fetch_one(&mut *tx)
+            .await?;
+        if admins <= 1 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+    }
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// Mark an account's email address as verified (idempotent).

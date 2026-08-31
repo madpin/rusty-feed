@@ -41,6 +41,48 @@ async fn state_with_saved_search_cap(cap: u32) -> Option<AppState> {
 }
 
 #[tokio::test]
+async fn legal_pages_are_public() {
+    let Some(state) = state().await else { return };
+    let app = router(state.clone());
+    for path in ["/terms", "/privacy", "/acceptable-use", "/abuse"] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path} should be public");
+    }
+}
+
+#[tokio::test]
+async fn last_admin_cannot_self_delete() {
+    let Some(state) = state().await else { return };
+    // A fresh instance whose only admin is created here — deletion must be blocked.
+    let admin = users::create(
+        state.db.pool(),
+        &format!("solo-admin-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "admin",
+        None,
+    )
+    .await
+    .unwrap();
+    // Guard only blocks when this is the last admin; other tests may create
+    // admins, so assert the guard logic directly rather than global state.
+    let admins_before: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE role = 'admin'")
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap();
+    let deleted = users::delete(state.db.pool(), admin.id).await.unwrap();
+    if admins_before <= 1 {
+        assert!(!deleted, "the last admin must not be deletable");
+    } else {
+        assert!(deleted, "a non-last admin may be deleted");
+    }
+}
+
+#[tokio::test]
 async fn blocklisted_feed_is_rejected_on_add() {
     let Some(state) = state().await else { return };
     let user = users::create(

@@ -27,6 +27,8 @@ pub struct User {
     pub failed_login_count: i32,
     /// When set and in the future, local logins are temporarily locked.
     pub locked_until: Option<OffsetDateTime>,
+    /// When the user accepted the Terms/Privacy Policy at registration.
+    pub tos_accepted_at: Option<OffsetDateTime>,
 }
 
 /// A shared feed (one row per normalized URL, regardless of subscribers).

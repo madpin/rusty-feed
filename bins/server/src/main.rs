@@ -212,6 +212,12 @@ async fn main() -> anyhow::Result<()> {
                     .map(|secret| secret.expose().to_string())
                     .unwrap_or_default(),
             }),
+        legal_contact_email: config.legal_contact_email.clone(),
+        legal_entity_name: config
+            .legal_entity_name
+            .clone()
+            .unwrap_or_else(|| config.pwa_name.clone()),
+        require_tos_acceptance: config.require_tos_acceptance,
     };
 
     // SSRF-safe fetch client (opt into private/loopback for trusted intranet
