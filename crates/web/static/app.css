@@ -718,6 +718,14 @@ img.enclosure-image[data-image-modal] { cursor: zoom-in; }
 .catalog-select-all { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--text-strong); font-size: 0.88rem; font-weight: 700; white-space: nowrap; }
 .catalog-select-all input { width: 1rem; height: 1rem; accent-color: var(--accent); }
 .catalog-select-all span { color: inherit; }
+.integration-hint { display: grid; gap: 0.25rem; margin: 0.2rem 0 0.4rem; padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-subtle, var(--surface-hover)); font-size: 0.86rem; }
+.integration-hint p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.integration-hint strong { color: var(--text-strong); }
+.integration-docs { display: grid; gap: 0.55rem; margin: 0.4rem 0 0.6rem; }
+.integration-docs > div { display: grid; grid-template-columns: minmax(9rem, 12rem) 1fr; gap: 0.2rem 1rem; }
+.integration-docs dt { color: var(--text-strong); font-weight: 700; }
+.integration-docs dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .integration-docs > div { grid-template-columns: 1fr; } }
 .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; }
 .catalog-card { display: grid; gap: 0.9rem; min-width: 0; padding: 1.1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
 .js .catalog-card[data-catalog-selectable] { cursor: pointer; }

@@ -875,6 +875,24 @@
     dialog.addEventListener("close", reset);
   }
 
+  function initializeIntegrationHints() {
+    var select = document.querySelector("[data-provider-select]");
+    var hint = document.querySelector("[data-provider-hint]");
+    if (!select || !hint) return;
+    var endpoint = hint.querySelector("[data-hint-endpoint]");
+    var credential = hint.querySelector("[data-hint-credential]");
+    var payload = hint.querySelector("[data-hint-payload]");
+    function update() {
+      var option = select.options[select.selectedIndex];
+      if (!option) return;
+      if (endpoint) endpoint.textContent = option.getAttribute("data-endpoint-hint") || "";
+      if (credential) credential.textContent = option.getAttribute("data-credential-hint") || "";
+      if (payload) payload.textContent = option.getAttribute("data-payload") || "";
+    }
+    select.addEventListener("change", update);
+    update();
+  }
+
   function initializeProviderCopy() {
     var form = document.querySelector("[data-provider-form]");
     if (!form) return;
@@ -1546,6 +1564,7 @@
   initializeImageLightbox();
   initializeCatalogSelection();
   initializeProviderCopy();
+  initializeIntegrationHints();
   initializeQuickSettingsDialogs();
   initializeArticleSendDialog();
   initializeAdminQueueRefresh();

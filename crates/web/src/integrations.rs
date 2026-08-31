@@ -22,6 +22,9 @@ struct ProviderView {
     id: String,
     name: String,
     capabilities: String,
+    endpoint_hint: String,
+    credential_hint: String,
+    payload_summary: String,
 }
 struct ProfileView {
     id: String,
@@ -191,6 +194,9 @@ async fn render_page(
                     _ => "notify",
                 }
                 .into(),
+                endpoint_hint: provider.endpoint_hint.into(),
+                credential_hint: provider.credential_hint.into(),
+                payload_summary: provider.payload_summary().into(),
             })
             .collect(),
         profiles: profile_views(profiles),
