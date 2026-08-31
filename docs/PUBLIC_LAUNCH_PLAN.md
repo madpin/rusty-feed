@@ -1,6 +1,14 @@
 # RustSS — Public Launch Plan (Open Registration)
 
-**Status:** Proposal / planning document — not yet implemented
+**Status:** Implemented — all phases P1–P8 shipped (see `docs/FINDINGS.md` FND-187…197).
+Minimum-viable launch (P1–P4) plus the recommended phases (P5–P8) are complete: AI
+budgets/metering, per-user quotas, ingest caps, rate-limit coverage + trusted client IP,
+signup anti-abuse, moderation/takedown + feed blacklist, legal surfaces + export/delete,
+content-cleaning hardening, demo sandbox + read-only admin, abuse observability + SEO,
+the marketing landing page + Miniflux comparison, BYO-key surfacing, and the first-run
+wizard. One enhancement is a deliberate deferral (automated SMTP retry — FND-198;
+outages are already tolerated via manual resend). Flip `REGISTRATION_MODE=open` only
+after setting the public-tier config in `docs/CONFIGURATION.md`.
 **Author:** Platform team
 **Created:** 2026-08-31
 **Companion docs:** `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT_PLAN.md`, `docs/FINDINGS.md`, `docs/OPERATIONS.md`
@@ -504,4 +512,4 @@ Each phase is independently shippable and ends with Conventional Commits + the g
 4. **Demo feed freedom:** restrict demo users to catalog-only feeds, or allow arbitrary (blocklist-guarded) adds? (§7.4 — catalog-only is safer.)
 5. **Retention for public:** what finite `ARTICLE_RETENTION_DAYS` is acceptable for your storage budget? (§10.3)
 6. **Near-dup dedup (§6.5):** worth the risk post-launch, or leave as exact-hash only?
-7. **Read-only admin privacy (§7.6):** for the demo "see as admin" view, redact real users' PII/costs (option a, simpler) or render a fully synthetic admin view (option b, most isolated)? Also: do you want `admin_readonly` available for real staff/support accounts too, or demo-only?
+7. **Read-only admin privacy (§7.6):** for the demo "see as admin" view, redact real users' PII/costs (option a, simpler) or render a fully synthetic admin view (option b, most isolated)? Also: do you want `admin_readonly` available for real staff/support accounts too, or demo-only? (yes, redact real users costs)
