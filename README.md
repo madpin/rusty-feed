@@ -184,12 +184,14 @@ bootstrap and maintenance workflows; use `--help` for their current arguments.
 
 ```bash
 npm ci
-PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
+docker compose --env-file .env -f docker/compose.yaml exec -T postgres \
+  createdb --username rustss rustss_e2e
+PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss_e2e \
   PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
   npm run test:e2e
 ```
 
-Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled. It exercises discovery and OPML flows, reader modes and typography, Live View, privacy-gated media/YouTube, public sharing, feed organization and drag/drop, keyboard shortcuts, the fixed side panel, live AI-summary progress, admin queue refresh, no-JavaScript fallbacks, and authorization boundaries. CI installs Chromium and runs this suite after Rust tests.
+Create the dedicated database once; an "already exists" response on later runs is harmless. Do not point Playwright at the database used by Rust integration tests or a real RustSS instance. Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled and the deterministic test embedding model selected. It exercises discovery and OPML flows, reader modes and typography, Live View, privacy-gated media/YouTube, public sharing, feed organization and drag/drop, keyboard shortcuts, the fixed side panel, live AI-summary progress, admin queue refresh, no-JavaScript fallbacks, and authorization boundaries. CI creates a fresh `rustss_e2e` database, installs Chromium, and runs this suite after Rust tests.
 
 ### Configuration (essentials)
 

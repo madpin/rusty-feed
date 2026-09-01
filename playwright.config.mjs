@@ -30,6 +30,8 @@ export default defineConfig({
           REDIS_URL: redisURL,
           SESSION_SECRET: "playwright-session-secret-must-be-at-least-32-characters",
           ENCRYPTION_SECRET: "playwright-encryption-secret-must-be-at-least-32-characters",
+          EMBEDDING_PROVIDER: "local",
+          EMBEDDING_MODEL: "hash-placeholder-v1",
           RUN_EMBEDDED_WORKER: "false",
           LOG_LEVEL: "warn",
         },

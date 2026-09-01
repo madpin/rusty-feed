@@ -80,9 +80,14 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Create isolated browser test database
+        env:
+          PGPASSWORD: rustss
+        run: createdb --host localhost --port 5432 --username rustss rustss_e2e
+
       - name: Browser E2E
         env:
-          PLAYWRIGHT_DATABASE_URL: postgres://rustss:rustss@localhost:5432/rustss
+          PLAYWRIGHT_DATABASE_URL: postgres://rustss:rustss@localhost:5432/rustss_e2e
           PLAYWRIGHT_REDIS_URL: redis://localhost:6379
         run: npm run test:e2e
 

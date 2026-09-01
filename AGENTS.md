@@ -81,7 +81,9 @@ cargo test -p <crate>           # a single crate
 
 # Browser E2E (dev-only Node dependency; starts RustSS on :8088 with worker off)
 npm ci
-PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
+docker compose --env-file .env -f docker/compose.yaml exec -T postgres \
+  createdb --username rustss rustss_e2e
+PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss_e2e \
   PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
   npm run test:e2e
 
