@@ -4,9 +4,9 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use rustss_cache::Cache;
-use rustss_db::{api_tokens, articles, feeds, subscriptions, users, Db, NewArticle};
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_cache::Cache;
+use rusty_feed_db::{api_tokens, articles, feeds, subscriptions, users, Db, NewArticle};
+use rusty_feed_web::{router, AppSettings, AppState};
 
 #[tokio::test]
 async fn fever_replays_groups_items_read_and_saved_state() {
@@ -69,7 +69,7 @@ async fn fever_replays_groups_items_read_and_saved_state() {
         state.db.pool(),
         user.id,
         "Fever test",
-        &rustss_web::auth::token::hash(&api_key),
+        &rusty_feed_web::auth::token::hash(&api_key),
         &["fever".to_string()],
     )
     .await
@@ -129,12 +129,12 @@ async fn fever_replays_groups_items_read_and_saved_state() {
         assert_eq!(response.status(), StatusCode::OK);
     }
     assert!(
-        rustss_db::read_articles::is_read(state.db.pool(), user.id, article.id)
+        rusty_feed_db::read_articles::is_read(state.db.pool(), user.id, article.id)
             .await
             .unwrap()
     );
     assert!(
-        rustss_db::bookmarks::is_bookmarked(state.db.pool(), user.id, article.id)
+        rusty_feed_db::bookmarks::is_bookmarked(state.db.pool(), user.id, article.id)
             .await
             .unwrap()
     );

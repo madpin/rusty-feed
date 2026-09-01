@@ -13,22 +13,22 @@ use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_core::ai_budget::AiBudget;
-use rustss_core::feed_content::{
+use rusty_feed_core::ai_budget::AiBudget;
+use rusty_feed_core::feed_content::{
     FeedContentMode, SubscriptionContentSettings, SubscriptionEnclosureDelivery,
     SubscriptionEnclosureLoad, SubscriptionEnclosureSettings,
 };
-use rustss_core::html::{
+use rusty_feed_core::html::{
     apply_external_link_navigation, sanitize_article_html_with_policies,
     ARTICLE_PAGE_PROCESSING_VERSION,
 };
-use rustss_core::youtube::{SubscriptionYouTubeMode, YouTubePolicy, YouTubeVideo};
-use rustss_db::{
+use rusty_feed_core::youtube::{SubscriptionYouTubeMode, YouTubePolicy, YouTubeVideo};
+use rusty_feed_db::{
     articles, bookmarks, categories, cost_ledger, feed_icons, feedback, feeds, jobs, llm_profiles,
     patterns, read_articles, subscriptions, youtube_metadata,
 };
-use rustss_search::personalize;
-use rustss_search::{extract_keywords, relevance_score, ExplicitFeedback};
+use rusty_feed_search::personalize;
+use rusty_feed_search::{extract_keywords, relevance_score, ExplicitFeedback};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -286,7 +286,7 @@ impl ContentAvailability {
 
 async fn enqueue_article_page_on_access(
     state: &AppState,
-    article: &rustss_db::Article,
+    article: &rusty_feed_db::Article,
 ) -> Result<(), AppError> {
     let dedup = format!("extract:{}:{}", article.id, article.content_revision);
     // A user is actively waiting on this page, so use the reserved interactive
@@ -311,7 +311,7 @@ async fn enqueue_article_page_on_access(
 async fn selected_content(
     state: &AppState,
     user_id: Uuid,
-    article: &rustss_db::Article,
+    article: &rusty_feed_db::Article,
 ) -> Result<(String, Option<String>, ContentAvailability, u32), AppError> {
     let settings =
         subscriptions::content_settings_for_user(state.db.pool(), user_id, article.feed_id)
@@ -367,7 +367,7 @@ async fn selected_content(
                 .clone()
                 .unwrap_or_else(|| article.content.clone()),
             Some(
-                "The public page could not be updated recently. Showing the stored RSS content; RustSS will retry on a later access."
+                "The public page could not be updated recently. Showing the stored RSS content; Rusty Feed will retry on a later access."
                     .to_string(),
             ),
             ContentAvailability::Failed,
@@ -469,10 +469,10 @@ fn safe_external_url(value: Option<&str>) -> Option<String> {
         {
             return None;
         }
-        url::Host::Ipv4(ip) if !rustss_feeds::is_global_ip(&std::net::IpAddr::V4(ip)) => {
+        url::Host::Ipv4(ip) if !rusty_feed_feeds::is_global_ip(&std::net::IpAddr::V4(ip)) => {
             return None;
         }
-        url::Host::Ipv6(ip) if !rustss_feeds::is_global_ip(&std::net::IpAddr::V6(ip)) => {
+        url::Host::Ipv6(ip) if !rusty_feed_feeds::is_global_ip(&std::net::IpAddr::V6(ip)) => {
             return None;
         }
         _ => {}
@@ -1026,9 +1026,10 @@ async fn relevance_page(
 }
 
 fn article_passes_personal_filters(article: &articles::ArticleListItem) -> bool {
-    let filters =
-        rustss_core::content_rules::entry_filters_from_json(article.subscription_settings.as_ref());
-    rustss_core::content_rules::entry_is_visible(
+    let filters = rusty_feed_core::content_rules::entry_filters_from_json(
+        article.subscription_settings.as_ref(),
+    );
+    rusty_feed_core::content_rules::entry_is_visible(
         &article.title,
         article.excerpt.as_deref().unwrap_or_default(),
         article.author.as_deref(),
@@ -1183,7 +1184,7 @@ fn enclosure_duration(seconds: i64) -> String {
 
 fn enclosure_views(
     article_id: Uuid,
-    stored: Vec<rustss_db::ArticleEnclosure>,
+    stored: Vec<rusty_feed_db::ArticleEnclosure>,
     preferences: &prefs::Preferences,
     media_proxy_enabled: bool,
     delivery_mode: &str,
@@ -1409,7 +1410,7 @@ pub async fn summarize(
     }
     if !state.settings.summarization_enabled {
         return Err(AppError::Validation(
-            "AI summaries are not enabled for this RustSS instance.".to_string(),
+            "AI summaries are not enabled for this Rusty Feed instance.".to_string(),
         ));
     }
     if !state.summarize_limiter.check(&user.id.to_string()).await {
@@ -1541,7 +1542,7 @@ async fn reader_view(
     // (§8.1.3). Users with a personal key already see the summarize action.
     let show_ai_key_cue = stored_summary.is_none()
         && state.settings.summarization_enabled
-        && !rustss_db::llm_profiles::has_enabled_user_profile(state.db.pool(), user_id)
+        && !rusty_feed_db::llm_profiles::has_enabled_user_profile(state.db.pool(), user_id)
             .await
             .unwrap_or(false);
     let (summary, key_points, topics) = match stored_summary {
@@ -1868,7 +1869,7 @@ pub async fn content_fragment(
         stored_blocked_tracking_pixels.saturating_add(report.blocked_tracking_pixels);
     let notice = if prefs.show_blocked_tracking_notice && blocked_tracking_pixels > 0 {
         format!(
-            "<p class=\"content-notice privacy-notice\">Tracking images removed by RustSS: {blocked_tracking_pixels}.</p>"
+            "<p class=\"content-notice privacy-notice\">Tracking images removed by Rusty Feed: {blocked_tracking_pixels}.</p>"
         )
     } else {
         String::new()
@@ -1877,7 +1878,7 @@ pub async fn content_fragment(
         state.settings.external_links_new_tab_required || prefs.external_open_mode == "new-tab";
     let content = apply_external_link_navigation(&report.html, external_new_tab);
     Ok((
-        [("x-rustss-content-status", availability.as_str())],
+        [("x-rusty-feed-content-status", availability.as_str())],
         Html(format!("{notice}{content}")),
     )
         .into_response())

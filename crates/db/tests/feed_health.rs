@@ -1,4 +1,4 @@
-use rustss_db::{feeds, jobs, notifications, subscriptions, users, Db};
+use rusty_feed_db::{feeds, jobs, notifications, subscriptions, users, Db};
 
 fn unique(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::now_v7())

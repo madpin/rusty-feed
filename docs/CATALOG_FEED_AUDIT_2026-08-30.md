@@ -5,13 +5,13 @@ Source: <code>rss_feeds_master_list.md</code> supplied by the project owner.
 ## Outcome
 
 - Candidate URLs: **173**
-- Reachable RSS/Atom feeds accepted by the RustSS parser: **115**
+- Reachable RSS/Atom feeds accepted by the Rusty Feed parser: **115**
 - Already represented in the catalog after redirect/title deduplication: **12**
 - Newly added by migration <code>0022_verified_catalog_feeds.sql</code>: **103**
 - Published catalog total after all migrations: **200**
 - Rejected for this catalog update: **58**
 
-Validation used the production RustSS user agent, followed redirects with bounded timeouts, required a successful HTTP response with an RSS/Atom/JSON Feed root, and passed every accepted response through <code>rustss_feeds::parse_feed</code>. The arXiv <code>astro-ph</code>, <code>cs.AI</code>, and <code>physics</code> feeds plus TVN24 were structurally valid but had no entries at the moment of the audit; they were treated as live. Catalog insertion remains idempotent and does not subscribe any user.
+Validation used the production Rusty Feed user agent, followed redirects with bounded timeouts, required a successful HTTP response with an RSS/Atom/JSON Feed root, and passed every accepted response through <code>rusty_feed_feeds::parse_feed</code>. The arXiv <code>astro-ph</code>, <code>cs.AI</code>, and <code>physics</code> feeds plus TVN24 were structurally valid but had no entries at the moment of the audit; they were treated as live. Catalog insertion remains idempotent and does not subscribe any user.
 
 ## Existing equivalents
 
@@ -74,7 +74,7 @@ Validation used the production RustSS user agent, followed redirects with bounde
 | BarBend | <code>https://barbend.com/feed/</code> | Publisher returned HTTP 404 |
 | T-Nation | <code>https://www.t-nation.com/feed/</code> | Publisher returned HTTP 404 |
 | Bodybuilding.com Articles | <code>https://www.bodybuilding.com/rss/articles</code> | HTTP 200, but the response was HTML or otherwise not a feed |
-| Examine.com | <code>https://examine.com/feed/</code> | Publisher rate-limited the RustSS request (HTTP 429) |
+| Examine.com | <code>https://examine.com/feed/</code> | Publisher rate-limited the Rusty Feed request (HTTP 429) |
 | NutritionFacts.org | <code>https://nutritionfacts.org/video/feed/</code> | Publisher returned HTTP 404 |
 | Psychology Today | <code>https://www.psychologytoday.com/us/rss/</code> | Publisher returned HTTP 404 |
 | Publishers Weekly | <code>https://www.publishersweekly.com/rss</code> | HTTP 200, but the response was HTML or otherwise not a feed |
@@ -91,4 +91,4 @@ Validation used the production RustSS user agent, followed redirects with bounde
 | MIT OpenCourseWare | <code>https://ocw.mit.edu/resources/rss</code> | Publisher returned HTTP 404 |
 | Language Log | <code>https://languagelog.org/feed/</code> | Connection timed out |
 
-These URLs were deliberately not seeded. A future audit may add them if the publisher restores a machine-readable feed that RustSS can fetch without credentials or bypasses.
+These URLs were deliberately not seeded. A future audit may add them if the publisher restores a machine-readable feed that Rusty Feed can fetch without credentials or bypasses.

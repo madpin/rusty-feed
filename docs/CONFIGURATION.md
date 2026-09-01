@@ -1,6 +1,6 @@
-# RustSS configuration reference
+# Rusty Feed configuration reference
 
-RustSS reads one typed configuration at startup and refuses to start when a
+Rusty Feed reads one typed configuration at startup and refuses to start when a
 required value is missing or a value is outside its documented bounds. This
 page covers application settings; Docker Compose interpolation variables are
 listed separately at the end.
@@ -12,14 +12,14 @@ Configuration is resolved in this order, from highest to lowest precedence:
 1. Process environment variables.
 2. Values loaded from `.env` when the process starts in a directory containing
    that file. Existing process variables are never overwritten.
-3. An optional TOML file named by `RUSTSS_CONFIG_FILE`.
+3. An optional TOML file named by `RUSTY_FEED_CONFIG_FILE`.
 4. Built-in defaults.
 
 TOML keys are lower-case snake case versions of the environment names:
 
 ```toml
 bind_addr = "0.0.0.0:8080"
-database_url = "postgres://rustss:password@postgres/rustss"
+database_url = "postgres://rusty_feed:password@postgres/rusty_feed"
 session_secret = "replace-with-at-least-32-random-bytes"
 encryption_secret = "replace-with-at-least-32-random-bytes"
 cache_enabled = false
@@ -27,12 +27,12 @@ registration_mode = "closed"
 ```
 
 An explicitly configured TOML path must exist. Relative paths are resolved from
-the process working directory. `RUSTSS_CONFIG_FILE` itself is environment-only.
+the process working directory. `RUSTY_FEED_CONFIG_FILE` itself is environment-only.
 
 Run this before starting a production instance:
 
 ```bash
-cargo run -p rustss-cli -- config-check
+cargo run -p rusty-feed-cli -- config-check
 ```
 
 The command validates the resolved values and prints a support-friendly JSON
@@ -56,10 +56,10 @@ reuse the development defaults from Compose in a reachable deployment.
 |---|---:|---|
 | `BIND_ADDR` | `0.0.0.0:8080` | Listener address |
 | `BASE_URL` | derived from `BIND_ADDR` | Public origin used for redirects, links, and WebAuthn relying-party identity |
-| `LOG_LEVEL` | `info` | `tracing` filter such as `info` or `rustss=debug` |
+| `LOG_LEVEL` | `info` | `tracing` filter such as `info` or `rusty_feed=debug` |
 | `SYSTEMD_NOTIFY_ENABLED` | `true` | Auto-detect a systemd notify socket and emit readiness, stopping, and watchdog messages; set false to suppress all notifications |
-| `PWA_NAME` | `RustSS` | Installed-app name, 1–64 printable characters |
-| `PWA_SHORT_NAME` | `RustSS` | Home-screen name, 1–32 printable characters |
+| `PWA_NAME` | `Rusty Feed` | Installed-app name, 1–64 printable characters |
+| `PWA_SHORT_NAME` | `Rusty Feed` | Home-screen name, 1–32 printable characters |
 | `PWA_THEME_COLOR` | `#2563eb` | Manifest color in `#RRGGBB` form |
 | `PWA_BACKGROUND_COLOR` | `#f8fafc` | Manifest launch color in `#RRGGBB` form |
 | `EXTERNAL_LINKS_NEW_TAB_REQUIRED` | `false` | Override personal same-tab navigation for publisher links |
@@ -91,18 +91,18 @@ rendered, so a user can recover without editing the database.
 ### Bundled HTTPS profiles
 
 Compose includes two mutually exclusive Caddy profiles. Both terminate modern
-TLS/HTTP/2 and proxy to `app:8080`; RustSS itself stays protocol-simple.
+TLS/HTTP/2 and proxy to `app:8080`; Rusty Feed itself stays protocol-simple.
 
 | Variable | Automatic | Custom | Meaning |
 |---|---:|---:|---|
 | `APP_BIND_IP` | `127.0.0.1` | `127.0.0.1` | Keep the optional host HTTP port local while Caddy owns public ports |
-| `RUSTSS_DOMAIN` | required | required | Public DNS name and certificate SNI |
+| `RUSTY_FEED_DOMAIN` | required | required | Public DNS name and certificate SNI |
 | `TLS_EMAIL` | required | unused | ACME account/expiry contact |
 | `TLS_CERT_DIR` | unused | `../certs` | Host directory mounted read-only at `/certs` |
 | `TLS_CERT_FILE` | unused | `cert.pem` | Certificate chain filename inside the directory |
 | `TLS_KEY_FILE` | unused | `key.pem` | Private-key filename inside the directory |
 
-Set `BASE_URL=https://$RUSTSS_DOMAIN`. Activate exactly one of `https-auto` or
+Set `BASE_URL=https://$RUSTY_FEED_DOMAIN`. Activate exactly one of `https-auto` or
 `https-custom`; an empty domain or invalid/missing custom certificate makes
 Caddy fail instead of exposing a misleading TLS endpoint.
 
@@ -113,15 +113,15 @@ Caddy fail instead of exposing a misleading TLS endpoint.
 | `CACHE_ENABLED` | `true` | Enable optional Redis L2 caching |
 | `REDIS_URL` | unset | Redis connection URL; omit for L1-only operation |
 | `REDIS_PASSWORD` | unset | Password supplied separately when required |
-| `CACHE_NAMESPACE` | `rustss` | 1–64 ASCII letters, digits, `.`, `-`, or `_` |
+| `CACHE_NAMESPACE` | `rusty-feed` | 1–64 ASCII letters, digits, `.`, `-`, or `_` |
 
-Use a different namespace for every RustSS installation sharing one Redis.
+Use a different namespace for every Rusty Feed installation sharing one Redis.
 Redis is disposable: PostgreSQL remains the source of truth, and a Redis outage
 degrades the instance to its in-process cache.
 
 ## Trusted reverse-proxy authentication
 
-Disabled by default. RustSS trusts an identity header only when the immediate
+Disabled by default. Rusty Feed trusts an identity header only when the immediate
 TCP peer—not `X-Forwarded-For`—belongs to an explicit CIDR. Keep the application
 unreachable except through that proxy; the bundled TLS proxy does not set
 identity headers by itself.
@@ -138,7 +138,7 @@ identity headers by itself.
 | `REVERSE_PROXY_AUTH_LOGOUT_URL` | empty | Absolute application path or credential-free HTTPS upstream logout endpoint |
 
 Configure the upstream to delete/overwrite any client-supplied identity header
-before authentication, then set it from verified identity. RustSS independently
+before authentication, then set it from verified identity. Rusty Feed independently
 ignores the header from untrusted peers. A local session takes precedence, so
 break-glass local administration remains available.
 
@@ -155,7 +155,7 @@ break-glass local administration remains available.
 | `OAUTH_USERINFO_URL` | unset | Generic provider profile endpoint |
 | `OAUTH_PROVIDER_NAME` | unset | Display name for the generic provider |
 | `PASSKEYS_ENABLED` | `false` | Enable WebAuthn registration and passwordless sign-in; requires a pure HTTPS `BASE_URL` origin, except loopback development |
-| `PASSKEY_RP_NAME` | `RustSS` | WebAuthn relying-party display name, 1–64 printable characters |
+| `PASSKEY_RP_NAME` | `Rusty Feed` | WebAuthn relying-party display name, 1–64 printable characters |
 
 Local password accounts work without OAuth. The first registered account is
 promoted to administrator. In `invite` mode, administrators issue one-use,
@@ -165,7 +165,7 @@ When passkeys are enabled, users may register multiple named credentials under
 **Account → Passkeys**. A password account must confirm its current password
 before registration; passwordless/OAuth accounts require a session created in
 the last 15 minutes. Revocation always requires that recent session. Challenge
-state is short-lived, stored server-side, and consumed once; RustSS stores the
+state is short-lived, stored server-side, and consumed once; Rusty Feed stores the
 public credential and counter state, never biometric material. `BASE_URL` may
 not contain credentials, a path, query, or fragment. Keep a second
 login/recovery method before revoking the last credential. WebAuthn attestation verification uses the platform OpenSSL 3
@@ -179,18 +179,18 @@ library; outbound HTTP and OAuth traffic continue to use rustls.
 | `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | One active vector space per instance |
 | `EMBEDDING_BATCH_SIZE` | `10` | Positive processing batch size |
 | `EMBEDDING_AUTO_GENERATE` | `false` | Queue embeddings during ingestion |
-| `MODEL_CACHE_DIR` | `/var/lib/rustss/models` | Persistent model directory |
+| `MODEL_CACHE_DIR` | `/var/lib/rusty-feed/models` | Persistent model directory |
 | `OPENAI_API_KEY` | unset | Required for the OpenAI embedding provider |
 | `OPENAI_BASE_URL` | provider default | OpenAI-compatible API base URL |
 | `SEARCH_MODE` | `hybrid` | `hybrid`, `keyword`, or `semantic` |
 | `SEARCH_TEXT_CONFIG` | `simple` | `simple` multilingual tokens or `english` stemming |
 | `SEARCH_SEMANTIC_WEIGHT_PERCENT` | `60` | Semantic contribution to hybrid ranking, 0–100 |
 
-Run `rustss-cli fetch-model` while online to populate `MODEL_CACHE_DIR`; copy
+Run `rusty-feed-cli fetch-model` while online to populate `MODEL_CACHE_DIR`; copy
 that directory when preparing an offline host. Normal startup durably guards
 the active model and dimension. To change spaces, stop workers, update the
-configuration, run `rustss-cli reindex --confirm`, and restart them. Use
-`rustss-cli backfill` to queue only missing current-space vectors.
+configuration, run `rusty-feed-cli reindex --confirm`, and restart them. Use
+`rusty-feed-cli backfill` to queue only missing current-space vectors.
 
 ## Retention
 
@@ -234,7 +234,7 @@ state, interactive lane, and wide admin operations view.
 | `EXTRACTION_DELAY_MS` | `3000` | Per-domain politeness delay |
 | `ARTICLE_PAGE_EAGER_EXTRACTION` | `true` | When true, feed ingest pre-extracts public article pages for article-page subscribers. Set false to extract lazily on first reader access (via the interactive priority lane), reducing background work and Chromium usage. |
 | `RESPECT_ROBOTS_TXT` | `true` | Enforce publisher robots policy |
-| `OUTBOUND_USER_AGENT` | `RustSS/0.1 (+https://github.com/madpin/rustss)` | 1–256 printable ASCII characters sent by the shared publisher client |
+| `OUTBOUND_USER_AGENT` | `Rusty-Feed/0.1 (+https://github.com/madpin/rusty-feed)` | 1–256 printable ASCII characters sent by the shared publisher client |
 | `OUTBOUND_HTTP1_ONLY` | `false` | Disable outbound HTTP/2 and force HTTP/1.1 |
 | `FEEDS_ALLOW_PRIVATE_NETWORK` | `false` | Permit private/loopback targets; trusted networks only |
 | `TRACKING_URL_CLEANUP_ENABLED` | `true` | Strip built-in analytics parameters |
@@ -302,7 +302,7 @@ cleanup enforces the configured lifetime and aggregate budget.
 
 The two queue lanes ensure a user-requested summary is not starved by feed
 downloads. In scaled mode, disable the embedded worker on web replicas and run
-one or more `rustss-worker` processes against the same PostgreSQL database.
+one or more `rusty-feed-worker` processes against the same PostgreSQL database.
 
 ## Public launch: AI budgets, ingest caps, and rate limits
 
@@ -358,7 +358,7 @@ lenient single-tenant behavior.
 |---|---:|---|
 | `EMAIL_VERIFICATION_REQUIRED` | `false` | Gate feed-add / AI until a local account confirms its email (requires SMTP). OAuth accounts are trusted. |
 | `SMTP_URL` | — | Transport URL, e.g. `smtps://user:pass@host:465` (implicit TLS) or `smtp://host:587` (STARTTLS). Required when verification is on. |
-| `SMTP_FROM` | — | `From` header, e.g. `RustSS <no-reply@example.com>`. |
+| `SMTP_FROM` | — | `From` header, e.g. `Rusty Feed <no-reply@example.com>`. |
 | `MIN_PASSWORD_LENGTH` | `10` | Minimum length for new/changed passwords (4–1024); a small breached-password denylist is always enforced. |
 | `LOGIN_MAX_FAILURES` | `10` | Failed local logins per account before a temporary lock (`0` disables). |
 | `LOGIN_LOCKOUT_SECONDS` | `900` | Lock duration after too many failures. |
@@ -408,7 +408,7 @@ other users' PII (emails, cost breakdown) is masked.
 Demo accounts cannot spend money or cause outbound/persistent side effects
 (summaries, BYO-key AI, integrations, public shares, API tokens, and arbitrary
 feed adds are all disabled — they subscribe from the curated catalog only).
-`rustss-cli demo-reset --confirm` performs a manual wipe with the same scoping.
+`rusty-feed-cli demo-reset --confirm` performs a manual wipe with the same scoping.
 
 ## Docker Compose-only variables
 

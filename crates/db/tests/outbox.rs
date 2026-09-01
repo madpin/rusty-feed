@@ -1,4 +1,4 @@
-use rustss_db::{jobs, outbox, Db};
+use rusty_feed_db::{jobs, outbox, Db};
 
 #[tokio::test]
 async fn transactional_outbox_commits_dispatches_and_deduplicates() {

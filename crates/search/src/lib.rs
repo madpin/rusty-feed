@@ -1,4 +1,4 @@
-//! # rustss-search
+//! # rusty-feed-search
 //!
 //! Personalization (M10): TF keyword extraction, feedback→pattern math, decay,
 //! and sigmoid relevance scoring — implemented **exactly** per

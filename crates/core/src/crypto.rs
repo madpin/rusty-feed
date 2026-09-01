@@ -17,7 +17,7 @@ use sha2::Sha256;
 /// Current key version (authenticated in the envelope).
 const KEY_VERSION: u8 = 1;
 const NONCE_LEN: usize = 24; // XChaCha20 nonce
-const HKDF_INFO: &[u8] = b"rustss/aead/v1";
+const HKDF_INFO: &[u8] = b"rusty-feed/aead/v1";
 
 /// Errors from the crypto layer.
 #[derive(Debug, thiserror::Error)]
@@ -162,8 +162,8 @@ mod tests {
     #[test]
     fn contexts_isolate_credential_classes() {
         let secret = b"one-instance-master-secret";
-        let api_keys = Cryptor::new_with_context(secret, b"rustss/api-keys/v1");
-        let share_tokens = Cryptor::new_with_context(secret, b"rustss/share-tokens/v1");
+        let api_keys = Cryptor::new_with_context(secret, b"rusty-feed/api-keys/v1");
+        let share_tokens = Cryptor::new_with_context(secret, b"rusty-feed/share-tokens/v1");
         let encrypted = api_keys.encrypt_str("credential").unwrap();
         assert!(share_tokens.decrypt_str(&encrypted).is_err());
     }

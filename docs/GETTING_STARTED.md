@@ -1,6 +1,6 @@
-# Getting Started with RustSS
+# Getting Started with Rusty Feed
 
-This guide walks you through installing and running **RustSS** — step by step, no
+This guide walks you through installing and running **Rusty Feed** — step by step, no
 Rust knowledge required. Pick the option that matches where you want to run it:
 
 - [A. Localhost with Docker Compose](#a-localhost-with-docker-compose-easiest) — easiest, recommended
@@ -18,7 +18,7 @@ Rust knowledge required. Pick the option that matches where you want to run it:
 
 ## Before you start: generate your secrets
 
-RustSS needs two secret values (at least 32 characters each). You'll paste these
+Rusty Feed needs two secret values (at least 32 characters each). You'll paste these
 into a configuration file in the steps below. Generate them now:
 
 ```bash
@@ -56,8 +56,8 @@ docker compose version
 ### 2. Get the code
 
 ```bash
-git clone https://github.com/madpin/rustss.git
-cd rustss
+git clone https://github.com/madpin/rusty-feed.git
+cd rusty-feed
 ```
 
 ### 3. Create your configuration file
@@ -105,7 +105,7 @@ interpolation, and the app service also reads that file at runtime.
 
 ```bash
 curl http://localhost:8080/api/health
-# {"data":{"service":"RustSS","status":"ok","version":"0.1.0"}}
+# {"data":{"service":"Rusty Feed","status":"ok","version":"0.1.0"}}
 ```
 
 Open <http://localhost:8080/api/health> in your browser too.
@@ -129,7 +129,7 @@ Database migrations run automatically on startup (`AUTO_MIGRATE=true`).
 
 ### Redis-free, single-process mode
 
-Redis is optional. The `rustss-server` process embeds the worker by default, so
+Redis is optional. The `rusty-feed-server` process embeds the worker by default, so
 PostgreSQL is the only required service for a small single-node deployment:
 
 ```bash
@@ -137,7 +137,7 @@ CACHE_ENABLED=false docker compose --env-file .env -f docker/compose.yaml up -d 
 ```
 
 For a directly installed binary, set `DATABASE_URL`, `SESSION_SECRET`, and
-`ENCRYPTION_SECRET`, then run `CACHE_ENABLED=false rustss-server`. This uses the
+`ENCRYPTION_SECRET`, then run `CACHE_ENABLED=false rusty-feed-server`. This uses the
 in-process cache and embedded worker; it does not require Redis or Chromium.
 SQLite is not yet a supported database backend.
 
@@ -161,8 +161,8 @@ hand). Redis is optional, and the current extractor does not require Chrome.
 ### 2. Get the code and configure
 
 ```bash
-git clone https://github.com/madpin/rustss.git
-cd rustss
+git clone https://github.com/madpin/rusty-feed.git
+cd rusty-feed
 cp .env.example .env       # then edit .env and set SESSION_SECRET + ENCRYPTION_SECRET
 ```
 
@@ -180,7 +180,7 @@ Make sure your `.env` `DATABASE_URL` points at this Postgres. With the default
 compose port that's:
 
 ```bash
-DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
+DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5432/rusty_feed
 # Redis L2 is optional. For L1-only operation, omit REDIS_URL and set CACHE_ENABLED=false.
 REDIS_URL=redis://localhost:6379
 ```
@@ -190,14 +190,14 @@ REDIS_URL=redis://localhost:6379
 ### 4. Create the database schema
 
 ```bash
-cargo run -p rustss-cli -- migrate
+cargo run -p rusty-feed-cli -- migrate
 # -> "migrations applied"
 ```
 
 ### 5. Run the app
 
 ```bash
-cargo run -p rustss-server
+cargo run -p rusty-feed-server
 ```
 
 Then, in another terminal:
@@ -214,7 +214,7 @@ Stop the app with `Ctrl-C`.
 cargo test                                           # run tests
 cargo fmt --all                                      # format code
 cargo clippy --all-targets --all-features -- -D warnings   # lint
-cargo run -p rustss-worker                           # run background workers (once implemented)
+cargo run -p rusty-feed-worker                           # run background workers (once implemented)
 ```
 
 <details>
@@ -224,7 +224,7 @@ You can install PostgreSQL 17 with the **pgvector** extension directly on your
 machine instead of using Docker, then point `DATABASE_URL` at it. Redis is
 optional: omit `REDIS_URL` and set `CACHE_ENABLED=false` for L1-only caching.
 pgvector must be installed and the database must allow `CREATE EXTENSION vector`
-(RustSS's migration does this for you). Docker is recommended because it bundles
+(Rusty Feed's migration does this for you). Docker is recommended because it bundles
 the tested Postgres + pgvector version for you.
 </details>
 
@@ -233,16 +233,16 @@ the tested Postgres + pgvector version for you.
 ## C. Dokploy
 
 [Dokploy](https://dokploy.com) is a self-hosted platform that deploys Docker apps
-from a Git repo. RustSS ships a Compose file it can use directly.
+from a Git repo. Rusty Feed ships a Compose file it can use directly.
 
 ### 1. Prepare
 - Have Dokploy installed on your server (see Dokploy's own install docs).
-- Push your copy of RustSS to a Git repository Dokploy can reach (GitHub, GitLab,
+- Push your copy of Rusty Feed to a Git repository Dokploy can reach (GitHub, GitLab,
   or a private repo with credentials).
 
 ### 2. Create a Compose service
 1. In the Dokploy dashboard, create a **Project**, then add a **Compose** service.
-2. Point it at your RustSS Git repository and branch.
+2. Point it at your Rusty Feed Git repository and branch.
 3. Set the **Compose file path** to `docker/compose.yaml`.
 
 ### 3. Set environment variables (secrets)
@@ -271,14 +271,14 @@ automatically on boot. Verify at `https://your-domain/api/health`.
 
 ## C.1 Built-in HTTPS with Docker Compose
 
-RustSS ships optional Caddy profiles; choose exactly one. For automatic
+Rusty Feed ships optional Caddy profiles; choose exactly one. For automatic
 Let's Encrypt certificates, point public DNS at the host, allow inbound TCP 80
 and TCP/UDP 443, then set:
 
 ```dotenv
 BASE_URL=https://reader.example.com
 APP_BIND_IP=127.0.0.1
-RUSTSS_DOMAIN=reader.example.com
+RUSTY_FEED_DOMAIN=reader.example.com
 TLS_EMAIL=admin@example.com
 ```
 
@@ -296,7 +296,7 @@ application's optional port 8080 bound to loopback as shown.
 For an existing certificate, put the full chain and unencrypted private key in
 a root-readable host directory, set `TLS_CERT_DIR`, `TLS_CERT_FILE`, and
 `TLS_KEY_FILE`, then use `--profile https-custom`. After atomically replacing
-the two files, validate and reload without restarting RustSS:
+the two files, validate and reload without restarting Rusty Feed:
 
 ```bash
 docker compose --env-file .env -f docker/compose.yaml \
@@ -313,7 +313,7 @@ Do not enable both profiles: they intentionally compete for ports 80 and 443.
 
 ## D. Proxmox
 
-On Proxmox VE you first create a small Linux machine, then run RustSS inside it
+On Proxmox VE you first create a small Linux machine, then run Rusty Feed inside it
 with Docker Compose (Option A). A container (LXC) is lightweight; a VM is the most
 compatible. Below is the LXC route.
 
@@ -335,7 +335,7 @@ curl -fsSL https://get.docker.com | sh
 docker --version && docker compose version
 ```
 
-### 3. Deploy RustSS
+### 3. Deploy Rusty Feed
 Follow **[Option A](#a-localhost-with-docker-compose-easiest)** from step 2
 (clone, create `.env` with your secrets, then run the documented Compose command
 with `--env-file .env`).
@@ -361,7 +361,7 @@ full list). The ones you're most likely to touch:
 | `DATABASE_URL` | PostgreSQL 17 connection string (SQLite is not supported) | set by compose |
 | `REDIS_URL` | Optional Redis L2 cache connection string | `redis://localhost:6379` |
 | `CACHE_ENABLED` | Enable Redis L2; set `false` for in-process cache only | `true` |
-| `CACHE_NAMESPACE` | Isolate keys and cross-instance invalidations; make unique when installations share Redis | `rustss` |
+| `CACHE_NAMESPACE` | Isolate keys and cross-instance invalidations; make unique when installations share Redis | `rusty-feed` |
 | `POSTGRES_PORT` | PostgreSQL port published on the host | `5432` |
 | `REDIS_PORT` | Redis port published on the host | `6379` |
 | `CHROMIUM_PORT` | Chromium CDP port published on the host | `9222` |
@@ -388,7 +388,7 @@ fix.
   (see the note in Option A).
 - **App can't reach the database** → confirm Postgres is healthy
   (`docker compose --env-file .env -f docker/compose.yaml ps`). The Compose app
-  uses `postgres:5432` internally; RustSS and database tools running directly on
+  uses `postgres:5432` internally; Rusty Feed and database tools running directly on
   your machine use `localhost:$POSTGRES_PORT` via `DATABASE_URL`.
 - **First build is slow** → the Rust app compiles on first build; subsequent
   builds are cached and much faster.

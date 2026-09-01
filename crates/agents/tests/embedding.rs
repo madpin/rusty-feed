@@ -5,11 +5,11 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use rustss_agents::{Agent, AgentContext, EmbedArticleAgent, FetchFeedAgent};
-use rustss_db::models::NewArticle;
-use rustss_db::{articles, embeddings, feeds, jobs, subscriptions, users, Db};
-use rustss_embed::{Embedder, HashEmbedder};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_agents::{Agent, AgentContext, EmbedArticleAgent, FetchFeedAgent};
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{articles, embeddings, feeds, jobs, subscriptions, users, Db};
+use rusty_feed_embed::{Embedder, HashEmbedder};
+use rusty_feed_feeds::SafeFetchClient;
 use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

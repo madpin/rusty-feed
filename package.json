@@ -1,5 +1,5 @@
 {
-  "name": "rustss-browser-tests",
+  "name": "rusty-feed-browser-tests",
   "private": true,
   "type": "module",
   "scripts": {

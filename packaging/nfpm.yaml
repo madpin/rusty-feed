@@ -1,39 +1,39 @@
-name: rustss
+name: rusty-feed
 arch: ${NFPM_ARCH}
 platform: linux
 version: ${NFPM_VERSION}
 section: net
 priority: optional
-maintainer: RustSS contributors
+maintainer: Rusty Feed contributors
 description: Self-hosted, multi-user, AI-augmented RSS reader
-vendor: RustSS
-homepage: https://github.com/madpin/rustss
+vendor: Rusty Feed
+homepage: https://github.com/madpin/rusty-feed
 license: MIT
 depends:
   - ca-certificates
 contents:
-  - src: ${NFPM_BINARY_DIR}/rustss-server
-    dst: /usr/bin/rustss-server
+  - src: ${NFPM_BINARY_DIR}/rusty-feed-server
+    dst: /usr/bin/rusty-feed-server
     file_info:
       mode: 0755
-  - src: ${NFPM_BINARY_DIR}/rustss-worker
-    dst: /usr/bin/rustss-worker
+  - src: ${NFPM_BINARY_DIR}/rusty-feed-worker
+    dst: /usr/bin/rusty-feed-worker
     file_info:
       mode: 0755
-  - src: ${NFPM_BINARY_DIR}/rustss-cli
-    dst: /usr/bin/rustss-cli
+  - src: ${NFPM_BINARY_DIR}/rusty-feed-cli
+    dst: /usr/bin/rusty-feed-cli
     file_info:
       mode: 0755
-  - src: contrib/systemd/rustss.service
-    dst: /usr/lib/systemd/system/rustss.service
-  - src: contrib/systemd/rustss-worker.service
-    dst: /usr/lib/systemd/system/rustss-worker.service
+  - src: contrib/systemd/rusty-feed.service
+    dst: /usr/lib/systemd/system/rusty-feed.service
+  - src: contrib/systemd/rusty-feed-worker.service
+    dst: /usr/lib/systemd/system/rusty-feed-worker.service
   - src: .env.example
-    dst: /usr/share/doc/rustss/rustss.env.example
+    dst: /usr/share/doc/rusty-feed/rusty-feed.env.example
   - src: README.md
-    dst: /usr/share/doc/rustss/README.md
+    dst: /usr/share/doc/rusty-feed/README.md
   - src: docs/OPERATIONS.md
-    dst: /usr/share/doc/rustss/OPERATIONS.md
+    dst: /usr/share/doc/rusty-feed/OPERATIONS.md
 scripts:
   preinstall: packaging/scripts/preinstall.sh
   postinstall: packaging/scripts/postinstall.sh

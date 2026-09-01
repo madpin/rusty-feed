@@ -43,13 +43,13 @@ jobs:
         with:
           key: release-${{ matrix.target }}
       - name: Build versioned binaries
-        run: cargo build --locked --release --target "${{ matrix.target }}" --bin rustss-server --bin rustss-worker --bin rustss-cli
+        run: cargo build --locked --release --target "${{ matrix.target }}" --bin rusty-feed-server --bin rusty-feed-worker --bin rusty-feed-cli
       - name: Package binaries and checksums
         shell: bash
         run: |
           set -euo pipefail
-          archive="rustss-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
-          tar -C "target/${{ matrix.target }}/release" -czf "$archive" rustss-server rustss-worker rustss-cli
+          archive="rusty-feed-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
+          tar -C "target/${{ matrix.target }}/release" -czf "$archive" rusty-feed-server rusty-feed-worker rusty-feed-cli
           shasum -a 256 "$archive" > "$archive.sha256"
       - name: Build Debian and RPM packages
         if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux')
@@ -63,29 +63,29 @@ jobs:
           docker run --rm -v "$PWD:/workspace" -w /workspace \
             -e NFPM_ARCH -e NFPM_BINARY_DIR -e NFPM_VERSION "$image" \
             package --config packaging/nfpm.yaml --packager deb \
-            --target "rustss-${GITHUB_REF_NAME}-${{ matrix.target }}.deb"
+            --target "rusty-feed-${GITHUB_REF_NAME}-${{ matrix.target }}.deb"
           docker run --rm -v "$PWD:/workspace" -w /workspace \
             -e NFPM_ARCH -e NFPM_BINARY_DIR -e NFPM_VERSION "$image" \
             package --config packaging/nfpm.yaml --packager rpm \
-            --target "rustss-${GITHUB_REF_NAME}-${{ matrix.target }}.rpm"
-          shasum -a 256 rustss-*.deb rustss-*.rpm > "rustss-${GITHUB_REF_NAME}-${{ matrix.target }}-packages.sha256"
+            --target "rusty-feed-${GITHUB_REF_NAME}-${{ matrix.target }}.rpm"
+          shasum -a 256 rusty-feed-*.deb rusty-feed-*.rpm > "rusty-feed-${GITHUB_REF_NAME}-${{ matrix.target }}-packages.sha256"
       - name: Generate Linux binary SBOM
         if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux')
         uses: anchore/sbom-action@v0
         with:
           path: target/${{ matrix.target }}/release
-          artifact-name: rustss-${{ github.ref_name }}-${{ matrix.target }}-sbom.spdx.json
-          output-file: rustss-${{ github.ref_name }}-${{ matrix.target }}-sbom.spdx.json
+          artifact-name: rusty-feed-${{ github.ref_name }}-${{ matrix.target }}-sbom.spdx.json
+          output-file: rusty-feed-${{ github.ref_name }}-${{ matrix.target }}-sbom.spdx.json
           upload-artifact: false
       - uses: actions/upload-artifact@v4
         with:
-          name: rustss-${{ matrix.target }}
+          name: rusty-feed-${{ matrix.target }}
           path: |
-            rustss-*.tar.gz*
-            rustss-*.deb
-            rustss-*.rpm
-            rustss-*-packages.sha256
-            rustss-*-sbom.spdx.json
+            rusty-feed-*.tar.gz*
+            rusty-feed-*.deb
+            rusty-feed-*.rpm
+            rusty-feed-*-packages.sha256
+            rusty-feed-*-sbom.spdx.json
           if-no-files-found: error
 
   package-smoke:
@@ -95,20 +95,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: rustss-x86_64-unknown-linux-gnu
+          name: rusty-feed-x86_64-unknown-linux-gnu
       - name: Inspect packages and exercise a repeat Debian install
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y rpm
-          deb=$(printf '%s\n' rustss-*.deb)
-          rpm_file=$(printf '%s\n' rustss-*.rpm)
+          deb=$(printf '%s\n' rusty-feed-*.deb)
+          rpm_file=$(printf '%s\n' rusty-feed-*.rpm)
           dpkg-deb --info "$deb"
-          dpkg-deb --contents "$deb" | grep '/usr/bin/rustss-server'
-          rpm -qpl "$rpm_file" | grep '/usr/bin/rustss-server'
+          dpkg-deb --contents "$deb" | grep '/usr/bin/rusty-feed-server'
+          rpm -qpl "$rpm_file" | grep '/usr/bin/rusty-feed-server'
           sudo dpkg -i "$deb"
           sudo dpkg -i "$deb"
-          rustss-cli --help
+          rusty-feed-cli --help
 
   container:
     name: signed multi-architecture container
@@ -136,7 +136,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/rustss
+          images: ghcr.io/${{ github.repository_owner }}/rusty-feed
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -168,7 +168,7 @@ jobs:
         if: vars.DOCKERHUB_IMAGE != '' && secrets.DOCKERHUB_TOKEN != ''
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-          SOURCE: ghcr.io/${{ github.repository_owner }}/rustss
+          SOURCE: ghcr.io/${{ github.repository_owner }}/rusty-feed
           TARGET: ${{ vars.DOCKERHUB_IMAGE }}
         run: |
           set -euo pipefail
@@ -183,7 +183,7 @@ jobs:
         if: vars.QUAY_IMAGE != '' && secrets.QUAY_TOKEN != ''
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-          SOURCE: ghcr.io/${{ github.repository_owner }}/rustss
+          SOURCE: ghcr.io/${{ github.repository_owner }}/rusty-feed
           TARGET: ${{ vars.QUAY_IMAGE }}
         run: |
           set -euo pipefail
@@ -196,19 +196,19 @@ jobs:
           cosign sign --yes "$TARGET@$DIGEST"
       - name: Smoke the published image against PostgreSQL
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/rustss@${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/rusty-feed@${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
-          docker network create rustss-release-smoke
-          docker run -d --name rustss-release-db --network rustss-release-smoke \
-            -e POSTGRES_USER=rustss -e POSTGRES_PASSWORD=rustss -e POSTGRES_DB=rustss \
+          docker network create rusty-feed-release-smoke
+          docker run -d --name rusty-feed-release-db --network rusty-feed-release-smoke \
+            -e POSTGRES_USER=rusty_feed -e POSTGRES_PASSWORD=rusty_feed -e POSTGRES_DB=rusty_feed \
             postgres:17
           for attempt in $(seq 1 45); do
-            docker exec rustss-release-db pg_isready -U rustss -d rustss && break
+            docker exec rusty-feed-release-db pg_isready -U rusty_feed -d rusty_feed && break
             sleep 1
           done
-          docker run -d --name rustss-release-app --network rustss-release-smoke -p 18080:8080 \
-            -e DATABASE_URL=postgres://rustss:rustss@rustss-release-db:5432/rustss \
+          docker run -d --name rusty-feed-release-app --network rusty-feed-release-smoke -p 18080:8080 \
+            -e DATABASE_URL=postgres://rusty_feed:rusty_feed@rusty-feed-release-db:5432/rusty_feed \
             -e SESSION_SECRET=release-smoke-session-secret-32-bytes \
             -e ENCRYPTION_SECRET=release-smoke-encryption-secret-32-bytes \
             -e CACHE_ENABLED=false -e RUN_EMBEDDED_WORKER=false "$IMAGE"
@@ -218,13 +218,13 @@ jobs:
             fi
             sleep 1
           done
-          docker logs rustss-release-app
+          docker logs rusty-feed-release-app
           exit 1
       - name: Tear down release smoke
         if: always()
         run: |
-          docker rm -f rustss-release-app rustss-release-db >/dev/null 2>&1 || true
-          docker network rm rustss-release-smoke >/dev/null 2>&1 || true
+          docker rm -f rusty-feed-release-app rusty-feed-release-db >/dev/null 2>&1 || true
+          docker network rm rusty-feed-release-smoke >/dev/null 2>&1 || true
 
   github-release:
     name: checksummed GitHub release
@@ -233,19 +233,19 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: rustss-*
+          pattern: rusty-feed-*
           merge-multiple: true
       - uses: sigstore/cosign-installer@v3
       - name: Sign binary archives and checksums with GitHub OIDC
         run: |
           set -euo pipefail
-          for file in rustss-*.tar.gz rustss-*.tar.gz.sha256 rustss-*.deb rustss-*.rpm rustss-*-packages.sha256 rustss-*-sbom.spdx.json; do
+          for file in rusty-feed-*.tar.gz rusty-feed-*.tar.gz.sha256 rusty-feed-*.deb rusty-feed-*.rpm rusty-feed-*-packages.sha256 rusty-feed-*-sbom.spdx.json; do
             cosign sign-blob --yes --bundle "$file.sigstore.json" "$file"
           done
       - uses: actions/attest-build-provenance@v2
         with:
-          subject-path: rustss-*
+          subject-path: rusty-feed-*
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: rustss-*
+          files: rusty-feed-*

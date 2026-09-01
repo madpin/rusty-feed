@@ -8,8 +8,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rustss_db::{articles, cost_ledger, embeddings};
-use rustss_embed::{prepare_text, Embedder, HashEmbedder};
+use rusty_feed_db::{articles, cost_ledger, embeddings};
+use rusty_feed_embed::{prepare_text, Embedder, HashEmbedder};
 
 use crate::{Agent, AgentContext};
 

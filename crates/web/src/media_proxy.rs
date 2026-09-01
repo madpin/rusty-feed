@@ -7,9 +7,9 @@ use axum::response::{IntoResponse, Response};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_core::hash::sha256_hex;
-use rustss_db::{articles, media_cache, MediaCacheEntry};
-use rustss_feeds::FeedError;
+use rusty_feed_core::hash::sha256_hex;
+use rusty_feed_db::{articles, media_cache, MediaCacheEntry};
+use rusty_feed_feeds::FeedError;
 use serde::Deserialize;
 
 use crate::auth::extractor::AuthUser;
@@ -285,7 +285,7 @@ fn serve_entry(
         };
         return Ok(media_error(
             status,
-            "Media is temporarily unavailable through RustSS.",
+            "Media is temporarily unavailable through Rusty Feed.",
         ));
     }
     let body = entry.body.ok_or_else(|| {
@@ -304,7 +304,7 @@ fn serve_entry(
     if !download && inline_type.is_none() {
         return Ok(media_error(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "The publisher returned a media type that RustSS will not render inline.",
+            "The publisher returned a media type that Rusty Feed will not render inline.",
         ));
     }
 

@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:8088";
-const databaseURL = process.env.PLAYWRIGHT_DATABASE_URL || process.env.TEST_DATABASE_URL || "postgres://rustss:rustss@127.0.0.1:5435/rustss";
+const databaseURL = process.env.PLAYWRIGHT_DATABASE_URL || process.env.TEST_DATABASE_URL || "postgres://rusty_feed:rusty_feed@127.0.0.1:5435/rusty_feed";
 const redisURL = process.env.PLAYWRIGHT_REDIS_URL || process.env.TEST_REDIS_URL || "redis://127.0.0.1:6379";
 
 export default defineConfig({
@@ -19,7 +19,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: "cargo run --quiet -p rustss-server",
+        command: "cargo run --quiet -p rusty-feed-server",
         url: `${baseURL}/api/health/ready`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

@@ -2,7 +2,7 @@
 //!
 //! Publisher HTML is fetched through [`SafeFetchClient`], rendered in an
 //! opaque-origin sandbox, and authorized with short-lived encrypted bearer
-//! tickets so the iframe never receives RustSS cookies. Static resources are
+//! tickets so the iframe never receives Rusty Feed cookies. Static resources are
 //! rewritten to similarly scoped tickets; this is intentionally not a general
 //! URL proxy.
 
@@ -22,9 +22,9 @@ use time::{Duration, OffsetDateTime};
 use url::Url;
 use uuid::Uuid;
 
-use rustss_core::crypto::Cryptor;
-use rustss_core::hash::sha256_hex;
-use rustss_db::{articles, Article};
+use rusty_feed_core::crypto::Cryptor;
+use rusty_feed_core::hash::sha256_hex;
+use rusty_feed_db::{articles, Article};
 
 use crate::auth::extractor::AuthUser;
 use crate::error::AppError;
@@ -155,7 +155,7 @@ pub async fn page(
         .ok_or(AppError::NotFound)?;
 
     let canonical_url = state.settings.tracking_url_policy.clean(&article.url);
-    // Absolute RustSS origin so proxied resource URLs escape the publisher
+    // Absolute Rusty Feed origin so proxied resource URLs escape the publisher
     // `<base href>` and resolve back to this instance.
     let origin = public_origin(&headers, &state.settings);
     let cache_key = format!("shared:live-view:page:{article_id}");
@@ -184,7 +184,7 @@ pub async fn page(
             &canonical_url,
             &state.settings.tracking_url_policy,
             &state.settings.tracking_pixel_policy,
-            "The publisher is temporarily unavailable. Showing RustSS's stored copy.",
+            "The publisher is temporarily unavailable. Showing Rusty Feed's stored copy.",
         ),
     };
 
@@ -325,7 +325,7 @@ async fn fetch_page(
     Ok(FetchedPage {
         // Decode using the page's declared charset so non-UTF-8 publisher pages
         // don't render as mojibake in Live View (FND-193, §6.1).
-        html: rustss_core::charset::decode_html_bytes(&body, Some(&content_type)),
+        html: rusty_feed_core::charset::decode_html_bytes(&body, Some(&content_type)),
         final_url,
     })
 }
@@ -750,7 +750,7 @@ fn resource_url(
             expires_at: resource_ticket_expiry(),
         },
     )?;
-    // `origin` is the absolute RustSS origin when rewriting the top-level
+    // `origin` is the absolute Rusty Feed origin when rewriting the top-level
     // document (so proxied URLs bypass the publisher `<base href>`), or empty
     // when rewriting an already same-origin stylesheet (path-absolute is fine).
     Ok(format!(
@@ -896,8 +896,8 @@ fn resource_response(fetched: FetchedResource, kind: ResourceKind) -> Result<Res
 fn fallback_document(
     article: &Article,
     canonical_url: &str,
-    tracking_url_policy: &rustss_core::tracking_url::TrackingUrlPolicy,
-    tracking_pixel_policy: &rustss_core::tracking_pixel::TrackingPixelPolicy,
+    tracking_url_policy: &rusty_feed_core::tracking_url::TrackingUrlPolicy,
+    tracking_pixel_policy: &rusty_feed_core::tracking_pixel::TrackingPixelPolicy,
     message: &str,
 ) -> String {
     let title = escape_html(&article.title);
@@ -907,7 +907,7 @@ fn fallback_document(
         .as_deref()
         .or(article.feed_content.as_deref())
         .unwrap_or(&article.content);
-    let content = rustss_core::html::sanitize_article_html_with_policies(
+    let content = rusty_feed_core::html::sanitize_article_html_with_policies(
         content,
         canonical_url,
         tracking_url_policy,
@@ -951,15 +951,15 @@ mod tests {
             "https://publisher.example/posts/one",
             article_id,
             &cryptor,
-            "https://rustss.example",
+            "https://rusty-feed.example",
         )
         .unwrap();
 
         assert!(rewritten.contains("<base href=\"https://publisher.example/posts/one\">"));
         assert!(!rewritten.contains("frame-ancestors 'none'"));
-        // Proxy links are absolute to the RustSS origin so they bypass the base.
+        // Proxy links are absolute to the Rusty Feed origin so they bypass the base.
         assert!(rewritten.contains(&format!(
-            "https://rustss.example/articles/{article_id}/live/resource?ticket="
+            "https://rusty-feed.example/articles/{article_id}/live/resource?ticket="
         )));
         assert!(!rewritten.contains("hero-bg.jpg"));
         assert!(!rewritten.contains("cover.jpg"));
@@ -1013,10 +1013,10 @@ mod tests {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        use rustss_cache::Cache;
-        use rustss_db::models::NewArticle;
-        use rustss_db::{feeds, subscriptions, users, Db};
-        use rustss_feeds::SafeFetchClient;
+        use rusty_feed_cache::Cache;
+        use rusty_feed_db::models::NewArticle;
+        use rusty_feed_db::{feeds, subscriptions, users, Db};
+        use rusty_feed_feeds::SafeFetchClient;
 
         let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
             eprintln!("skipping: TEST_DATABASE_URL not set");

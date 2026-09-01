@@ -3818,20 +3818,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-agents"
+name = "rustversion"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rusty-feed-agents"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "hmac",
  "regex",
- "rustss-core",
- "rustss-db",
- "rustss-embed",
- "rustss-extract",
- "rustss-feeds",
- "rustss-llm",
- "rustss-search",
+ "rusty-feed-core",
+ "rusty-feed-db",
+ "rusty-feed-embed",
+ "rusty-feed-extract",
+ "rusty-feed-feeds",
+ "rusty-feed-llm",
+ "rusty-feed-search",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3846,7 +3852,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-cache"
+name = "rusty-feed-cache"
 version = "0.1.0"
 dependencies = [
  "futures-util",
@@ -3860,21 +3866,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-cli"
+name = "rusty-feed-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
  "dotenvy",
- "rustss-core",
- "rustss-db",
- "rustss-embed",
+ "rusty-feed-core",
+ "rusty-feed-db",
+ "rusty-feed-embed",
  "serde_json",
  "tokio",
 ]
 
 [[package]]
-name = "rustss-core"
+name = "rusty-feed-core"
 version = "0.1.0"
 dependencies = [
  "ammonia",
@@ -3905,10 +3911,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-db"
+name = "rusty-feed-db"
 version = "0.1.0"
 dependencies = [
- "rustss-core",
+ "rusty-feed-core",
  "serde_json",
  "sqlx",
  "thiserror 2.0.20",
@@ -3919,14 +3925,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-embed"
+name = "rusty-feed-embed"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "fastembed",
  "reqwest 0.12.28",
- "rustss-core",
+ "rusty-feed-core",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -3936,7 +3942,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-extract"
+name = "rusty-feed-extract"
 version = "0.1.0"
 dependencies = [
  "chromiumoxide",
@@ -3946,9 +3952,9 @@ dependencies = [
  "lol_html",
  "moka",
  "reqwest 0.12.28",
- "rustss-core",
- "rustss-db",
- "rustss-feeds",
+ "rusty-feed-core",
+ "rusty-feed-db",
+ "rusty-feed-feeds",
  "scraper",
  "thiserror 2.0.20",
  "time",
@@ -3959,15 +3965,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-feeds"
+name = "rusty-feed-feeds"
 version = "0.1.0"
 dependencies = [
  "feed-rs",
  "futures-util",
  "quick-xml",
  "reqwest 0.12.28",
- "rustss-core",
- "rustss-db",
+ "rusty-feed-core",
+ "rusty-feed-db",
  "scraper",
  "serde",
  "serde_json",
@@ -3981,14 +3987,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-llm"
+name = "rusty-feed-llm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "reqwest 0.12.28",
- "rustss-core",
- "rustss-db",
+ "rusty-feed-core",
+ "rusty-feed-db",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -3999,13 +4005,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-search"
+name = "rusty-feed-search"
 version = "0.1.0"
 dependencies = [
  "proptest",
- "rustss-cache",
- "rustss-core",
- "rustss-db",
+ "rusty-feed-cache",
+ "rusty-feed-core",
+ "rusty-feed-db",
  "serde",
  "serde_json",
  "tokio",
@@ -4014,27 +4020,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-server"
+name = "rusty-feed-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "rustss-agents",
- "rustss-cache",
- "rustss-core",
- "rustss-db",
- "rustss-embed",
- "rustss-extract",
- "rustss-feeds",
- "rustss-llm",
- "rustss-web",
+ "rusty-feed-agents",
+ "rusty-feed-cache",
+ "rusty-feed-core",
+ "rusty-feed-db",
+ "rusty-feed-embed",
+ "rusty-feed-extract",
+ "rusty-feed-feeds",
+ "rusty-feed-llm",
+ "rusty-feed-web",
  "sd-notify",
  "tokio",
  "tracing",
 ]
 
 [[package]]
-name = "rustss-web"
+name = "rusty-feed-web"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4053,13 +4059,13 @@ dependencies = [
  "rand 0.8.8",
  "reqwest 0.12.28",
  "rust-embed",
- "rustss-agents",
- "rustss-cache",
- "rustss-core",
- "rustss-db",
- "rustss-embed",
- "rustss-feeds",
- "rustss-search",
+ "rusty-feed-agents",
+ "rusty-feed-cache",
+ "rusty-feed-core",
+ "rusty-feed-db",
+ "rusty-feed-embed",
+ "rusty-feed-feeds",
+ "rusty-feed-search",
  "serde",
  "serde_json",
  "sqlx",
@@ -4076,27 +4082,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustss-worker"
+name = "rusty-feed-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "rustss-agents",
- "rustss-core",
- "rustss-db",
- "rustss-embed",
- "rustss-extract",
- "rustss-feeds",
- "rustss-llm",
+ "rusty-feed-agents",
+ "rusty-feed-core",
+ "rusty-feed-db",
+ "rusty-feed-embed",
+ "rusty-feed-extract",
+ "rusty-feed-feeds",
+ "rusty-feed-llm",
  "sd-notify",
  "tokio",
  "tracing",
 ]
-
-[[package]]
-name = "rustversion"
-version = "1.0.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rusty-fork"

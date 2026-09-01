@@ -20,7 +20,7 @@ pub struct SanitizedArticleHtml {
     pub blocked_tracking_pixels: u32,
 }
 
-/// Normalize feed-provided text into the sanitized semantic HTML stored by RustSS.
+/// Normalize feed-provided text into the sanitized semantic HTML stored by Rusty Feed.
 ///
 /// Feed formats distinguish HTML, Markdown, and plain text. Treating all three as
 /// HTML loses line breaks and can interpret literal angle brackets as elements.

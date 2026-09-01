@@ -1,9 +1,9 @@
-# RustSS — Cursor rules
+# Rusty Feed — Cursor rules
 
 The canonical contributor guide is AGENTS.md. Read AGENTS.md, docs/PRD.md,
 docs/ARCHITECTURE.md, docs/DEVELOPMENT_PLAN.md, and docs/FINDINGS.md before coding.
 
-Project: RustSS — a self-hosted, multi-user, AI-augmented RSS reader in Rust
+Project: Rusty Feed — a self-hosted, multi-user, AI-augmented RSS reader in Rust
 (Axum + Askama/HTMX, PostgreSQL/pgvector, Redis, background "AGENTS" workers).
 It is a ground-up Rust reimplementation of the original `neureed` (Next.js/TS).
 

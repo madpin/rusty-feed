@@ -10,7 +10,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use rustss_db::{user_preferences, users};
+use rusty_feed_db::{user_preferences, users};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;

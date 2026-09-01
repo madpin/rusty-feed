@@ -3,7 +3,7 @@
 //! Libraries return precise `thiserror` enums; binaries add `anyhow` context at
 //! the edges; the web layer maps errors to HTTP via its own `AppError`
 //! (`docs/ARCHITECTURE.md` §19). This module holds the errors that belong to
-//! `rustss-core` itself (currently: configuration).
+//! `rusty-feed-core` itself (currently: configuration).
 
 /// Errors raised while loading or validating [`crate::config::AppConfig`].
 #[derive(Debug, thiserror::Error)]

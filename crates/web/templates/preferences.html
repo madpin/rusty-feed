@@ -6,7 +6,7 @@
   <div>
     <p class="eyebrow">Settings</p>
     <h1>Reading preferences</h1>
-    <p class="muted">Make RustSS look and read the way you prefer.</p>
+    <p class="muted">Make Rusty Feed look and read the way you prefer.</p>
     <p class="muted"><a href="/settings/ai">AI &amp; summaries</a> · <a href="/settings/account">Account &amp; data (export / delete)</a> · <a href="/welcome">Re-run setup</a></p>
   </div>
 </div>
@@ -39,7 +39,7 @@
         <select name="number_format"><option value="comma"{% if prefs_number_format == "comma" %} selected{% endif %}>1,234,567</option><option value="dot"{% if prefs_number_format == "dot" %} selected{% endif %}>1.234.567</option></select>
       </label>
     </div>
-    <p class="muted">RustSS ships 20 built-in catalogs. Your locale also controls accessibility labels and dates; missing strings use your chosen fallback.</p>
+    <p class="muted">Rusty Feed ships 20 built-in catalogs. Your locale also controls accessibility labels and dates; missing strings use your chosen fallback.</p>
   </fieldset>
   <fieldset>
     <legend>Appearance</legend>
@@ -92,7 +92,7 @@
     <legend>YouTube videos</legend>
     <input type="hidden" name="youtube_settings_present" value="true" />
     {% if youtube_embeds_enabled %}
-    <p class="muted">RustSS recognizes links from {{ youtube_source_host_count }} administrator-approved source domain(s). Players are loaded only when you ask. The built-in player uses <code>youtube-nocookie.com</code>{% if let Some(name) = youtube_alternative_player_name %}; this instance also offers {{ name }}{% endif %}.</p>
+    <p class="muted">Rusty Feed recognizes links from {{ youtube_source_host_count }} administrator-approved source domain(s). Players are loaded only when you ask. The built-in player uses <code>youtube-nocookie.com</code>{% if let Some(name) = youtube_alternative_player_name %}; this instance also offers {{ name }}{% endif %}.</p>
     {% else %}
     <p class="notice">Embedded YouTube playback is disabled by the instance administrator. Safe no-referrer links remain available.</p>
     {% endif %}
@@ -117,7 +117,7 @@
       </label>
     </div>
     <label class="check-row"><input type="checkbox" name="youtube_autoplay" value="true"{% if prefs_youtube_autoplay %} checked{% endif %}{% if !youtube_embeds_enabled %} disabled{% endif %} /> <span>Start playback after I choose Load player</span></label>
-    <p class="muted">A subscription may inherit this preference or force the built-in privacy player/links-only mode. If an alternative provider is removed, RustSS safely returns to <code>youtube-nocookie.com</code>; it never falls back to a standard tracking embed.</p>
+    <p class="muted">A subscription may inherit this preference or force the built-in privacy player/links-only mode. If an alternative provider is removed, Rusty Feed safely returns to <code>youtube-nocookie.com</code>; it never falls back to a standard tracking embed.</p>
   </fieldset>
 
   <fieldset>
@@ -172,7 +172,7 @@
       <span>Mark articles read when opened</span>
     </label>
     {% if external_links_new_tab_required %}<p class="notice">This instance requires publisher links to open in a new tab.</p>{% endif %}
-    <p class="muted">RustSS keeps the publisher-provided URL for provenance. Clean links remove analytics parameters according to the instance policy; same-tab and new-tab links always suppress the referrer and opener relationship.</p>
+    <p class="muted">Rusty Feed keeps the publisher-provided URL for provenance. Clean links remove analytics parameters according to the instance policy; same-tab and new-tab links always suppress the referrer and opener relationship.</p>
   </fieldset>
 
   <fieldset id="touch-gestures">
@@ -205,7 +205,7 @@
     <p class="muted">Tracking images are removed once from shared RSS and public-page content without contacting the image host. The instance policy is <strong>{{ tracking_pixel_strictness }}</strong>, with {{ tracking_pixel_blocked_host_count }} custom blocked host(s) and {{ tracking_pixel_allowed_host_count }} custom allowed host(s).</p>
     <label class="check-row">
       <input type="checkbox" name="show_blocked_tracking_notice" value="true"{% if prefs_show_blocked_tracking_notice %} checked{% endif %} />
-      <span>Show how many tracking images RustSS removed from each article</span>
+      <span>Show how many tracking images Rusty Feed removed from each article</span>
     </label>
     <p class="muted">This controls only the indicator. Privacy cleanup remains active for everyone and never runs separately per user.</p>
   </fieldset>
@@ -240,12 +240,12 @@
   <fieldset id="media">
     <legend>Article attachments</legend>
     <input type="hidden" name="enclosure_settings_present" value="true" />
-    <p class="muted">On-demand is the privacy-friendly default: RustSS does not contact the media host until you choose Load. Autoplay is always disabled.</p>
-    {% if !media_proxy_enabled %}<p class="notice">The RustSS media proxy is disabled by the instance administrator. Attachments currently load directly from publishers.</p>{% endif %}
+    <p class="muted">On-demand is the privacy-friendly default: Rusty Feed does not contact the media host until you choose Load. Autoplay is always disabled.</p>
+    {% if !media_proxy_enabled %}<p class="notice">The Rusty Feed media proxy is disabled by the instance administrator. Attachments currently load directly from publishers.</p>{% endif %}
     <div class="form-grid">
       <label>Media delivery
         <select name="enclosure_delivery_mode">
-          <option value="proxy"{% if prefs_enclosure_delivery_mode == "proxy" %} selected{% endif %}{% if !media_proxy_enabled %} disabled{% endif %}>RustSS proxy (recommended)</option>
+          <option value="proxy"{% if prefs_enclosure_delivery_mode == "proxy" %} selected{% endif %}{% if !media_proxy_enabled %} disabled{% endif %}>Rusty Feed proxy (recommended)</option>
           <option value="mixed-content"{% if prefs_enclosure_delivery_mode == "mixed-content" %} selected{% endif %}{% if !media_proxy_enabled %} disabled{% endif %}>Proxy HTTP media only</option>
           <option value="direct"{% if prefs_enclosure_delivery_mode == "direct" %} selected{% endif %}>Direct from publisher</option>
         </select>
@@ -286,9 +286,9 @@
 
 <section class="panel danger-panel">
   <h2>Personalization</h2>
-  <p class="muted">RustSS learns from your feedback and reading habits to rank your articles.</p>
+  <p class="muted">Rusty Feed learns from your feedback and reading habits to rank your articles.</p>
   <form method="post" action="/settings/reset-learning"
-        data-confirm="Clear everything RustSS has learned about you?">
+        data-confirm="Clear everything Rusty Feed has learned about you?">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <button type="submit" class="danger">Reset learning</button>
   </form>

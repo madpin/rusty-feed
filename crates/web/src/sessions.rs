@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::User;
+use rusty_feed_db::User;
 
 use crate::auth::extractor::AuthUser;
 use crate::auth::{csrf, session, token};
@@ -51,7 +51,7 @@ async fn render_page(
     let current_hash = jar
         .get(session::SESSION_COOKIE)
         .map(|cookie| token::hash(cookie.value()));
-    let sessions = rustss_db::sessions::list_for_user(state.db.pool(), user.id)
+    let sessions = rusty_feed_db::sessions::list_for_user(state.db.pool(), user.id)
         .await?
         .into_iter()
         .map(|entry| SessionView {
@@ -97,7 +97,8 @@ pub async fn revoke(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
-    let revoked = rustss_db::sessions::delete_for_user_by_id(state.db.pool(), user.id, id).await?;
+    let revoked =
+        rusty_feed_db::sessions::delete_for_user_by_id(state.db.pool(), user.id, id).await?;
     render_page(
         &state,
         &user,
@@ -125,7 +126,8 @@ pub async fn revoke_others(
         .map(|cookie| token::hash(cookie.value()))
         .ok_or(AppError::Unauthorized)?;
     let removed =
-        rustss_db::sessions::delete_other_sessions(state.db.pool(), user.id, &current_hash).await?;
+        rusty_feed_db::sessions::delete_other_sessions(state.db.pool(), user.id, &current_hash)
+            .await?;
     render_page(
         &state,
         &user,

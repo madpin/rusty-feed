@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn parses_crawl_delay_and_disallow_for_star() {
         let txt = "User-agent: *\nDisallow: /private\nCrawl-delay: 5\n";
-        let info = RobotsInfo::parse(txt, "RustSS/0.1");
+        let info = RobotsInfo::parse(txt, "Rusty-Feed/0.1");
         assert_eq!(info.crawl_delay_ms, Some(5000));
         assert!(!info.is_allowed("/private/x"));
         assert!(info.is_allowed("/public"));
@@ -110,8 +110,8 @@ mod tests {
     #[test]
     fn ua_specific_group_wins() {
         let txt =
-            "User-agent: *\nDisallow: /\n\nUser-agent: rustss\nDisallow: /nope\nCrawl-delay: 2\n";
-        let info = RobotsInfo::parse(txt, "RustSS/0.1 (+url)");
+            "User-agent: *\nDisallow: /\n\nUser-agent: rusty-feed\nDisallow: /nope\nCrawl-delay: 2\n";
+        let info = RobotsInfo::parse(txt, "Rusty-Feed/0.1 (+url)");
         assert_eq!(info.crawl_delay_ms, Some(2000));
         assert!(info.is_allowed("/anything"));
         assert!(!info.is_allowed("/nope/page"));
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn empty_is_allow_all() {
-        let info = RobotsInfo::parse("", "RustSS");
+        let info = RobotsInfo::parse("", "Rusty Feed");
         assert!(info.is_allowed("/whatever"));
         assert_eq!(info.crawl_delay_ms, None);
     }

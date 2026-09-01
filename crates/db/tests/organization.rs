@@ -1,6 +1,10 @@
-use rustss_core::feed_content::{ContentLifetime, FeedContentMode, SubscriptionContentSettings};
-use rustss_core::youtube::SubscriptionYouTubeMode;
-use rustss_db::{articles, categories, feeds, read_articles, subscriptions, users, Db, NewArticle};
+use rusty_feed_core::feed_content::{
+    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+};
+use rusty_feed_core::youtube::SubscriptionYouTubeMode;
+use rusty_feed_db::{
+    articles, categories, feeds, read_articles, subscriptions, users, Db, NewArticle,
+};
 
 fn unique(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::now_v7())

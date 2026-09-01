@@ -1,4 +1,4 @@
-//! # rustss-embed
+//! # rusty-feed-embed
 //!
 //! One embedding space per instance (M9). An [`Embedder`] turns article text
 //! into a fixed-`EMBEDDING_DIM` vector. Providers:
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use rustss_core::config::EmbeddingProvider;
+use rusty_feed_core::config::EmbeddingProvider;
 
 /// The instance-wide embedding dimensionality (matches `article_embeddings`).
 pub const EMBEDDING_DIM: usize = 384;
@@ -105,7 +105,7 @@ pub fn build_embedder(config: EmbedConfig) -> anyhow::Result<Arc<dyn Embedder>> 
 
 /// Production on-device BGE embedder. Model initialization is lazy so the web
 /// process can still serve RSS reading while a first download is unavailable;
-/// `rustss-cli fetch-model` performs the download deliberately for offline
+/// `rusty-feed-cli fetch-model` performs the download deliberately for offline
 /// deployments.
 pub struct LocalEmbedder {
     model: String,
@@ -136,7 +136,7 @@ impl LocalEmbedder {
             .with_show_download_progress(false);
         fastembed::TextEmbedding::try_new(options).map_err(|error| {
             anyhow::anyhow!(
-                "BGE model is unavailable: {error}. Run `rustss-cli fetch-model` while online or seed MODEL_CACHE_DIR"
+                "BGE model is unavailable: {error}. Run `rusty-feed-cli fetch-model` while online or seed MODEL_CACHE_DIR"
             )
         })
     }

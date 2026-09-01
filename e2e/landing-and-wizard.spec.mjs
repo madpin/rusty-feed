@@ -11,7 +11,7 @@ test("anonymous landing page shows the pitch, CTA, and Miniflux comparison", asy
   await expect(
     page.getByRole("link", { name: "Create free account" }).first(),
   ).toBeVisible();
-  await expect(page.getByText("RustSS vs Miniflux")).toBeVisible();
+  await expect(page.getByText("Rusty Feed vs Miniflux")).toBeVisible();
   // Optimized screenshots are lazy-loaded.
   await expect(page.locator("img[loading='lazy']").first()).toBeVisible();
 });

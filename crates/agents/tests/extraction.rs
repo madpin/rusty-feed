@@ -8,11 +8,13 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_agents::{Agent, AgentContext, ExtractContentAgent, FetchFeedAgent};
-use rustss_core::feed_content::{ContentLifetime, FeedContentMode, SubscriptionContentSettings};
-use rustss_db::{articles, domain_state, feeds, jobs, subscriptions, users, Db};
-use rustss_extract::{ExtractConfig, ExtractOutcome, ExtractionService};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_agents::{Agent, AgentContext, ExtractContentAgent, FetchFeedAgent};
+use rusty_feed_core::feed_content::{
+    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+};
+use rusty_feed_db::{articles, domain_state, feeds, jobs, subscriptions, users, Db};
+use rusty_feed_extract::{ExtractConfig, ExtractOutcome, ExtractionService};
+use rusty_feed_feeds::SafeFetchClient;
 
 const ARTICLE_HTML: &str = r#"<html><head><title>Full Article</title></head><body>
   <nav><a href="/">Home</a><script>bad()</script></nav>
@@ -107,7 +109,7 @@ async fn extract_content_agent_enriches_article() {
     let art_url = format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7());
     let (article, _) = articles::upsert(
         db.pool(),
-        &rustss_db::models::NewArticle {
+        &rusty_feed_db::models::NewArticle {
             feed_id: feed.id,
             url: art_url,
             comments_url: None,
@@ -172,7 +174,7 @@ async fn rate_limited_extraction_records_and_signals_retry() {
     let art_url = format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7());
     let (article, _) = articles::upsert(
         db.pool(),
-        &rustss_db::models::NewArticle {
+        &rusty_feed_db::models::NewArticle {
             feed_id: feed.id,
             url: art_url.clone(),
             comments_url: None,
@@ -309,7 +311,7 @@ async fn ignored_robots_policy_skips_the_robots_request() {
     .unwrap();
     let (article, _) = articles::upsert(
         db.pool(),
-        &rustss_db::models::NewArticle {
+        &rusty_feed_db::models::NewArticle {
             feed_id: feed.id,
             url: format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7()),
             comments_url: None,
@@ -364,7 +366,7 @@ async fn feeds_without_subscriber_demand_do_not_fetch_article_pages() {
         .unwrap();
         let (article, _) = articles::upsert(
             db.pool(),
-            &rustss_db::models::NewArticle {
+            &rusty_feed_db::models::NewArticle {
                 feed_id: feed.id,
                 url: format!("{}/article-{mode}", server.uri()),
                 comments_url: None,

@@ -11,7 +11,7 @@ const MEDIA_CACHE_COLUMNS: &str =
     "cache_key, source_url, status, content_type, body, failure_kind, fetched_at, expires_at";
 
 /// Acquire a PostgreSQL-session advisory lock for one source URL hash. Holding
-/// the returned connection holds the lock across all RustSS processes.
+/// the returned connection holds the lock across all Rusty Feed processes.
 pub async fn acquire_fetch_lock(
     pool: &PgPool,
     cache_key: &str,

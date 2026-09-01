@@ -16,8 +16,8 @@ use base64::Engine;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use rustss_db::{categories, feeds, subscriptions};
-use rustss_feeds::{
+use rusty_feed_db::{categories, feeds, subscriptions};
+use rusty_feed_feeds::{
     enqueue_fetch_feed, export_opml, normalize_url, parse_opml, OpmlExportEntry, OpmlSubscription,
 };
 
@@ -149,7 +149,7 @@ impl CategoryCache {
             }
             // OPML folders create category rows — subject to the quota (FND-188).
             let quotas = &state.settings.quotas;
-            let kind = rustss_core::quotas::QuotaKind::Categories;
+            let kind = rusty_feed_core::quotas::QuotaKind::Categories;
             if quotas.limit(kind) > 0 {
                 let count = categories::count_for_user(state.db.pool(), user_id).await?;
                 if !quotas.allows(kind, count) {
@@ -378,7 +378,7 @@ pub async fn import(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::Subscriptions,
+        rusty_feed_core::quotas::QuotaKind::Subscriptions,
     )
     .await?;
     let form = match parse_import_form(values) {
@@ -414,7 +414,7 @@ pub async fn import(
                 report.failures.push(ImportFailure {
                     title: entry.title,
                     reason:
-                        "RustSS could not save this subscription. You can retry it individually."
+                        "Rusty Feed could not save this subscription. You can retry it individually."
                             .to_string(),
                 });
             }
@@ -517,9 +517,9 @@ pub async fn export(
             category_path,
         }
     });
-    let document = export_opml("RustSS subscriptions", entries);
+    let document = export_opml("Rusty Feed subscriptions", entries);
     let filename = format!(
-        "rustss-subscriptions-{}.opml",
+        "rusty-feed-subscriptions-{}.opml",
         OffsetDateTime::now_utc().date()
     );
     let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
@@ -593,7 +593,7 @@ fn parse_import_form(values: Vec<(String, String)>) -> Result<ImportForm, AppErr
 
 async fn render_result(
     state: &AppState,
-    user: rustss_db::User,
+    user: rusty_feed_db::User,
     jar: CookieJar,
     report: ImportReport,
     additional_failures: usize,
@@ -617,7 +617,7 @@ async fn render_result(
 
 async fn render_source_error(
     state: &AppState,
-    user: &rustss_db::User,
+    user: &rusty_feed_db::User,
     jar: CookieJar,
     error: String,
 ) -> Result<Response, AppError> {

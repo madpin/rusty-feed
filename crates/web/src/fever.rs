@@ -9,8 +9,8 @@ use axum::Json;
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
-use rustss_core::hash::sha256_hex;
-use rustss_db::{api_tokens, bookmarks, greader, read_articles, users, User};
+use rusty_feed_core::hash::sha256_hex;
+use rusty_feed_db::{api_tokens, bookmarks, greader, read_articles, users, User};
 
 use crate::auth::token;
 use crate::error::AppError;

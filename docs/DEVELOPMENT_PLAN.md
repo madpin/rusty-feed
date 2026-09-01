@@ -1,6 +1,6 @@
-# RustSS — Development Plan (for a code agent)
+# Rusty Feed — Development Plan (for a code agent)
 
-**Audience:** an autonomous (or human) engineer implementing RustSS from the PRD + Architecture.
+**Audience:** an autonomous (or human) engineer implementing Rusty Feed from the PRD + Architecture.
 **Companion docs:** `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/FINDINGS.md`.
 **Golden rule to never violate:** *content is shared, state is personal* (PRD §6, ARCH §7). Every schema/agent/query decision must preserve O(1) shared work for N subscribers.
 **Status:** all v1 implementation milestones complete; release-candidate audit performed on **2026-08-31**. Public release publication still requires a maintainer-created version tag.
@@ -92,7 +92,7 @@ Tasks:
 - [x] `core::telemetry` tracing, request tracing, readiness/health, metrics, and Prometheus `/metrics`.
 - [x] Narrow substitution interfaces live with their domain types (`Embedder`, `LlmClient`, `Extractor`, and `Agent`); concrete repositories/cache/queue remain direct adapters until a real second implementation or test seam exists. This deliberately replaces the obsolete catch-all `core::ports` stub proposal (FND-160).
 
-Verification: unit tests cover valid/invalid configuration, missing optional files, and diagnostic redaction; `rustss-cli config-check` prints only a secret-safe resolved summary. HTTP request metrics use route templates rather than raw paths.
+Verification: unit tests cover valid/invalid configuration, missing optional files, and diagnostic redaction; `rusty-feed-cli config-check` prints only a secret-safe resolved summary. HTTP request metrics use route templates rather than raw paths.
 DoD commit: `feat(core): typed config, error taxonomy, tracing + metrics`.
 
 ---
@@ -106,7 +106,7 @@ Tasks:
 - [x] Enable pgvector and generated weighted `tsvector` columns with GIN indexes.
 - [x] Required uniqueness, feed/article, vector, tag, and queue indexes.
 - [x] Runtime SQLx repositories with typed rows and idempotent shared upserts.
-- [x] `rustss-cli migrate` plus entrypoint migration hook.
+- [x] `rusty-feed-cli migrate` plus entrypoint migration hook.
 - [x] Explicit `TEST_DATABASE_URL` PostgreSQL/pgvector integration-test infrastructure; CI supplies the real service. This intentionally replaces a hidden testcontainers dependency.
 
 Verification (critical):
@@ -125,7 +125,7 @@ Tasks:
 - [x] `cache::Cache`: moka L1 + optional Redis L2, cache-aside typed values, and bounded per-key TTLs.
 - [x] `SCAN`-based prefix invalidation (never `KEYS`) plus versioned Redis Pub/Sub invalidates exact keys and prefixes in sibling instances; sender IDs avoid redundant local work (FND-114).
 - [x] Graceful degradation: Redis down ⇒ L1 + source of truth still work.
-- [x] Key builders separate shared and per-user namespaces; validated `CACHE_NAMESPACE` values isolate Redis keys and channels between RustSS installations.
+- [x] Key builders separate shared and per-user namespaces; validated `CACHE_NAMESPACE` values isolate Redis keys and channels between Rusty Feed installations.
 
 Verification: unit tests cover get/set/TTL/local invalidation and unavailable-Redis fallback; Redis integration tests prove L2 round trips, two-instance exact/prefix invalidation, and installation namespace isolation. A disconnected subscriber clears and bypasses L1 until a bounded, successful resubscription.
 DoD commit: `feat(cache): moka L1 + redis L2 with SCAN invalidation`.
@@ -197,7 +197,7 @@ Tasks:
 - [x] Run tracking → `agent_runs` (status/duration/stats/trigger) with bounded sanitized errors in the wide, live admin queue view. A per-run `JobLogger` ring buffer remains optional future depth.
 - [x] Transactional outbox dispatcher: committed `outbox_events` become deduplicated jobs; unknown deployment-skew events remain pending safely.
 - [x] **FeedRefreshAgent** and **FetchFeedAgent** are wired into one deduplicated shared pipeline; downstream enrichment jobs are revision-keyed.
-- [x] Standalone `rustss-worker` and `RUN_EMBEDDED_WORKER` server mode.
+- [x] Standalone `rusty-feed-worker` and `RUN_EMBEDDED_WORKER` server mode.
 
 Verification: test that a feed subscribed by N users enqueues **one** fetch; lock prevents double-run; a failing job is retried/backed-off and recorded.
 DoD commit: `feat(agents): scheduler, durable queue, locks, run records, outbox`.
@@ -330,7 +330,7 @@ now meet the release-candidate bar:
 - [x] Complete configuration, migration, operations, API, user, and release-evidence references.
 
 The Miniflux compatibility program is a broader release train, not a synonym
-for the first RustSS v1. Its 67 independently testable outcomes remain tracked
+for the first Rusty Feed v1. Its 67 independently testable outcomes remain tracked
 in [`docs/MINIFLUX_PARITY.md`](MINIFLUX_PARITY.md); 65 are complete and two are
 explicitly partial rather than silently overstated.
 

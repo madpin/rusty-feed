@@ -1,20 +1,20 @@
 [package]
-name = "rustss-web"
+name = "rusty-feed-web"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS web: Axum routers, handlers, Askama templates, auth, DTOs."
+description = "Rusty Feed web: Axum routers, handlers, Askama templates, auth, DTOs."
 
 [dependencies]
-rustss-core = { workspace = true }
-rustss-db = { workspace = true }
-rustss-cache = { workspace = true }
-rustss-feeds = { workspace = true }
-rustss-embed = { workspace = true }
-rustss-search = { workspace = true }
+rusty-feed-core = { workspace = true }
+rusty-feed-db = { workspace = true }
+rusty-feed-cache = { workspace = true }
+rusty-feed-feeds = { workspace = true }
+rusty-feed-embed = { workspace = true }
+rusty-feed-search = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
 serde = { workspace = true }
@@ -42,7 +42,7 @@ lol_html = { workspace = true }
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "pool", "tokio1-rustls-tls", "hostname"] }
 
 [dev-dependencies]
-rustss-agents = { workspace = true }
+rusty-feed-agents = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true }
 http-body-util = "0.1"

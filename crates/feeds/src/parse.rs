@@ -11,13 +11,13 @@ use scraper::Html;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use rustss_core::{
+use rusty_feed_core::{
     content_rules::{apply_rewrite_rules, RewriteRule},
     html::{normalize_article_content_with_policies, normalize_article_content_with_policy},
     tracking_pixel::TrackingPixelPolicy,
     tracking_url::TrackingUrlPolicy,
 };
-use rustss_db::models::{NewArticle, NewArticleEnclosure, MAX_ARTICLE_ENCLOSURES};
+use rusty_feed_db::models::{NewArticle, NewArticleEnclosure, MAX_ARTICLE_ENCLOSURES};
 
 use crate::error::FeedError;
 
@@ -515,8 +515,8 @@ pub fn parse_feed_with_policies_and_rules(
             .or_else(|| {
                 (!entry.id.is_empty() && !enclosures.is_empty()).then(|| {
                     format!(
-                        "urn:rustss:article:{feed_id}:{}",
-                        rustss_core::hash::content_hash(&entry.id)
+                        "urn:rusty-feed:article:{feed_id}:{}",
+                        rusty_feed_core::hash::content_hash(&entry.id)
                     )
                 })
             });
@@ -638,7 +638,7 @@ fn text_construct_text(text: &feed_rs::model::Text) -> String {
     let html = normalize_article_content_with_policy(
         &text.content,
         text.content_type.as_str(),
-        "https://rustss.invalid/",
+        "https://rusty-feed.invalid/",
         &TrackingUrlPolicy::default(),
     );
     strip_tags(&html)
@@ -743,7 +743,7 @@ mod tests {
           <description>&lt;p&gt;Story&lt;/p&gt;&lt;img src="https://metrics.example.com/open.gif"&gt;&lt;img src="https://cdn.example.com/cover.jpg"&gt;</description>
         </item></channel></rss>"#;
         let pixels = TrackingPixelPolicy::try_new(
-            rustss_core::tracking_pixel::TrackingPixelStrictness::Conservative,
+            rusty_feed_core::tracking_pixel::TrackingPixelStrictness::Conservative,
             "metrics.example.com",
             "",
         )
@@ -862,7 +862,7 @@ mod tests {
         let article = &parsed.articles[0];
         assert!(article
             .url
-            .starts_with(&format!("urn:rustss:article:{feed_id}:")));
+            .starts_with(&format!("urn:rusty-feed:article:{feed_id}:")));
         assert_eq!(article.enclosures.len(), 2);
         assert_eq!(article.enclosures[0].media_kind, "audio");
         assert_eq!(article.enclosures[0].duration_seconds, Some(90));

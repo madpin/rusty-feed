@@ -1,4 +1,4 @@
-//! # rustss-web
+//! # rusty-feed-web
 //!
 //! The Axum web layer: routers, handlers, Askama/HTMX templates, auth, and the
 //! JSON API (native + a GReader-compatible adapter). See `docs/ARCHITECTURE.md`
@@ -433,14 +433,14 @@ async fn observe_request(request: Request, next: Next) -> Response {
     let status = response.status().as_u16().to_string();
 
     metrics::counter!(
-        "rustss_http_requests_total",
+        "rusty_feed_http_requests_total",
         "method" => method.clone(),
         "route" => route.clone(),
         "status" => status
     )
     .increment(1);
     metrics::histogram!(
-        "rustss_http_request_duration_seconds",
+        "rusty_feed_http_request_duration_seconds",
         "method" => method,
         "route" => route
     )
@@ -456,7 +456,7 @@ async fn observe_request(request: Request, next: Next) -> Response {
 /// to `script-src`/`frame-src`/`connect-src` so the challenge widget loads
 /// without weakening the strict no-inline policy (FND-161, FND-191).
 fn reader_content_security_policy(
-    policy: &rustss_core::youtube::YouTubePolicy,
+    policy: &rusty_feed_core::youtube::YouTubePolicy,
     captcha_enabled: bool,
 ) -> HeaderValue {
     const CAPTCHA_ORIGINS: &str =
@@ -515,8 +515,8 @@ async fn health() -> Json<serde_json::Value> {
     Json(json!({
         "data": {
             "status": "ok",
-            "service": rustss_core::APP_NAME,
-            "version": rustss_core::VERSION,
+            "service": rusty_feed_core::APP_NAME,
+            "version": rusty_feed_core::VERSION,
         }
     }))
 }
@@ -686,15 +686,15 @@ fn content_type(path: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustss_cache::Cache;
-    use rustss_db::Db;
+    use rusty_feed_cache::Cache;
+    use rusty_feed_db::Db;
 
     async fn test_state() -> AppState {
         // A lazily-connected pool: fine for handlers that don't touch the DB.
-        let db = Db::connect_lazy("postgres://user:pass@localhost/rustss_test").unwrap();
+        let db = Db::connect_lazy("postgres://user:pass@localhost/rusty_feed_test").unwrap();
         let cache = Cache::in_memory().await;
         AppState::new(db, cache, AppSettings::default(), || {
-            "# rustss metrics\n".to_string()
+            "# rusty-feed metrics\n".to_string()
         })
     }
 
@@ -721,7 +721,7 @@ mod tests {
         let bytes = res.into_body().collect().await.unwrap().to_bytes();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["data"]["status"], "ok");
-        assert_eq!(v["data"]["service"], rustss_core::APP_NAME);
+        assert_eq!(v["data"]["service"], rusty_feed_core::APP_NAME);
     }
 
     #[tokio::test]
@@ -743,7 +743,7 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let bytes = res.into_body().collect().await.unwrap().to_bytes();
-        assert!(String::from_utf8_lossy(&bytes).contains("rustss metrics"));
+        assert!(String::from_utf8_lossy(&bytes).contains("rusty-feed metrics"));
     }
 
     #[tokio::test]
@@ -781,7 +781,7 @@ mod tests {
             ..Default::default()
         };
         let app = router(AppState::new(
-            Db::connect_lazy("postgres://user:pass@localhost/rustss_test").unwrap(),
+            Db::connect_lazy("postgres://user:pass@localhost/rusty_feed_test").unwrap(),
             Cache::in_memory().await,
             settings,
             String::new,
@@ -876,7 +876,7 @@ mod tests {
 
     #[test]
     fn alternative_youtube_origin_is_narrowly_added_to_frame_csp() {
-        let policy = rustss_core::youtube::YouTubePolicy::try_new_with_alternative(
+        let policy = rusty_feed_core::youtube::YouTubePolicy::try_new_with_alternative(
             true,
             "",
             "Invidious",
@@ -893,7 +893,7 @@ mod tests {
 
     #[test]
     fn captcha_origins_added_only_when_enabled() {
-        let policy = rustss_core::youtube::YouTubePolicy::default();
+        let policy = rusty_feed_core::youtube::YouTubePolicy::default();
         let disabled = reader_content_security_policy(&policy, false);
         assert!(!disabled
             .to_str()

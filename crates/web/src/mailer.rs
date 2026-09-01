@@ -29,7 +29,7 @@ impl std::fmt::Debug for Mailer {
 impl Mailer {
     /// Build an SMTP mailer from a transport URL (e.g.
     /// `smtps://user:pass@smtp.example.com:465` or `smtp://host:587` for
-    /// STARTTLS) and a `From` mailbox (e.g. `RustSS <no-reply@example.com>`).
+    /// STARTTLS) and a `From` mailbox (e.g. `Rusty Feed <no-reply@example.com>`).
     pub fn from_smtp_url(url: &str, from: &str) -> anyhow::Result<Self> {
         let transport = AsyncSmtpTransport::<Tokio1Executor>::from_url(url)?.build();
         let from: Mailbox = from

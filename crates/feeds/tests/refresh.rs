@@ -6,7 +6,7 @@ use std::time::Duration;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_feeds::{fetch_feed, refresh_feed, SafeFetchClient};
+use rusty_feed_feeds::{fetch_feed, refresh_feed, SafeFetchClient};
 
 /// Build an RSS document whose item URLs are unique per `run` (article URLs are
 /// globally unique, so a stable URL would be "skipped" as a duplicate on reruns).
@@ -117,7 +117,7 @@ async fn refresh_caps_items_per_refresh() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
 
     let run = uuid::Uuid::now_v7().to_string();
@@ -129,20 +129,20 @@ async fn refresh_caps_items_per_refresh() {
         .await;
 
     let feed_url = format!("{}/feed.xml?run={}", server.uri(), run);
-    let (feed, _) = rustss_db::feeds::upsert_by_url(db.pool(), &feed_url, "Mock News", None)
+    let (feed, _) = rusty_feed_db::feeds::upsert_by_url(db.pool(), &feed_url, "Mock News", None)
         .await
         .unwrap();
 
     let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
     let cap = 50;
-    let stats = rustss_feeds::refresh_feed_with_policies(
+    let stats = rusty_feed_feeds::refresh_feed_with_policies(
         &db,
         &client,
         &feed,
-        &rustss_core::tracking_url::TrackingUrlPolicy::default(),
-        &rustss_core::tracking_pixel::TrackingPixelPolicy::default(),
+        &rusty_feed_core::tracking_url::TrackingUrlPolicy::default(),
+        &rusty_feed_core::tracking_pixel::TrackingPixelPolicy::default(),
         cap,
-        &rustss_core::blocklist::Blocklist::default(),
+        &rusty_feed_core::blocklist::Blocklist::default(),
     )
     .await
     .unwrap();
@@ -150,7 +150,7 @@ async fn refresh_caps_items_per_refresh() {
         stats.created, cap as u64,
         "a 500-item feed must create at most {cap} rows this refresh"
     );
-    let stored = rustss_db::articles::list_for_feed(db.pool(), feed.id, 1000)
+    let stored = rusty_feed_db::articles::list_for_feed(db.pool(), feed.id, 1000)
         .await
         .unwrap();
     assert!(
@@ -166,7 +166,7 @@ async fn refresh_ingests_articles() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
 
     // Unique item URLs per run so ingestion isn't "skipped" as duplicates.
@@ -180,7 +180,7 @@ async fn refresh_ingests_articles() {
 
     // A unique feed row so the test is idempotent against a shared DB.
     let feed_url = format!("{}/feed.xml?run={}", server.uri(), run);
-    let (feed, _) = rustss_db::feeds::upsert_by_url(db.pool(), &feed_url, "Mock News", None)
+    let (feed, _) = rusty_feed_db::feeds::upsert_by_url(db.pool(), &feed_url, "Mock News", None)
         .await
         .unwrap();
 
@@ -189,7 +189,7 @@ async fn refresh_ingests_articles() {
     assert_eq!(stats.created, 2, "two items should be ingested");
 
     // Re-refreshing the same content is idempotent (no new rows).
-    let feed = rustss_db::feeds::find_by_id(db.pool(), feed.id)
+    let feed = rusty_feed_db::feeds::find_by_id(db.pool(), feed.id)
         .await
         .unwrap()
         .unwrap();
@@ -197,7 +197,7 @@ async fn refresh_ingests_articles() {
     assert_eq!(stats2.created, 0);
     assert!(stats2.skipped >= 2 || stats2.not_modified);
 
-    let arts = rustss_db::articles::list_for_feed(db.pool(), feed.id, 10)
+    let arts = rusty_feed_db::articles::list_for_feed(db.pool(), feed.id, 10)
         .await
         .unwrap();
     assert_eq!(arts.len(), 2);
@@ -209,7 +209,7 @@ async fn refresh_persists_a_distinct_rss_comments_link() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
     let run = uuid::Uuid::now_v7().to_string();
     let server = MockServer::start().await;
@@ -221,7 +221,7 @@ async fn refresh_persists_a_distinct_rss_comments_link() {
         )
         .mount(&server)
         .await;
-    let (feed, _) = rustss_db::feeds::upsert_by_url(
+    let (feed, _) = rusty_feed_db::feeds::upsert_by_url(
         db.pool(),
         &format!("{}/feed.xml?run={run}", server.uri()),
         "Mock News",
@@ -231,7 +231,7 @@ async fn refresh_persists_a_distinct_rss_comments_link() {
     .unwrap();
     let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
     refresh_feed(&db, &client, &feed).await.unwrap();
-    let articles = rustss_db::articles::list_for_feed(db.pool(), feed.id, 10)
+    let articles = rusty_feed_db::articles::list_for_feed(db.pool(), feed.id, 10)
         .await
         .unwrap();
     assert_eq!(
@@ -248,7 +248,7 @@ async fn refresh_records_a_safe_parse_failure() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -257,7 +257,7 @@ async fn refresh_records_a_safe_parse_failure() {
         .mount(&server)
         .await;
     let token = "RAW_QUERY_TOKEN_SENTINEL";
-    let (feed, _) = rustss_db::feeds::upsert_by_url(
+    let (feed, _) = rusty_feed_db::feeds::upsert_by_url(
         db.pool(),
         &format!("{}/feed.xml?token={token}", server.uri()),
         "Broken feed",
@@ -267,7 +267,7 @@ async fn refresh_records_a_safe_parse_failure() {
     .unwrap();
     let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
     assert!(refresh_feed(&db, &client, &feed).await.is_err());
-    let stored = rustss_db::feeds::find_by_id(db.pool(), feed.id)
+    let stored = rusty_feed_db::feeds::find_by_id(db.pool(), feed.id)
         .await
         .unwrap()
         .unwrap();
@@ -276,7 +276,7 @@ async fn refresh_records_a_safe_parse_failure() {
         stored.last_error.as_deref(),
         Some("Feed response could not be parsed")
     );
-    let event = rustss_db::feeds::list_recent_errors(db.pool(), 100)
+    let event = rusty_feed_db::feeds::list_recent_errors(db.pool(), 100)
         .await
         .unwrap()
         .into_iter()
@@ -291,7 +291,7 @@ async fn refresh_downloads_a_declared_feed_icon() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
     let run = uuid::Uuid::now_v7().to_string();
     let server = MockServer::start().await;
@@ -312,7 +312,7 @@ async fn refresh_downloads_a_declared_feed_icon() {
         .mount(&server)
         .await;
 
-    let (feed, _) = rustss_db::feeds::upsert_by_url(
+    let (feed, _) = rusty_feed_db::feeds::upsert_by_url(
         db.pool(),
         &format!("{}/feed.xml?run={run}", server.uri()),
         "Mock News",
@@ -323,14 +323,14 @@ async fn refresh_downloads_a_declared_feed_icon() {
     let client = SafeFetchClient::new_allow_private(Duration::from_secs(10)).unwrap();
     refresh_feed(&db, &client, &feed).await.unwrap();
 
-    let stored = rustss_db::feed_icons::get(db.pool(), feed.id)
+    let stored = rusty_feed_db::feed_icons::get(db.pool(), feed.id)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(stored.content_type, "image/png");
     assert_eq!(stored.content, icon);
     assert_eq!(
-        rustss_db::feeds::find_by_id(db.pool(), feed.id)
+        rusty_feed_db::feeds::find_by_id(db.pool(), feed.id)
             .await
             .unwrap()
             .unwrap()
@@ -345,9 +345,9 @@ async fn feeds_missing_an_icon_attempt_are_queued_for_backfill() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&db_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&db_url).await.unwrap();
     db.migrate().await.unwrap();
-    let user = rustss_db::users::create(
+    let user = rusty_feed_db::users::create(
         db.pool(),
         &format!("icon-backfill-{}@example.test", uuid::Uuid::now_v7()),
         None,
@@ -357,7 +357,7 @@ async fn feeds_missing_an_icon_attempt_are_queued_for_backfill() {
     )
     .await
     .unwrap();
-    let (feed, _) = rustss_db::feeds::upsert_by_url(
+    let (feed, _) = rusty_feed_db::feeds::upsert_by_url(
         db.pool(),
         &format!("https://icon-backfill.example/{}.xml", uuid::Uuid::now_v7()),
         "Icon backfill",
@@ -365,18 +365,18 @@ async fn feeds_missing_an_icon_attempt_are_queued_for_backfill() {
     )
     .await
     .unwrap();
-    rustss_db::subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+    rusty_feed_db::subscriptions::subscribe(db.pool(), user.id, feed.id, None)
         .await
         .unwrap();
-    rustss_db::feeds::record_fetch_success(db.pool(), feed.id, None, None)
+    rusty_feed_db::feeds::record_fetch_success(db.pool(), feed.id, None, None)
         .await
         .unwrap();
-    assert!(rustss_db::feeds::list_due(db.pool(), 10_000)
+    assert!(rusty_feed_db::feeds::list_due(db.pool(), 10_000)
         .await
         .unwrap()
         .iter()
         .any(|candidate| candidate.id == feed.id));
-    rustss_db::feed_icons::record_failure(
+    rusty_feed_db::feed_icons::record_failure(
         db.pool(),
         feed.id,
         "https://icon-backfill.example/favicon.ico",
@@ -384,7 +384,7 @@ async fn feeds_missing_an_icon_attempt_are_queued_for_backfill() {
     )
     .await
     .unwrap();
-    assert!(!rustss_db::feeds::list_due(db.pool(), 10_000)
+    assert!(!rusty_feed_db::feeds::list_due(db.pool(), 10_000)
         .await
         .unwrap()
         .iter()

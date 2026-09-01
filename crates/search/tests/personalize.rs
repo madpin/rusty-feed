@@ -1,11 +1,11 @@
 //! M10 integration tests for the personalization service (feedback → patterns →
 //! scoring, precedence, reset). Require `TEST_DATABASE_URL`; skipped otherwise.
 
-use rustss_cache::Cache;
-use rustss_db::models::NewArticle;
-use rustss_db::{articles, feedback, feeds, patterns, Article, Db};
-use rustss_search::personalize;
-use rustss_search::ExplicitFeedback;
+use rusty_feed_cache::Cache;
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{articles, feedback, feeds, patterns, Article, Db};
+use rusty_feed_search::personalize;
+use rusty_feed_search::ExplicitFeedback;
 use uuid::Uuid;
 
 async fn connect() -> Option<Db> {
@@ -20,7 +20,7 @@ async fn make_user(db: &Db) -> Uuid {
 }
 
 async fn users_create(db: &Db) -> Uuid {
-    rustss_db::users::create(
+    rusty_feed_db::users::create(
         db.pool(),
         &format!("pz-{}@ex.com", Uuid::now_v7()),
         None,

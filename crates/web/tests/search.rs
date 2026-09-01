@@ -7,11 +7,11 @@ use axum::Router;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use rustss_cache::Cache;
-use rustss_db::models::NewArticle;
-use rustss_db::{articles, embeddings, feeds, subscriptions, user_preferences, users, Db};
-use rustss_embed::{Embedder, HashEmbedder};
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_cache::Cache;
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{articles, embeddings, feeds, subscriptions, user_preferences, users, Db};
+use rusty_feed_embed::{Embedder, HashEmbedder};
+use rusty_feed_web::{router, AppSettings, AppState};
 
 fn set_cookies(resp: &Response<Body>) -> Vec<(String, String)> {
     resp.headers()
@@ -45,7 +45,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let resp = app
@@ -53,7 +53,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -61,7 +61,9 @@ async fn register(app: &Router) -> (String, String) {
         )
         .await
         .unwrap();
-    let sid = find(&set_cookies(&resp), "rustss_sid").unwrap().to_string();
+    let sid = find(&set_cookies(&resp), "rusty_feed_sid")
+        .unwrap()
+        .to_string();
     (sid, email.replace("%40", "@"))
 }
 
@@ -136,7 +138,7 @@ async fn search_returns_matching_article() {
         .clone()
         .oneshot(
             Request::get("/search?q=async%20rust%20concurrency")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -182,13 +184,13 @@ async fn search_returns_matching_article() {
         .clone()
         .oneshot(
             Request::get("/settings/preferences")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    let csrf = find(&set_cookies(&preferences), "rustss_csrf")
+    let csrf = find(&set_cookies(&preferences), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let saved = app
@@ -198,7 +200,7 @@ async fn search_returns_matching_article() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header(
                     "cookie",
-                    format!("rustss_sid={sid}; rustss_csrf={csrf}"),
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
                 )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&theme=system&articles_per_page=20&reading_mode=side-panel&search_settings_present=true&search_mode=keyword&search_text_config=simple&search_semantic_weight_percent=25"
@@ -219,7 +221,7 @@ async fn search_returns_matching_article() {
         .clone()
         .oneshot(
             Request::get("/search?q=%22exact%20phrase%22%20-draft")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -239,7 +241,7 @@ async fn search_returns_matching_article() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header(
                     "cookie",
-                    format!("rustss_sid={sid}; rustss_csrf={csrf}"),
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
                 )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&theme=system&articles_per_page=20&reading_mode=side-panel&search_settings_present=true&search_mode=instance&search_text_config=instance"

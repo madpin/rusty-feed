@@ -4,7 +4,7 @@
 //! -> content hash (feed-scoped). [`upsert`] creates, updates, or skips, keeping
 //! exactly one row per article regardless of how many users/feeds reference it.
 
-use rustss_core::{
+use rusty_feed_core::{
     feed_content::ContentLifetime,
     hash::content_hash,
     html::{
@@ -52,7 +52,7 @@ pub async fn set_extracted_content_with_privacy(
     lifetime: ContentLifetime,
     blocked_tracking_pixels: u32,
 ) -> Result<Option<i64>> {
-    let content_hash = rustss_core::hash::content_hash(content);
+    let content_hash = rusty_feed_core::hash::content_hash(content);
     let lifetime_days = lifetime.days().map(i32::from);
     Ok(sqlx::query_scalar(
         "UPDATE articles SET content = $3, content_hash = $4, \
@@ -269,16 +269,16 @@ pub async fn clear_expired_article_page_content(pool: &PgPool) -> Result<u64> {
 pub async fn delete_expired_unbookmarked(
     pool: &PgPool,
     retention_days: u32,
-    age_basis: rustss_core::config::RetentionAgeBasis,
+    age_basis: rusty_feed_core::config::RetentionAgeBasis,
 ) -> Result<u64> {
     if retention_days == 0 {
         return Ok(0);
     }
     let age = match age_basis {
-        rustss_core::config::RetentionAgeBasis::Published => {
+        rusty_feed_core::config::RetentionAgeBasis::Published => {
             "COALESCE(a.published_at, a.created_at)"
         }
-        rustss_core::config::RetentionAgeBasis::Created => "a.created_at",
+        rusty_feed_core::config::RetentionAgeBasis::Created => "a.created_at",
     };
     let sql = format!(
         "DELETE FROM articles a WHERE {age} < now() - make_interval(days => $1::int) \

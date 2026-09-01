@@ -1,14 +1,14 @@
-//! RustSS standalone AGENTS worker: runs the scheduler + durable-queue consumers
+//! Rusty Feed standalone AGENTS worker: runs the scheduler + durable-queue consumers
 //! (feed refresh/fetch today; more agents in later milestones). Runnable
 //! separately from the web server, or embedded in it via `RUN_EMBEDDED_WORKER`.
 
 use std::time::Duration;
 
 use anyhow::Context;
-use rustss_agents::{Worker, WorkerConfig};
-use rustss_core::AppConfig;
-use rustss_db::Db;
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_agents::{Worker, WorkerConfig};
+use rusty_feed_core::AppConfig;
+use rusty_feed_db::Db;
+use rusty_feed_feeds::SafeFetchClient;
 use tokio::sync::watch;
 
 #[path = "../../systemd.rs"]
@@ -24,19 +24,19 @@ async fn main() -> anyhow::Result<()> {
     let tracking_pixel_policy = config
         .tracking_pixel_policy()
         .map_err(|error| anyhow::anyhow!("invalid tracking pixel policy: {error}"))?;
-    rustss_core::telemetry::init_tracing(&config.log_level);
+    rusty_feed_core::telemetry::init_tracing(&config.log_level);
 
     let db = Db::connect(&config.database_url)
         .await
         .context("failed to connect to the database")?;
     db.migrate().await.context("failed to apply migrations")?;
     let embedding_model =
-        rustss_embed::canonical_model(config.embedding_provider, &config.embedding_model)
+        rusty_feed_embed::canonical_model(config.embedding_provider, &config.embedding_model)
             .context("invalid embedding model")?;
-    rustss_db::embedding_space::ensure(
+    rusty_feed_db::embedding_space::ensure(
         db.pool(),
         &embedding_model,
-        rustss_embed::EMBEDDING_DIM as i32,
+        rusty_feed_embed::EMBEDDING_DIM as i32,
     )
     .await
     .context("embedding-space configuration is incompatible")?;
@@ -44,14 +44,14 @@ async fn main() -> anyhow::Result<()> {
     if config.feeds_allow_private_network {
         tracing::warn!("FEEDS_ALLOW_PRIVATE_NETWORK is on — feeds may reach private addresses");
     }
-    let fetch = SafeFetchClient::with_options(rustss_feeds::SafeFetchOptions {
+    let fetch = SafeFetchClient::with_options(rusty_feed_feeds::SafeFetchOptions {
         timeout: Duration::from_millis(config.extraction_timeout_ms),
         allow_private: config.feeds_allow_private_network,
         user_agent: config.outbound_user_agent.clone(),
         http1_only: config.outbound_http1_only,
     })
     .context("failed to build HTTP client")?;
-    let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
+    let embedder = rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
         provider: config.embedding_provider,
         model: embedding_model,
         openai_api_key: config
@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
         model_cache_dir: config.model_cache_dir.clone(),
     })
     .context("failed to build embedder")?;
-    let llm = rustss_llm::build_client(rustss_llm::LlmConfig {
+    let llm = rusty_feed_llm::build_client(rusty_feed_llm::LlmConfig {
         provider: config.llm_provider,
         model: config.llm_summary_model.clone(),
         openai_api_key: config
@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
         openai_base_url: config.openai_base_url.clone(),
         ollama_base_url: config.ollama_base_url.clone(),
     });
-    let llm_cascade = std::sync::Arc::new(rustss_llm::ProviderCascade::new(
+    let llm_cascade = std::sync::Arc::new(rusty_feed_llm::ProviderCascade::new(
         db.clone(),
         config.encryption_secret.expose().as_bytes(),
         llm.clone(),
@@ -87,11 +87,11 @@ async fn main() -> anyhow::Result<()> {
             concurrency: config.feed_refresh_concurrency,
             interactive_concurrency: config.interactive_job_concurrency,
             scheduler_enabled: config.enable_cron_jobs,
-            feed_refresh_schedule: rustss_core::cron::CronSchedule::parse(
+            feed_refresh_schedule: rusty_feed_core::cron::CronSchedule::parse(
                 &config.feed_refresh_schedule,
             )
             .map_err(|error| anyhow::anyhow!("invalid FEED_REFRESH_SCHEDULE: {error}"))?,
-            cleanup_schedule: rustss_core::cron::CronSchedule::parse(&config.cleanup_schedule)
+            cleanup_schedule: rusty_feed_core::cron::CronSchedule::parse(&config.cleanup_schedule)
                 .map_err(|error| anyhow::anyhow!("invalid CLEANUP_SCHEDULE: {error}"))?,
             extraction_config: extraction_config(&config),
             embed_on_ingest: config.embedding_auto_generate,
@@ -101,13 +101,13 @@ async fn main() -> anyhow::Result<()> {
             tracking_pixel_policy,
             article_retention_days: config.article_retention_days,
             retention_age_basis: config.retention_age_basis,
-            integration_credentials: rustss_core::crypto::Cryptor::new_with_context(
+            integration_credentials: rusty_feed_core::crypto::Cryptor::new_with_context(
                 config.encryption_secret.expose().as_bytes(),
-                b"rustss/integration-credentials/v1",
+                b"rusty-feed/integration-credentials/v1",
             ),
-            acquisition_credentials: rustss_core::crypto::Cryptor::new_with_context(
+            acquisition_credentials: rusty_feed_core::crypto::Cryptor::new_with_context(
                 config.encryption_secret.expose().as_bytes(),
-                b"rustss/acquisition-profile-secrets/v1",
+                b"rusty-feed/acquisition-profile-secrets/v1",
             ),
             youtube_duration_enabled: config.youtube_duration_enabled,
             youtube_duration_daily_budget: config.youtube_duration_daily_budget,
@@ -115,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
             ai_budget: config.ai_budget(),
             feed_max_items_per_refresh: config.feed_max_items_per_refresh,
             demo_mode: config.demo_mode,
-            demo_reset_schedule: rustss_core::cron::CronSchedule::parse(
+            demo_reset_schedule: rusty_feed_core::cron::CronSchedule::parse(
                 &config.demo_reset_schedule,
             )
             .map_err(|error| anyhow::anyhow!("invalid DEMO_RESET_SCHEDULE: {error}"))?,
@@ -127,11 +127,11 @@ async fn main() -> anyhow::Result<()> {
     let watchdog_handle = systemd.spawn_watchdog(shutdown_tx.subscribe());
     let handle = tokio::spawn(async move { worker.run(shutdown_rx).await });
 
-    tracing::info!("{} worker started", rustss_core::banner());
-    systemd.ready("RustSS worker is ready to process jobs");
+    tracing::info!("{} worker started", rusty_feed_core::banner());
+    systemd.ready("Rusty Feed worker is ready to process jobs");
     shutdown_signal().await;
     tracing::info!("worker shutting down");
-    systemd.stopping("RustSS worker is draining jobs");
+    systemd.stopping("Rusty Feed worker is draining jobs");
     let _ = shutdown_tx.send(true);
     let _ = handle.await;
     if let Some(handle) = watchdog_handle {
@@ -141,24 +141,23 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn extraction_config(config: &AppConfig) -> rustss_extract::ExtractConfig {
+fn extraction_config(config: &AppConfig) -> rusty_feed_extract::ExtractConfig {
     let chromium = if config.chromium_enabled {
-        config
-            .chromium_cdp_url
-            .as_ref()
-            .map(|endpoint| rustss_extract::chromium::ChromiumConfig {
+        config.chromium_cdp_url.as_ref().map(|endpoint| {
+            rusty_feed_extract::chromium::ChromiumConfig {
                 endpoint: endpoint.clone(),
                 max_concurrency: config.feed_refresh_concurrency.min(4),
                 render_wait: Duration::from_millis(750),
                 timeout: Duration::from_millis(config.extraction_timeout_ms),
-            })
+            }
+        })
     } else {
         None
     };
-    rustss_extract::ExtractConfig {
+    rusty_feed_extract::ExtractConfig {
         base_delay: Duration::from_millis(config.extraction_delay_ms),
         chromium,
-        ..rustss_extract::ExtractConfig::default()
+        ..rusty_feed_extract::ExtractConfig::default()
     }
 }
 

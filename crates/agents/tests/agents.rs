@@ -10,9 +10,9 @@ use time::Duration as TimeDuration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_agents::{process, Agent, AgentContext, FeedRefreshAgent, FetchFeedAgent, Registry};
-use rustss_db::{agent_runs, articles, feeds, jobs, subscriptions, users, Db};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_agents::{process, Agent, AgentContext, FeedRefreshAgent, FetchFeedAgent, Registry};
+use rusty_feed_db::{agent_runs, articles, feeds, jobs, subscriptions, users, Db};
+use rusty_feed_feeds::SafeFetchClient;
 
 struct FailingAgent;
 
@@ -92,7 +92,7 @@ async fn feed_refresh_enqueues_one_fetch_regardless_of_subscribers() {
     let context = ctx(db.clone());
 
     FeedRefreshAgent.run(&context, json!({})).await.unwrap();
-    rustss_db::outbox::dispatch(db.pool(), &["fetch_feed".to_string()], 1_000)
+    rusty_feed_db::outbox::dispatch(db.pool(), &["fetch_feed".to_string()], 1_000)
         .await
         .unwrap();
     assert_eq!(
@@ -105,7 +105,7 @@ async fn feed_refresh_enqueues_one_fetch_regardless_of_subscribers() {
 
     // Running again does not create a duplicate (dedup on active jobs).
     FeedRefreshAgent.run(&context, json!({})).await.unwrap();
-    rustss_db::outbox::dispatch(db.pool(), &["fetch_feed".to_string()], 1_000)
+    rusty_feed_db::outbox::dispatch(db.pool(), &["fetch_feed".to_string()], 1_000)
         .await
         .unwrap();
     assert_eq!(

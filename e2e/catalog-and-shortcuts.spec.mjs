@@ -71,7 +71,7 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await page.goto("/articles");
   const sidebar = page.locator("#library-sidebar");
   await expect(page.getByRole("heading", { name: "Most recent" })).toBeVisible();
-  await expect(page).toHaveTitle("Most recent · RustSS");
+  await expect(page).toHaveTitle("Most recent · Rusty Feed");
   await sidebar.getByRole("link", { name: "Unread only", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Unread only" })).toBeVisible();
   await sidebar.getByRole("link", { name: "Personalized", exact: true }).click();
@@ -120,7 +120,7 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
 
   await page.goto("/settings/preferences");
   await expect(page.getByRole("group", { name: "Content privacy" })).toContainText("balanced");
-  await expect(page.getByLabel("Show how many tracking images RustSS removed from each article")).toBeChecked();
+  await expect(page.getByLabel("Show how many tracking images Rusty Feed removed from each article")).toBeChecked();
   const mediaDelivery = page.getByLabel("Media delivery");
   await expect(mediaDelivery).toHaveValue("proxy");
   await mediaDelivery.selectOption("mixed-content");
@@ -246,7 +246,7 @@ test("OPML import previews folders and selected subscriptions before writing", a
   await expect(page.getByText("1 selected.")).toBeVisible();
   await page.getByRole("button", { name: "Import selected" }).click();
   await expect(page.getByRole("heading", { name: "Import complete" })).toBeVisible();
-  await expect(page.getByText("RustSS processed 1 selected subscription")).toBeVisible();
+  await expect(page.getByText("Rusty Feed processed 1 selected subscription")).toBeVisible();
 
   await page.getByRole("link", { name: "Back to feeds" }).click();
   await expect(page.getByText("First source")).toBeVisible();
@@ -254,7 +254,7 @@ test("OPML import previews folders and selected subscriptions before writing", a
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: "Export OPML" }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toMatch(/^rustss-subscriptions-.*\.opml$/);
+  expect(download.suggestedFilename()).toMatch(/^rusty-feed-subscriptions-.*\.opml$/);
 });
 
 test("live view defers and clears the publisher frame", async ({ page }) => {
@@ -383,8 +383,8 @@ test("installable app UI uses the browser prompt and reports installed state", a
   const scriptUrl = new URL("/static/app.js", page.url()).href;
   await page.setContent(`
     <fieldset data-install-app>
-      <p data-install-app-status>Install RustSS from your browser.</p>
-      <button type="button" data-install-app-button hidden>Install RustSS</button>
+      <p data-install-app-status>Install Rusty Feed from your browser.</p>
+      <button type="button" data-install-app-button hidden>Install Rusty Feed</button>
       <p data-install-app-help>Use Add to Home Screen.</p>
     </fieldset>
     <div id="action-status" role="status"></div>
@@ -402,7 +402,7 @@ test("installable app UI uses the browser prompt and reports installed state", a
     window.fireInstallPrompt("dismissed");
   });
 
-  const button = page.getByRole("button", { name: "Install RustSS" });
+  const button = page.getByRole("button", { name: "Install Rusty Feed" });
   await expect(button).toBeVisible();
   await expect(page.locator("[data-install-app-help]")).toBeHidden();
   await expect(page.locator("[data-install-app-status]")).toContainText("ready to install");

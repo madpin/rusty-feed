@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{ui_customizations, User};
+use rusty_feed_db::{ui_customizations, User};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -55,7 +55,7 @@ pub struct CsrfForm {
 }
 
 fn safe_mode(jar: &CookieJar) -> bool {
-    jar.get("rustss_safe_mode")
+    jar.get("rusty_feed_safe_mode")
         .is_some_and(|cookie| cookie.value() == "1")
 }
 
@@ -347,7 +347,7 @@ pub async fn javascript_asset(
 }
 
 pub async fn enter_safe_mode(State(state): State<AppState>, jar: CookieJar) -> Response {
-    let mut cookie = Cookie::new("rustss_safe_mode", "1");
+    let mut cookie = Cookie::new("rusty_feed_safe_mode", "1");
     cookie.set_path("/");
     cookie.set_http_only(true);
     cookie.set_same_site(SameSite::Lax);
@@ -356,7 +356,7 @@ pub async fn enter_safe_mode(State(state): State<AppState>, jar: CookieJar) -> R
 }
 
 pub async fn leave_safe_mode(State(state): State<AppState>, jar: CookieJar) -> Response {
-    let mut cookie = Cookie::new("rustss_safe_mode", "");
+    let mut cookie = Cookie::new("rusty_feed_safe_mode", "");
     cookie.set_path("/");
     cookie.set_http_only(true);
     cookie.set_same_site(SameSite::Lax);

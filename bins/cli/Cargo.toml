@@ -1,21 +1,21 @@
 [package]
-name = "rustss-cli"
+name = "rusty-feed-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS admin/maintenance CLI (migrate, create-admin, fetch-model, ...)."
+description = "Rusty Feed admin/maintenance CLI (migrate, create-admin, fetch-model, ...)."
 
 [[bin]]
-name = "rustss-cli"
+name = "rusty-feed-cli"
 path = "src/main.rs"
 
 [dependencies]
-rustss-core = { workspace = true }
-rustss-db = { workspace = true }
-rustss-embed = { workspace = true }
+rusty-feed-core = { workspace = true }
+rusty-feed-db = { workspace = true }
+rusty-feed-embed = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 dotenvy = { workspace = true }

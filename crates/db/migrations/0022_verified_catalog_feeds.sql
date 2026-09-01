@@ -1,5 +1,5 @@
--- Curated feeds verified live on 2026-08-30 with the RustSS user agent and
--- parsed through rustss_feeds::parse_feed. Redirect-equivalent and title-
+-- Curated feeds verified live on 2026-08-30 with the Rusty Feed user agent and
+-- parsed through rusty_feed_feeds::parse_feed. Redirect-equivalent and title-
 -- equivalent entries already in the catalog are intentionally omitted.
 WITH seed (url, title, description, category, country, language, sort_order) AS (
     VALUES

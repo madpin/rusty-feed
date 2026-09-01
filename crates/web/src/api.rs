@@ -7,11 +7,11 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rustss_db::{
+use rusty_feed_db::{
     api_audit, api_tokens, articles, bookmarks, categories, feeds, jobs, read_articles,
     saved_searches, subscriptions, User,
 };
-use rustss_feeds::{enqueue_fetch_feed, normalize_url};
+use rusty_feed_feeds::{enqueue_fetch_feed, normalize_url};
 
 use crate::auth::token;
 use crate::error::AppError;
@@ -50,7 +50,7 @@ async fn authenticate(
         return Err(AppError::Forbidden);
     }
     api_tokens::touch(state.db.pool(), api_token.id).await?;
-    let user = rustss_db::users::find_by_id(state.db.pool(), api_token.user_id)
+    let user = rusty_feed_db::users::find_by_id(state.db.pool(), api_token.user_id)
         .await?
         .ok_or(AppError::Unauthorized)?;
     if write {
@@ -62,7 +62,7 @@ async fn authenticate(
 pub async fn openapi() -> Json<Value> {
     Json(json!({
         "openapi": "3.1.0",
-        "info": {"title": "RustSS native API", "version": "v1"},
+        "info": {"title": "Rusty Feed native API", "version": "v1"},
         "servers": [{"url": "/api/v1"}],
         "components": {"securitySchemes": {
             "bearer": {"type": "http", "scheme": "bearer"},
@@ -137,7 +137,7 @@ pub async fn feed_create(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::Subscriptions,
+        rusty_feed_core::quotas::QuotaKind::Subscriptions,
     )
     .await?;
     let url = normalize_url(input.url.trim())
@@ -220,8 +220,12 @@ pub async fn category_create(
     Json(input): Json<CreateCategory>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let user = authenticate(&state, &headers, true, "categories.create").await?;
-    crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::Categories)
-        .await?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rusty_feed_core::quotas::QuotaKind::Categories,
+    )
+    .await?;
     let name = input.name.trim();
     if name.is_empty() || name.chars().count() > 80 {
         return Err(AppError::Validation(
@@ -297,7 +301,7 @@ async fn owned_article(
     state: &AppState,
     user_id: Uuid,
     id: Uuid,
-) -> Result<rustss_db::Article, AppError> {
+) -> Result<rusty_feed_db::Article, AppError> {
     let article = articles::find_by_id(state.db.pool(), id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -395,7 +399,7 @@ pub async fn saved_search_create(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::SavedSearches,
+        rusty_feed_core::quotas::QuotaKind::SavedSearches,
     )
     .await?;
     let name = input.name.trim();

@@ -54,7 +54,7 @@ impl InvalidationCoordinator {
         l1: MokaCache<String, L1Value>,
         namespace: &str,
     ) -> redis::RedisResult<Self> {
-        let channel: Arc<str> = format!("rustss:cache-invalidation:v1:{namespace}").into();
+        let channel: Arc<str> = format!("rusty-feed:cache-invalidation:v1:{namespace}").into();
         let mut pubsub = client.get_async_pubsub().await?;
         pubsub.subscribe(channel.as_ref()).await?;
 

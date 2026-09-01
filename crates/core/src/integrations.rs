@@ -14,17 +14,17 @@ pub struct ProviderCapability {
 }
 
 impl ProviderCapability {
-    /// Human label for the JSON shape RustSS posts. `slack`/`discord`/
+    /// Human label for the JSON shape Rusty Feed posts. `slack`/`discord`/
     /// `telegram`/`ntfy` receive a body those services accept directly; every
-    /// other destination receives RustSS's generic JSON envelope
-    /// (`{ rustss, message, tags }`) and may need a small relay to reshape it.
+    /// other destination receives Rusty Feed's generic JSON envelope
+    /// (`{ "rusty-feed", message, tags }`) and may need a small relay to reshape it.
     pub fn payload_summary(self) -> &'static str {
         match self.payload_kind {
             "slack" => "Slack message: { text }",
             "discord" => "Discord message: { content }",
             "telegram" => "Telegram sendMessage: { text }",
-            "ntfy" => "ntfy publish: { topic: rustss, title, message, tags }",
-            _ => "Generic RustSS JSON: { rustss, message, tags }",
+            "ntfy" => "ntfy publish: { topic: \"rusty-feed\", title, message, tags }",
+            _ => "Generic Rusty Feed JSON: { \"rusty-feed\", message, tags }",
         }
     }
 }
@@ -162,7 +162,7 @@ pub const PROVIDERS: &[ProviderCapability] = &[
         saves_articles: false,
         sends_notifications: true,
         payload_kind: "ntfy",
-        endpoint_hint: "Your ntfy server base URL, e.g. https://ntfy.sh. RustSS publishes to the 'rustss' topic.",
+        endpoint_hint: "Your ntfy server base URL, e.g. https://ntfy.sh. Rusty Feed publishes to the 'rusty-feed' topic.",
         credential_hint: "None, or Bearer with an ntfy access token if the topic is protected.",
     },
     ProviderCapability {
@@ -280,7 +280,7 @@ pub const PROVIDERS: &[ProviderCapability] = &[
         sends_notifications: true,
         payload_kind: "json",
         endpoint_hint: "Any HTTPS endpoint you control (your own service, or an automation like n8n/Make/Zapier).",
-        credential_hint: "Bearer, Basic, or HMAC. HMAC signs the body as the x-rustss-signature: sha256=<hex> header.",
+        credential_hint: "Bearer, Basic, or HMAC. HMAC signs the body as the x-rusty-feed-signature: sha256=<hex> header.",
     },
 ];
 

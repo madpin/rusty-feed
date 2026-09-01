@@ -1,9 +1,9 @@
 //! PostgreSQL full-text and hybrid search integration coverage.
 //! Tests skip when `TEST_DATABASE_URL` is unavailable.
 
-use rustss_core::config::SearchTextConfig;
-use rustss_db::models::NewArticle;
-use rustss_db::{articles, embeddings, feeds, search, subscriptions, users, Db};
+use rusty_feed_core::config::SearchTextConfig;
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{articles, embeddings, feeds, search, subscriptions, users, Db};
 use uuid::Uuid;
 
 async fn test_db() -> Option<Db> {
@@ -46,7 +46,7 @@ async fn subscribed_feed(db: &Db, user_id: Uuid, prefix: &str) -> Uuid {
     feed.id
 }
 
-async fn article(db: &Db, feed_id: Uuid, title: &str, content: &str) -> rustss_db::Article {
+async fn article(db: &Db, feed_id: Uuid, title: &str, content: &str) -> rusty_feed_db::Article {
     articles::upsert(
         db.pool(),
         &NewArticle {

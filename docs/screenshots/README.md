@@ -23,12 +23,12 @@ so they can be refreshed whenever the UI changes.
    ```bash
    docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
    BIND_ADDR=127.0.0.1:8088 \
-   DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss \
+   DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_feed \
    REDIS_URL=redis://localhost:6379 \
    SESSION_SECRET=$(openssl rand -base64 48) \
    ENCRYPTION_SECRET=$(openssl rand -base64 48) \
    RUN_EMBEDDED_WORKER=false \
-   cargo run -p rustss-server
+   cargo run -p rusty-feed-server
    ```
 
 2. Capture (installs the Playwright Chromium browser on first use):
@@ -45,7 +45,7 @@ discovery magazine so the library is populated, and writes the PNGs here.
 To include the admin screenshots, promote the showcase account once, then re-run:
 
 ```sql
-UPDATE users SET role = 'admin' WHERE email = 'showcase@rustss.local';
+UPDATE users SET role = 'admin' WHERE email = 'showcase@rusty-feed.local';
 ```
 
 Environment overrides: `SHOT_BASE_URL`, `SHOT_OUT_DIR`, `SHOT_EMAIL`, `SHOT_PASSWORD`.

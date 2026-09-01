@@ -1,12 +1,12 @@
 [package]
-name = "rustss-core"
+name = "rusty-feed-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS core: domain types, config, errors, and shared policies (no I/O)."
+description = "Rusty Feed core: domain types, config, errors, and shared policies (no I/O)."
 
 [features]
 # Enabled by binaries only, so domain crates stay lean (no subscriber/exporter).

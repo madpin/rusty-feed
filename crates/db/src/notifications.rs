@@ -97,7 +97,7 @@ pub async fn create_feed_health_batch(
     } else {
         (
             "Feed needs attention",
-            format!("{feed_name} has failed three updates. RustSS will keep retrying safely."),
+            format!("{feed_name} has failed three updates. Rusty Feed will keep retrying safely."),
         )
     };
     let metadata = serde_json::json!({

@@ -24,7 +24,7 @@
 <section class="panel">
   <h2>Fever-compatible client</h2>
   {% if fever_api_enabled %}
-  <p class="muted">Use this for clients that support Fever but not Google Reader. RustSS stores only a one-way hash of the protocol key; your password cannot be recovered.</p>
+  <p class="muted">Use this for clients that support Fever but not Google Reader. Rusty Feed stores only a one-way hash of the protocol key; your password cannot be recovered.</p>
   <form method="post" action="/settings/fever" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <label>Credential name<input type="text" name="name" placeholder="Unread on my phone" required /></label>

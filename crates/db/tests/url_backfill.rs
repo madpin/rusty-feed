@@ -1,5 +1,5 @@
-use rustss_core::tracking_url::TrackingUrlPolicy;
-use rustss_db::{articles, feeds, url_backfill, Db, NewArticle};
+use rusty_feed_core::tracking_url::TrackingUrlPolicy;
+use rusty_feed_db::{articles, feeds, url_backfill, Db, NewArticle};
 use uuid::Uuid;
 
 async fn article(db: &Db, feed_id: Uuid, url: String, title: &str) -> Uuid {

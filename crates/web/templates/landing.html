@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>RustSS — your RSS reader, but it understands what you read</title>
+    <title>Rusty Feed — your RSS reader, but it understands what you read</title>
     <meta name="description" content="A self-hosted, AI-augmented RSS reader: semantic search, personalized ranking that learns from your reading, optional LLM summaries, GReader & Fever APIs, and a fast server-rendered UI." />
-    <meta property="og:title" content="RustSS — an RSS reader that understands what you read" />
+    <meta property="og:title" content="Rusty Feed — an RSS reader that understands what you read" />
     <meta property="og:description" content="Semantic search, personalized ranking, optional AI summaries, GReader & Fever APIs — self-hostable." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/static/screenshots/library.webp" />
@@ -17,14 +17,14 @@
   </head>
   <body class="landing">
     <header class="landing-nav">
-      <a class="auth-brand" href="/"><span class="brand-mark">R</span><span>RustSS</span></a>
+      <a class="auth-brand" href="/"><span class="brand-mark">R</span><span>Rusty Feed</span></a>
       <nav><a href="/login">Sign in</a> <a class="btn primary" href="/register">Create free account</a></nav>
     </header>
 
     <main>
       <section class="landing-hero">
         <h1>Your RSS reader, but it actually understands what you read.</h1>
-        <p class="lede">RustSS is a self-hosted, AI-augmented reader: find articles by meaning, get a feed that learns what you care about, and (optionally, with your own key) summarize the long ones.</p>
+        <p class="lede">Rusty Feed is a self-hosted, AI-augmented reader: find articles by meaning, get a feed that learns what you care about, and (optionally, with your own key) summarize the long ones.</p>
         <div class="landing-cta">
           {% if registration_open %}<a class="btn primary" href="/register">Create free account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
           {% if demo_mode %}
@@ -38,7 +38,7 @@
       </section>
 
       <section class="landing-shots">
-        <img src="/static/screenshots/library.webp" alt="The RustSS reading library" loading="lazy" width="1100" />
+        <img src="/static/screenshots/library.webp" alt="The Rusty Feed reading library" loading="lazy" width="1100" />
         <img src="/static/screenshots/discover.webp" alt="Semantic discovery and search" loading="lazy" width="1100" />
         <img src="/static/screenshots/article.webp" alt="An article with an AI summary" loading="lazy" width="1100" />
       </section>
@@ -58,11 +58,11 @@
       </section>
 
       <section class="landing-compare">
-        <h2>RustSS vs Miniflux</h2>
+        <h2>Rusty Feed vs Miniflux</h2>
         <p class="muted">Everything you expect from Miniflux, plus it understands what you read. Compared as of {{ comparison_date }}; verify the Miniflux column against current docs.</p>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Capability</th><th>RustSS</th><th>Miniflux</th></tr></thead>
+            <thead><tr><th>Capability</th><th>Rusty Feed</th><th>Miniflux</th></tr></thead>
             <tbody>
               <tr><td>Feeds / OPML / categories, keyboard-driven reading</td><td>Yes</td><td>Yes</td></tr>
               <tr><td>GReader &amp; Fever client APIs</td><td>Yes</td><td>Yes</td></tr>
@@ -78,7 +78,7 @@
             </tbody>
           </table>
         </div>
-        <p class="muted">Miniflux is more mature, lighter, and simpler to run; RustSS adds AI/semantic capabilities at a higher resource floor. Pick what fits your needs.</p>
+        <p class="muted">Miniflux is more mature, lighter, and simpler to run; Rusty Feed adds AI/semantic capabilities at a higher resource floor. Pick what fits your needs.</p>
       </section>
 
       <section class="landing-final-cta">
@@ -94,7 +94,7 @@
     </main>
 
     <footer class="site-footer">
-      <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/abuse">Abuse</a> · <a href="https://github.com/madpin/rustss" rel="noopener noreferrer">Source</a>
+      <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/abuse">Abuse</a> · <a href="https://github.com/madpin/rusty-feed" rel="noopener noreferrer">Source</a>
     </footer>
   </body>
 </html>

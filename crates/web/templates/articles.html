@@ -89,14 +89,14 @@
           {% endif %}
           <a href="/articles/{{ a.id }}/send" class="btn">Send to…</a>
           <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
-                data-target="#card-{{ a.id }}" data-feedback-value="up" data-success-message="RustSS will show you more articles like this.">
+                data-target="#card-{{ a.id }}" data-feedback-value="up" data-success-message="Rusty Feed will show you more articles like this.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="value" value="up" />
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit" class="feedback-button" data-feedback-button="up" aria-label="More like this" title="More like this" aria-pressed="{% if a.is_liked %}true{% else %}false{% endif %}">👍</button>
           </form>
           <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
-                data-target="#card-{{ a.id }}" data-feedback-value="down" data-success-message="RustSS will show you fewer articles like this.">
+                data-target="#card-{{ a.id }}" data-feedback-value="down" data-success-message="Rusty Feed will show you fewer articles like this.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="value" value="down" />
             <input type="hidden" name="next" value="{{ back_url }}" />

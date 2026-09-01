@@ -7,12 +7,12 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_core::feed_content::FeedContentSettings;
-use rustss_db::{
+use rusty_feed_core::feed_content::FeedContentSettings;
+use rusty_feed_db::{
     agent_runs, api_audit, articles, catalog, cost_ledger, feeds, invitations, jobs, operations,
     public_shares, users,
 };
-use rustss_feeds::{enqueue_fetch_feed, normalize_url};
+use rusty_feed_feeds::{enqueue_fetch_feed, normalize_url};
 
 use crate::auth::extractor::{AdminReadUser, AdminUser};
 use crate::auth::{csrf, token};
@@ -657,7 +657,7 @@ fn render<T: Template>(template: T) -> Result<Html<String>, AppError> {
 
 async fn render_users(
     state: &AppState,
-    user: &rustss_db::User,
+    user: &rusty_feed_db::User,
     jar: CookieJar,
     message: Option<String>,
     error: Option<String>,
@@ -747,7 +747,7 @@ async fn render_users(
 
 async fn render_catalog(
     state: &AppState,
-    user: &rustss_db::User,
+    user: &rusty_feed_db::User,
     jar: CookieJar,
     message: Option<String>,
     error: Option<String>,
@@ -1081,7 +1081,7 @@ pub async fn create_invitation(
         &state,
         &user,
         jar,
-        Some("Invitation created. Copy the link now; RustSS stores only its hash.".to_string()),
+        Some("Invitation created. Copy the link now; Rusty Feed stores only its hash.".to_string()),
         None,
         Some(link),
     )
@@ -1577,7 +1577,7 @@ pub async fn activity(
         users::recent_signups(state.db.pool(), 20),
         users::locked_accounts(state.db.pool(), 20),
         cost_ledger::usage_by_user_since(state.db.pool(), day_ago, 20),
-        rustss_db::abuse_reports::count_open(state.db.pool()),
+        rusty_feed_db::abuse_reports::count_open(state.db.pool()),
     )?;
     let signups = signups_raw
         .into_iter()

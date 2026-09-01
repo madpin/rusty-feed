@@ -6,7 +6,7 @@ use serde_json::json;
 use time::Duration;
 use uuid::Uuid;
 
-use rustss_db::{agent_locks, feeds, outbox};
+use rusty_feed_db::{agent_locks, feeds, outbox};
 
 use crate::{Agent, AgentContext};
 

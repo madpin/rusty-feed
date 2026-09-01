@@ -1,4 +1,4 @@
-//! FetchFeedAgent: fetch + parse + ingest a single shared feed (via rustss-feeds).
+//! FetchFeedAgent: fetch + parse + ingest a single shared feed (via rusty-feed-feeds).
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -6,7 +6,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{Agent, AgentContext};
-use rustss_db::{articles, feeds, integrations, jobs, subscriptions};
+use rusty_feed_db::{articles, feeds, integrations, jobs, subscriptions};
 
 /// Cap on extraction jobs enqueued per feed refresh.
 const EXTRACT_ENQUEUE_LIMIT: i64 = 50;
@@ -20,7 +20,7 @@ pub struct FetchFeedAgent;
 
 async fn enqueue_embeddings(
     ctx: &AgentContext,
-    pending: Vec<rustss_db::articles::ArticleRevision>,
+    pending: Vec<rusty_feed_db::articles::ArticleRevision>,
 ) -> anyhow::Result<u64> {
     let mut enqueued = 0;
     for article in pending {
@@ -33,7 +33,7 @@ async fn enqueue_embeddings(
 
 async fn enqueue_summaries(
     ctx: &AgentContext,
-    pending: Vec<rustss_db::articles::ArticleRevision>,
+    pending: Vec<rusty_feed_db::articles::ArticleRevision>,
 ) -> anyhow::Result<u64> {
     let mut enqueued = 0;
     for article in pending {
@@ -110,11 +110,11 @@ impl Agent for FetchFeedAgent {
         }
 
         // Compile the blocklist once per refresh so per-article checks are O(1).
-        let blocklist = rustss_db::feed_blocklist::compiled(ctx.db.pool())
+        let blocklist = rusty_feed_db::feed_blocklist::compiled(ctx.db.pool())
             .await
             .unwrap_or_default();
         let acquisition_fetch = ctx.fetch_for_feed(feed_id).await?;
-        let stats = rustss_feeds::refresh_feed_with_policies(
+        let stats = rusty_feed_feeds::refresh_feed_with_policies(
             &ctx.db,
             &acquisition_fetch,
             &feed,

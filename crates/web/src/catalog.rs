@@ -9,9 +9,9 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_core::html::sanitize_article_html;
-use rustss_db::{catalog, feed_icons, jobs, User};
-use rustss_feeds::enqueue_fetch_feed;
+use rusty_feed_core::html::sanitize_article_html;
+use rusty_feed_db::{catalog, feed_icons, jobs, User};
+use rusty_feed_feeds::enqueue_fetch_feed;
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -548,12 +548,12 @@ pub async fn subscribe(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::Subscriptions,
+        rusty_feed_core::quotas::QuotaKind::Subscriptions,
     )
     .await?;
     // Demo accounts get a tighter subscription cap (§7.4).
     if user.is_demo && state.settings.demo_max_subscriptions > 0 {
-        let count = rustss_db::subscriptions::count_for_user(state.db.pool(), user.id).await?;
+        let count = rusty_feed_db::subscriptions::count_for_user(state.db.pool(), user.id).await?;
         if count >= i64::from(state.settings.demo_max_subscriptions) {
             return Err(AppError::QuotaExceeded(format!(
                 "Demo accounts are limited to {} subscriptions.",
@@ -564,7 +564,7 @@ pub async fn subscribe(
     let result = match catalog::subscribe_published_many(state.db.pool(), user.id, &feed_ids).await
     {
         Ok(result) => result,
-        Err(rustss_db::DbError::NotFound) => {
+        Err(rusty_feed_db::DbError::NotFound) => {
             return render_page(
                 &state,
                 &user,

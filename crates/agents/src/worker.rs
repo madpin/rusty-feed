@@ -9,14 +9,14 @@ use time::Duration as TimeDuration;
 use tokio::sync::watch;
 use tokio::time::Duration;
 
-use rustss_core::{
+use rusty_feed_core::{
     cron::CronSchedule, tracking_pixel::TrackingPixelPolicy, tracking_url::TrackingUrlPolicy,
 };
-use rustss_db::{agent_runs, jobs, outbox, Db, Job};
-use rustss_embed::Embedder;
-use rustss_extract::ExtractionService;
-use rustss_feeds::SafeFetchClient;
-use rustss_llm::LlmClient;
+use rusty_feed_db::{agent_runs, jobs, outbox, Db, Job};
+use rusty_feed_embed::Embedder;
+use rusty_feed_extract::ExtractionService;
+use rusty_feed_feeds::SafeFetchClient;
+use rusty_feed_llm::LlmClient;
 
 use crate::{
     Agent, AgentContext, CatalogPreviewAgent, ContentCleanupAgent, DemoResetAgent,
@@ -92,7 +92,7 @@ pub struct WorkerConfig {
     /// Cron expression controlling shared content cleanup.
     pub cleanup_schedule: CronSchedule,
     /// Shared extraction policy, including optional bounded Chromium fallback.
-    pub extraction_config: rustss_extract::ExtractConfig,
+    pub extraction_config: rusty_feed_extract::ExtractConfig,
     /// Enqueue embedding jobs for new/extracted articles.
     pub embed_on_ingest: bool,
     pub auto_summarize: bool,
@@ -105,14 +105,14 @@ pub struct WorkerConfig {
     pub tracking_pixel_policy: TrackingPixelPolicy,
     /// Zero disables article-row cleanup; public-page lifetimes remain active.
     pub article_retention_days: u32,
-    pub retention_age_basis: rustss_core::config::RetentionAgeBasis,
-    pub integration_credentials: rustss_core::crypto::Cryptor,
-    pub acquisition_credentials: rustss_core::crypto::Cryptor,
+    pub retention_age_basis: rusty_feed_core::config::RetentionAgeBasis,
+    pub integration_credentials: rusty_feed_core::crypto::Cryptor,
+    pub acquisition_credentials: rusty_feed_core::crypto::Cryptor,
     pub youtube_duration_enabled: bool,
     pub youtube_duration_daily_budget: u32,
     pub youtube_duration_cache_days: i64,
     /// Immutable AI budget enforced before background LLM spend (FND-187).
-    pub ai_budget: rustss_core::ai_budget::AiBudget,
+    pub ai_budget: rusty_feed_core::ai_budget::AiBudget,
     /// Cap on articles ingested per feed refresh; `0` == unlimited (FND-189).
     pub feed_max_items_per_refresh: usize,
     /// Whether the demo sandbox is enabled (drives the daily reset, §7).
@@ -134,25 +134,25 @@ impl Default for WorkerConfig {
             feed_refresh_schedule: CronSchedule::default(),
             cleanup_schedule: CronSchedule::parse("0 3 * * *")
                 .unwrap_or_else(|_| unreachable!("static cron is valid")),
-            extraction_config: rustss_extract::ExtractConfig::default(),
+            extraction_config: rusty_feed_extract::ExtractConfig::default(),
             embed_on_ingest: false,
             auto_summarize: false,
             eager_extraction: true,
             tracking_url_policy: TrackingUrlPolicy::default(),
             tracking_pixel_policy: TrackingPixelPolicy::default(),
             article_retention_days: 0,
-            retention_age_basis: rustss_core::config::RetentionAgeBasis::Published,
-            integration_credentials: rustss_core::crypto::Cryptor::new(
-                b"rustss-worker-default-test-key-material",
+            retention_age_basis: rusty_feed_core::config::RetentionAgeBasis::Published,
+            integration_credentials: rusty_feed_core::crypto::Cryptor::new(
+                b"rusty-feed-worker-default-test-key-material",
             ),
-            acquisition_credentials: rustss_core::crypto::Cryptor::new_with_context(
-                b"rustss-worker-default-acquisition-key",
-                b"rustss/acquisition-profile-secrets/v1",
+            acquisition_credentials: rusty_feed_core::crypto::Cryptor::new_with_context(
+                b"rusty-feed-worker-default-acquisition-key",
+                b"rusty-feed/acquisition-profile-secrets/v1",
             ),
             youtube_duration_enabled: false,
             youtube_duration_daily_budget: 100,
             youtube_duration_cache_days: 30,
-            ai_budget: rustss_core::ai_budget::AiBudget::default(),
+            ai_budget: rusty_feed_core::ai_budget::AiBudget::default(),
             feed_max_items_per_refresh: 0,
             demo_mode: false,
             demo_reset_schedule: CronSchedule::parse("0 4 * * *")
@@ -174,7 +174,7 @@ impl Worker {
         fetch: SafeFetchClient,
         embedder: Arc<dyn Embedder>,
         llm: Option<Arc<dyn LlmClient>>,
-        llm_cascade: Option<Arc<rustss_llm::ProviderCascade>>,
+        llm_cascade: Option<Arc<rusty_feed_llm::ProviderCascade>>,
         config: WorkerConfig,
     ) -> Self {
         let summarization_available = llm.is_some() || llm_cascade.is_some();

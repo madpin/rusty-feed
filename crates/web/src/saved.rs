@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use rustss_db::{jobs, notifications, saved_search_matches, saved_searches};
+use rusty_feed_db::{jobs, notifications, saved_search_matches, saved_searches};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -174,12 +174,12 @@ pub async fn create(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::SavedSearches,
+        rusty_feed_core::quotas::QuotaKind::SavedSearches,
     )
     .await?;
     // Demo accounts get a much tighter saved-search cap (§7.4).
     if user.is_demo {
-        let count = rustss_db::saved_searches::count_for_user(state.db.pool(), user.id).await?;
+        let count = rusty_feed_db::saved_searches::count_for_user(state.db.pool(), user.id).await?;
         if count >= 3 {
             return Err(AppError::QuotaExceeded(
                 "Demo accounts are limited to 3 saved searches.".to_string(),

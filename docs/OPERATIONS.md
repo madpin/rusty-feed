@@ -1,15 +1,15 @@
-# RustSS operations guide
+# Rusty Feed operations guide
 
-This guide is the production runbook for a self-hosted RustSS instance. It
+This guide is the production runbook for a self-hosted Rusty Feed instance. It
 assumes PostgreSQL 17 with pgvector; Redis and Chromium are optional performance
 and extraction tiers. PostgreSQL is always the source of truth.
 
 ## Deployment modes
 
-- **Small instance:** one `rustss-server` with `RUN_EMBEDDED_WORKER=true`, plus
+- **Small instance:** one `rusty-feed-server` with `RUN_EMBEDDED_WORKER=true`, plus
   PostgreSQL. Redis may be disabled with `CACHE_ENABLED=false`.
 - **Scaled instance:** one or more web replicas with
-  `RUN_EMBEDDED_WORKER=false`, one or more `rustss-worker` processes, PostgreSQL,
+  `RUN_EMBEDDED_WORKER=false`, one or more `rusty-feed-worker` processes, PostgreSQL,
   optional Redis, and the remote Chromium service.
 - **Compose:** `docker compose --env-file .env -f docker/compose.yaml up -d`.
   Keep the model volume persistent so restarts do not download ONNX weights.
@@ -20,8 +20,8 @@ intentional choice visible under **Administration → Queue & logs**.
 
 ## Startup and health
 
-1. Run `rustss-cli config-check`; its output is safe to attach to a support case.
-2. Run `rustss-cli migrate` before changing application replicas. The container
+1. Run `rusty-feed-cli config-check`; its output is safe to attach to a support case.
+2. Run `rusty-feed-cli migrate` before changing application replicas. The container
    entrypoint does this by default when `AUTO_MIGRATE=true`.
 3. Check `/api/health` for process liveness and `/api/health/ready` for database
    readiness. Redis, LLM, and Chromium failures do not make core reading
@@ -34,14 +34,14 @@ intentional choice visible under **Administration → Queue & logs**.
 
 Example hardened units for the embedded-worker and split-worker layouts live in
 `contrib/systemd/`. They use `Type=notify`, `NotifyAccess=main`, and a 30-second
-watchdog. RustSS reports ready only after migrations plus listener/worker
+watchdog. Rusty Feed reports ready only after migrations plus listener/worker
 startup, reports stopping before it drains, and pings at half the watchdog
 period. Without `NOTIFY_SOCKET`, the feature creates no timer or task. Set
 `SYSTEMD_NOTIFY_ENABLED=false` to suppress it explicitly.
 
-Use `systemctl status rustss` to see the current status text and
-`journalctl -u rustss -f` for structured process logs. In the split layout, set
-`RUN_EMBEDDED_WORKER=false` before enabling `rustss-worker.service`.
+Use `systemctl status rusty-feed` to see the current status text and
+`journalctl -u rusty-feed -f` for structured process logs. In the split layout, set
+`RUN_EMBEDDED_WORKER=false` before enabling `rusty-feed-worker.service`.
 
 ### TLS termination and HTTP/2
 
@@ -60,14 +60,14 @@ same pinned image and ALPN boundary in CI.
 
 ### Trusted proxy identity
 
-Before enabling reverse-proxy authentication, firewall the RustSS listener to
+Before enabling reverse-proxy authentication, firewall the Rusty Feed listener to
 the proxy network and configure the proxy to strip any inbound header matching
 `REVERSE_PROXY_AUTH_USER_HEADER` before it writes verified identity. Use the
 proxy's immediate CIDR, not a user-controlled forwarded-address header. Start
 with `REVERSE_PROXY_AUTH_AUTO_PROVISION=false`, verify an existing non-admin
 account, then enable provisioning if desired. Map admin emails sparingly: the
 mapping applies only at first creation and does not silently overwrite later
-database role changes. Configure the upstream logout URL if ending a RustSS
+database role changes. Configure the upstream logout URL if ending a Rusty Feed
 session must also terminate SSO.
 
 The Administration overview reports enablement, trust-network count, domain and
@@ -80,12 +80,12 @@ before production cutover and keep a local admin recovery account.
 Preview tracking-parameter cleanup without changing data:
 
 ```bash
-rustss-cli canonicalize-urls
+rusty-feed-cli canonicalize-urls
 ```
 
 The report separates collision-free changes from existing-key and many-to-one
-collisions. Apply only the safe set with `rustss-cli canonicalize-urls --apply`.
-Collisions remain untouched for an administrator to review; RustSS never merges
+collisions. Apply only the safe set with `rusty-feed-cli canonicalize-urls --apply`.
+Collisions remain untouched for an administrator to review; Rusty Feed never merges
 personal state or shared enrichment implicitly.
 
 ## Backups
@@ -95,7 +95,7 @@ state. Use a custom-format dump so individual tables can be inspected:
 
 ```bash
 pg_dump --format=custom --no-owner --no-privileges \
-  --dbname="$DATABASE_URL" --file=rustss-$(date +%F).dump
+  --dbname="$DATABASE_URL" --file=rusty-feed-$(date +%F).dump
 ```
 
 For Compose, run the client in the database container and stream the dump to the
@@ -103,7 +103,7 @@ host:
 
 ```bash
 docker compose --env-file .env -f docker/compose.yaml exec -T postgres \
-  pg_dump -U rustss -Fc rustss > rustss-$(date +%F).dump
+  pg_dump -U rusty_feed -Fc rusty_feed > rusty-feed-$(date +%F).dump
 ```
 
 Encrypt backups at rest. Store `ENCRYPTION_SECRET` and `SESSION_SECRET` in a
@@ -115,9 +115,9 @@ keys, but it cannot decrypt them without the original encryption secret.
 Restore into a new, empty database—not over the live database:
 
 ```bash
-createdb rustss_restore
-pg_restore --no-owner --no-privileges --dbname=rustss_restore rustss.dump
-DATABASE_URL=postgres://.../rustss_restore rustss-cli migrate
+createdb rusty_feed_restore
+pg_restore --no-owner --no-privileges --dbname=rusty_feed_restore rusty-feed.dump
+DATABASE_URL=postgres://.../rusty_feed_restore rusty-feed-cli migrate
 ```
 
 Verify `_sqlx_migrations`, user/feed/article counts, one authenticated Library
@@ -135,7 +135,7 @@ restored database. See `RELEASE_EVIDENCE.md`.
 2. Stop standalone workers, then web replicas. This prevents old code from
    claiming work after a forward migration.
 3. Pull the immutable version tag or digest; verify its Sigstore signature.
-4. Run the new `rustss-cli migrate` once.
+4. Run the new `rusty-feed-cli migrate` once.
 5. Start workers, then web replicas; check readiness and queue heartbeats.
 6. Run a Library/search/API smoke test.
 
@@ -158,7 +158,7 @@ publisher crawl. Inspect the error class before retrying repeated failures.
 
 ## Dependency failures
 
-- **Redis:** RustSS continues with its local cache and PostgreSQL. Cross-instance
+- **Redis:** Rusty Feed continues with its local cache and PostgreSQL. Cross-instance
   invalidation resumes after a bounded subscriber reconnect.
 - **Chromium:** extraction keeps the local Readability/raw result. Publisher
   URLs still pass through `SafeFetchClient`; Chromium never navigates around the
@@ -172,15 +172,15 @@ publisher crawl. Inspect the error class before retrying repeated failures.
 
 ## Models and reindexing
 
-Run `rustss-cli fetch-model` during provisioning and persist `MODEL_CACHE_DIR`.
+Run `rusty-feed-cli fetch-model` during provisioning and persist `MODEL_CACHE_DIR`.
 For an air-gapped host, copy the populated directory before startup. Changing
 `EMBEDDING_MODEL` is an explicit maintenance event:
 
 1. stop workers;
 2. change the provider/model configuration;
-3. run `rustss-cli reindex --confirm`;
+3. run `rusty-feed-cli reindex --confirm`;
 4. restart workers and monitor the background lane;
-5. run `rustss-cli backfill` if an interrupted migration left gaps.
+5. run `rusty-feed-cli backfill` if an interrupted migration left gaps.
 
 The database guard rejects a mixed model/dimension space instead of silently
 corrupting similarity.
@@ -208,7 +208,7 @@ container against PostgreSQL before creating the GitHub release. Pin production
 to a version or digest rather than `latest`.
 
 Packages intentionally do not enable the service or create live secrets. Copy
-`/usr/share/doc/rustss/rustss.env.example` to `/etc/rustss/rustss.env`, replace
-all placeholder secrets/URLs, run `rustss-cli config-check`, then enable the
-service. Package upgrades preserve `/etc/rustss`, apply forward migrations on
-startup, and retain `/var/lib/rustss`; use the backup/rollback rules above.
+`/usr/share/doc/rusty-feed/rusty-feed.env.example` to `/etc/rusty-feed/rusty-feed.env`, replace
+all placeholder secrets/URLs, run `rusty-feed-cli config-check`, then enable the
+service. Package upgrades preserve `/etc/rusty-feed`, apply forward migrations on
+startup, and retain `/var/lib/rusty-feed`; use the backup/rollback rules above.

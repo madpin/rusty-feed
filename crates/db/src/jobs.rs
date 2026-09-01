@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_core::html::ARTICLE_PAGE_PROCESSING_VERSION;
+use rusty_feed_core::html::ARTICLE_PAGE_PROCESSING_VERSION;
 
 use crate::error::Result;
 use crate::models::Job;

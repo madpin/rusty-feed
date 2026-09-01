@@ -1,22 +1,22 @@
 [Unit]
-Description=RustSS standalone background worker
-After=network-online.target postgresql.service rustss.service
+Description=Rusty Feed feed reader and embedded worker
+After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
 Type=notify
 NotifyAccess=main
-User=rustss
-Group=rustss
-EnvironmentFile=/etc/rustss/rustss.env
-ExecStart=/usr/bin/rustss-worker
+User=rusty-feed
+Group=rusty-feed
+EnvironmentFile=/etc/rusty-feed/rusty-feed.env
+ExecStart=/usr/bin/rusty-feed-server
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=90s
 TimeoutStopSec=45s
 WatchdogSec=30s
-StateDirectory=rustss
-WorkingDirectory=/var/lib/rustss
+StateDirectory=rusty-feed
+WorkingDirectory=/var/lib/rusty-feed
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

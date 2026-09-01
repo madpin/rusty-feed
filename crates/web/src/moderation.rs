@@ -11,8 +11,8 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use rustss_core::blocklist::BlockKind;
-use rustss_db::{abuse_reports, articles, feed_blocklist, feeds, moderation, User};
+use rusty_feed_core::blocklist::BlockKind;
+use rusty_feed_db::{abuse_reports, articles, feed_blocklist, feeds, moderation, User};
 
 use crate::auth::csrf;
 use crate::auth::extractor::{AdminReadUser, AdminUser, AuthUser};
@@ -84,7 +84,7 @@ pub async fn report_article(
         &reason,
     )
     .await?;
-    metrics::counter!("rustss_abuse_reports_total", "target" => "article").increment(1);
+    metrics::counter!("rusty_feed_abuse_reports_total", "target" => "article").increment(1);
     Ok(Redirect::to(&format!("/articles/{id}?reported=1")).into_response())
 }
 
@@ -119,7 +119,7 @@ pub async fn report_feed(
         &reason,
     )
     .await?;
-    metrics::counter!("rustss_abuse_reports_total", "target" => "feed").increment(1);
+    metrics::counter!("rusty_feed_abuse_reports_total", "target" => "feed").increment(1);
     Ok(Redirect::to("/feeds?reported=1").into_response())
 }
 
@@ -270,7 +270,7 @@ pub async fn blocklist_add(
         .await;
     };
     let pattern = match kind {
-        BlockKind::Domain => rustss_core::blocklist::normalize_host(&form.pattern),
+        BlockKind::Domain => rusty_feed_core::blocklist::normalize_host(&form.pattern),
         BlockKind::Url => form.pattern.trim().to_string(),
     };
     if pattern.is_empty() || pattern.chars().count() > 400 {
@@ -387,7 +387,7 @@ pub async fn block_feed(
         .ok_or(AppError::NotFound)?;
     let host = url::Url::parse(&feed.url)
         .ok()
-        .and_then(|u| u.host_str().map(rustss_core::blocklist::normalize_host))
+        .and_then(|u| u.host_str().map(rusty_feed_core::blocklist::normalize_host))
         .unwrap_or_default();
     let reason = "blocked by an administrator";
     if !host.is_empty() {
@@ -413,7 +413,7 @@ pub async fn block_feed(
         json!({ "feed_id": id, "domain": host }),
     )
     .await?;
-    metrics::counter!("rustss_moderation_actions_total", "action" => "feed.block").increment(1);
+    metrics::counter!("rusty_feed_moderation_actions_total", "action" => "feed.block").increment(1);
     Ok((jar, Redirect::to("/admin/feeds")).into_response())
 }
 
@@ -454,7 +454,7 @@ pub async fn takedown_article(
         json!({ "article_id": id, "title": article.title }),
     )
     .await?;
-    metrics::counter!("rustss_moderation_actions_total", "action" => "article.takedown")
+    metrics::counter!("rusty_feed_moderation_actions_total", "action" => "article.takedown")
         .increment(1);
     Ok((jar, Redirect::to("/admin/feeds/blocklist")).into_response())
 }

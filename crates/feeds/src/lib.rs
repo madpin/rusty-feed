@@ -1,4 +1,4 @@
-//! # rustss-feeds
+//! # rusty-feed-feeds
 //!
 //! Feed fetching and ingest: the SSRF-guarded [`SafeFetchClient`], `feed-rs`
 //! parsing, URL normalization, conditional GET (ETag/Last-Modified), and
@@ -31,8 +31,8 @@ pub use safe_fetch::{
 use futures_util::StreamExt;
 use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 
-use rustss_core::{tracking_pixel::TrackingPixelPolicy, tracking_url::TrackingUrlPolicy};
-use rustss_db::{jobs, Db, Feed};
+use rusty_feed_core::{tracking_pixel::TrackingPixelPolicy, tracking_url::TrackingUrlPolicy};
+use rusty_feed_db::{jobs, Db, Feed};
 use uuid::Uuid;
 
 use crate::icons::{favicon_url, resolve_icon_url, try_refresh_feed_icon};
@@ -43,7 +43,7 @@ const MAX_FEED_BYTES: usize = 10 * 1024 * 1024;
 /// One queued fetch represents one health attempt; `list_due` owns retry pacing.
 pub const FETCH_FEED_MAX_ATTEMPTS: i32 = 1;
 
-pub async fn enqueue_fetch_feed(db: &Db, feed_id: Uuid) -> rustss_db::Result<Option<Uuid>> {
+pub async fn enqueue_fetch_feed(db: &Db, feed_id: Uuid) -> rusty_feed_db::Result<Option<Uuid>> {
     let dedup = format!("fetch_feed:{feed_id}");
     jobs::enqueue(
         db.pool(),
@@ -114,15 +114,15 @@ fn header_string(value: Option<&reqwest::header::HeaderValue>) -> Option<String>
     value.and_then(|v| v.to_str().ok()).map(String::from)
 }
 
-fn fetch_failure_kind(error: &FeedError) -> rustss_db::feeds::FetchFailure {
+fn fetch_failure_kind(error: &FeedError) -> rusty_feed_db::feeds::FetchFailure {
     match error {
-        FeedError::Http(_) => rustss_db::feeds::FetchFailure::Network,
-        FeedError::InvalidUrl(_) => rustss_db::feeds::FetchFailure::InvalidUrl,
-        FeedError::UnsupportedScheme(_) => rustss_db::feeds::FetchFailure::UnsupportedScheme,
-        FeedError::TooLarge => rustss_db::feeds::FetchFailure::ResponseTooLarge,
-        FeedError::Status(status) => rustss_db::feeds::FetchFailure::Http(*status as i32),
-        FeedError::Parse(_) => rustss_db::feeds::FetchFailure::Parse,
-        FeedError::Db(_) => rustss_db::feeds::FetchFailure::Database,
+        FeedError::Http(_) => rusty_feed_db::feeds::FetchFailure::Network,
+        FeedError::InvalidUrl(_) => rusty_feed_db::feeds::FetchFailure::InvalidUrl,
+        FeedError::UnsupportedScheme(_) => rusty_feed_db::feeds::FetchFailure::UnsupportedScheme,
+        FeedError::TooLarge => rusty_feed_db::feeds::FetchFailure::ResponseTooLarge,
+        FeedError::Status(status) => rusty_feed_db::feeds::FetchFailure::Http(*status as i32),
+        FeedError::Parse(_) => rusty_feed_db::feeds::FetchFailure::Parse,
+        FeedError::Db(_) => rusty_feed_db::feeds::FetchFailure::Database,
     }
 }
 
@@ -170,7 +170,7 @@ pub async fn refresh_feed_with_policy(
         tracking_url_policy,
         &TrackingPixelPolicy::default(),
         0,
-        &rustss_core::blocklist::Blocklist::default(),
+        &rusty_feed_core::blocklist::Blocklist::default(),
     )
     .await
 }
@@ -189,7 +189,7 @@ pub async fn refresh_feed_with_policies(
     tracking_url_policy: &TrackingUrlPolicy,
     tracking_pixel_policy: &TrackingPixelPolicy,
     max_items: usize,
-    blocklist: &rustss_core::blocklist::Blocklist,
+    blocklist: &rusty_feed_core::blocklist::Blocklist,
 ) -> Result<RefreshStats> {
     let outcome = match fetch_feed(
         client,
@@ -201,7 +201,7 @@ pub async fn refresh_feed_with_policies(
     {
         Ok(o) => o,
         Err(error) => {
-            let _ = rustss_db::feeds::record_fetch_failure(
+            let _ = rusty_feed_db::feeds::record_fetch_failure(
                 db.pool(),
                 feed.id,
                 fetch_failure_kind(&error),
@@ -224,7 +224,7 @@ pub async fn refresh_feed_with_policies(
                 tracing::debug!(feed_id = %feed.id, "feed icon refresh failed");
             }
         }
-        rustss_db::feeds::record_fetch_success(
+        rusty_feed_db::feeds::record_fetch_success(
             db.pool(),
             feed.id,
             outcome.etag.as_deref(),
@@ -237,7 +237,7 @@ pub async fn refresh_feed_with_policies(
         });
     }
 
-    let content_settings = rustss_core::feed_content::FeedContentSettings::from_json(
+    let content_settings = rusty_feed_core::feed_content::FeedContentSettings::from_json(
         feed.extraction_settings.as_ref(),
     );
     let parsed = match parse_feed_with_policies_and_rules(
@@ -249,7 +249,7 @@ pub async fn refresh_feed_with_policies(
     ) {
         Ok(parsed) => parsed,
         Err(error) => {
-            let _ = rustss_db::feeds::record_fetch_failure(
+            let _ = rusty_feed_db::feeds::record_fetch_failure(
                 db.pool(),
                 feed.id,
                 fetch_failure_kind(&error),
@@ -262,7 +262,7 @@ pub async fn refresh_feed_with_policies(
     // Keep the canonical feed name/site fresh from the source (per-user custom
     // names are stored separately and untouched).
     if let Some(title) = parsed.title.as_deref() {
-        let _ = rustss_db::feeds::update_metadata(
+        let _ = rusty_feed_db::feeds::update_metadata(
             db.pool(),
             feed.id,
             title,
@@ -311,7 +311,7 @@ pub async fn refresh_feed_with_policies(
                 continue;
             }
         }
-        match rustss_db::articles::upsert_with_original_url_and_privacy(
+        match rusty_feed_db::articles::upsert_with_original_url_and_privacy(
             db.pool(),
             article,
             parsed.original_url_for(article),
@@ -319,17 +319,17 @@ pub async fn refresh_feed_with_policies(
         )
         .await
         {
-            Ok((stored, rustss_db::UpsertAction::Created)) => {
+            Ok((stored, rusty_feed_db::UpsertAction::Created)) => {
                 stats.created += 1;
                 stats.created_article_ids.push(stored.id);
             }
-            Ok((_, rustss_db::UpsertAction::Updated)) => stats.updated += 1,
-            Ok((_, rustss_db::UpsertAction::Skipped)) => stats.skipped += 1,
+            Ok((_, rusty_feed_db::UpsertAction::Updated)) => stats.updated += 1,
+            Ok((_, rusty_feed_db::UpsertAction::Skipped)) => stats.skipped += 1,
             Err(e) => tracing::warn!(feed_id = %feed.id, error = %e, "article upsert failed"),
         }
     }
 
-    rustss_db::feeds::record_fetch_success(
+    rusty_feed_db::feeds::record_fetch_success(
         db.pool(),
         feed.id,
         outcome.etag.as_deref(),
@@ -337,7 +337,7 @@ pub async fn refresh_feed_with_policies(
     )
     .await?;
     if let Some(icon_url) = icon_url {
-        let _ = rustss_db::feeds::update_image_url(db.pool(), feed.id, &icon_url).await;
+        let _ = rusty_feed_db::feeds::update_image_url(db.pool(), feed.id, &icon_url).await;
         if try_refresh_feed_icon(db, client, feed.id, &icon_url)
             .await
             .is_err()

@@ -1,4 +1,4 @@
-//! Google Reader-compatible protocol adapter backed by RustSS domain state.
+//! Google Reader-compatible protocol adapter backed by Rusty Feed domain state.
 
 use axum::extract::{Path, RawForm, RawQuery, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -8,11 +8,11 @@ use serde_json::{json, Value};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use rustss_db::{
+use rusty_feed_db::{
     api_tokens, articles, bookmarks, categories, feeds, greader, read_articles, subscriptions,
     users, User,
 };
-use rustss_feeds::{enqueue_fetch_feed, normalize_url};
+use rusty_feed_feeds::{enqueue_fetch_feed, normalize_url};
 
 use crate::auth::{password, token};
 use crate::extract::ClientIp;
@@ -38,8 +38,8 @@ pub enum GReaderError {
     Internal(#[from] anyhow::Error),
 }
 
-impl From<rustss_db::DbError> for GReaderError {
-    fn from(error: rustss_db::DbError) -> Self {
+impl From<rusty_feed_db::DbError> for GReaderError {
+    fn from(error: rusty_feed_db::DbError) -> Self {
         Self::Internal(anyhow::Error::new(error))
     }
 }
@@ -195,7 +195,7 @@ pub async fn client_login(
         // Password ClientLogin mints a fresh token each call; bound accumulation
         // with the same per-user API-token quota as the settings UI (FND-188).
         let quotas = &state.settings.quotas;
-        let kind = rustss_core::quotas::QuotaKind::ApiTokens;
+        let kind = rusty_feed_core::quotas::QuotaKind::ApiTokens;
         if quotas.limit(kind) > 0 {
             let count = api_tokens::count_for_user(state.db.pool(), user.id).await?;
             if !quotas.allows(kind, count) {
@@ -320,7 +320,7 @@ async fn category_for_label(state: &AppState, user_id: Uuid, stream: &str) -> Re
     }
     // Creating a new label is a new category row — subject to the quota (FND-188).
     let quotas = &state.settings.quotas;
-    let kind = rustss_core::quotas::QuotaKind::Categories;
+    let kind = rusty_feed_core::quotas::QuotaKind::Categories;
     if quotas.limit(kind) > 0 {
         let count = categories::count_for_user(state.db.pool(), user_id).await?;
         if !quotas.allows(kind, count) {
@@ -353,7 +353,7 @@ pub async fn subscription_edit(
                 .map_err(|error| GReaderError::BadRequest(error.to_string()))?;
             // Per-user subscription quota (FND-188).
             let quotas = &state.settings.quotas;
-            let kind = rustss_core::quotas::QuotaKind::Subscriptions;
+            let kind = rusty_feed_core::quotas::QuotaKind::Subscriptions;
             if quotas.limit(kind) > 0 {
                 let count = subscriptions::count_for_user(state.db.pool(), user.id).await?;
                 if !quotas.allows(kind, count) {

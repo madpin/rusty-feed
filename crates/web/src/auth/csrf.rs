@@ -10,7 +10,7 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use crate::auth::token;
 
 /// Name of the CSRF cookie.
-pub const CSRF_COOKIE: &str = "rustss_csrf";
+pub const CSRF_COOKIE: &str = "rusty_feed_csrf";
 /// Form field name carrying the CSRF token.
 pub const CSRF_FIELD: &str = "csrf_token";
 

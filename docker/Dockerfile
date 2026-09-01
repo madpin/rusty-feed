@@ -15,14 +15,14 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
 COPY bins ./bins
 
-# Compile release binaries. RustSS uses runtime SQLx queries (validated by the
+# Compile release binaries. Rusty Feed uses runtime SQLx queries (validated by the
 # integration tests against a real Postgres), so no database or offline metadata
 # is needed at build time.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo build --release --bin rustss-server --bin rustss-worker --bin rustss-cli \
+    cargo build --release --bin rusty-feed-server --bin rusty-feed-worker --bin rusty-feed-cli \
  && mkdir -p /out \
- && cp target/release/rustss-server target/release/rustss-worker target/release/rustss-cli /out/
+ && cp target/release/rusty-feed-server target/release/rusty-feed-worker target/release/rusty-feed-cli /out/
 
 # ── Runtime ──────────────────────────────────────────────────────────────────
 FROM debian:trixie-slim AS runtime
@@ -31,18 +31,18 @@ FROM debian:trixie-slim AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates libstdc++6 libssl3t64 tini \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --system --create-home --uid 10001 rustss \
- && mkdir -p /var/lib/rustss/models \
- && chown -R rustss:rustss /var/lib/rustss
+ && useradd --system --create-home --uid 10001 rusty-feed \
+ && mkdir -p /var/lib/rusty-feed/models \
+ && chown -R rusty-feed:rusty-feed /var/lib/rusty-feed
 
-COPY --from=builder /out/rustss-server /out/rustss-worker /out/rustss-cli /usr/local/bin/
+COPY --from=builder /out/rusty-feed-server /out/rusty-feed-worker /out/rusty-feed-cli /usr/local/bin/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-USER rustss
-ENV MODEL_CACHE_DIR=/var/lib/rustss/models \
+USER rusty-feed
+ENV MODEL_CACHE_DIR=/var/lib/rusty-feed/models \
     BIND_ADDR=0.0.0.0:8080
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
-CMD ["rustss-server"]
+CMD ["rusty-feed-server"]

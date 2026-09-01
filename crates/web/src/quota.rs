@@ -2,7 +2,7 @@
 //! per-user create path; it returns `AppError::QuotaExceeded` (409) when the cap
 //! is reached. Quotas count per-user rows only and never touch shared content.
 
-use rustss_core::quotas::QuotaKind;
+use rusty_feed_core::quotas::QuotaKind;
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -21,14 +21,20 @@ pub async fn assert_within(
     }
     let pool = state.db.pool();
     let count = match kind {
-        QuotaKind::Subscriptions => rustss_db::subscriptions::count_for_user(pool, user_id).await?,
-        QuotaKind::SavedSearches => {
-            rustss_db::saved_searches::count_for_user(pool, user_id).await?
+        QuotaKind::Subscriptions => {
+            rusty_feed_db::subscriptions::count_for_user(pool, user_id).await?
         }
-        QuotaKind::Categories => rustss_db::categories::count_for_user(pool, user_id).await?,
-        QuotaKind::ApiTokens => rustss_db::api_tokens::count_for_user(pool, user_id).await?,
-        QuotaKind::Integrations => rustss_db::integrations::count_for_user(pool, user_id).await?,
-        QuotaKind::PublicShares => rustss_db::public_shares::count_for_user(pool, user_id).await?,
+        QuotaKind::SavedSearches => {
+            rusty_feed_db::saved_searches::count_for_user(pool, user_id).await?
+        }
+        QuotaKind::Categories => rusty_feed_db::categories::count_for_user(pool, user_id).await?,
+        QuotaKind::ApiTokens => rusty_feed_db::api_tokens::count_for_user(pool, user_id).await?,
+        QuotaKind::Integrations => {
+            rusty_feed_db::integrations::count_for_user(pool, user_id).await?
+        }
+        QuotaKind::PublicShares => {
+            rusty_feed_db::public_shares::count_for_user(pool, user_id).await?
+        }
     };
     if quotas.allows(kind, count) {
         Ok(())

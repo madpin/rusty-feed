@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}RustSS{% endblock %}
+{% block title %}Rusty Feed{% endblock %}
 {% block content %}
-<h1>RustSS</h1>
+<h1>Rusty Feed</h1>
 {% if let Some(name) = user_name %}
 <p>Signed in as <strong>{{ name }}</strong>.</p>
 <form method="post" action="/logout">

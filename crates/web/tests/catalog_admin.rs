@@ -4,12 +4,12 @@ use axum::Router;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use rustss_cache::Cache;
-use rustss_core::feed_content::ContentLifetime;
-use rustss_db::{
+use rusty_feed_cache::Cache;
+use rusty_feed_core::feed_content::ContentLifetime;
+use rusty_feed_db::{
     agent_runs, articles, catalog, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle,
 };
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_web::{router, AppSettings, AppState};
 use serde_json::json;
 
 fn set_cookies(response: &Response<Body>) -> Vec<(String, String)> {
@@ -41,7 +41,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = cookie(&set_cookies(&response), "rustss_csrf")
+    let csrf = cookie(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let response = app
@@ -49,7 +49,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -58,7 +58,7 @@ async fn register(app: &Router) -> (String, String) {
         .await
         .unwrap();
     (
-        cookie(&set_cookies(&response), "rustss_sid")
+        cookie(&set_cookies(&response), "rusty_feed_sid")
             .unwrap()
             .to_string(),
         email.replace("%40", "@"),
@@ -164,14 +164,14 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get("/catalog")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let csrf = cookie(&set_cookies(&response), "rustss_csrf")
+    let csrf = cookie(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let page = body_string(response).await;
@@ -185,7 +185,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get(format!("/feeds/{}/icon", rust_feed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -208,7 +208,10 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .oneshot(
             Request::post("/catalog/subscribe")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&feed_id={}&feed_id={}",
                     feed.id, second_feed.id
@@ -236,7 +239,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get("/admin")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -247,7 +250,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get("/admin/logs")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -262,7 +265,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get("/admin")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -350,7 +353,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get("/admin/logs")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -389,13 +392,13 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get("/admin/catalog")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    let csrf = cookie(&set_cookies(&response), "rustss_csrf")
+    let csrf = cookie(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     assert!(body_string(response)
@@ -410,7 +413,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .oneshot(
             Request::post("/admin/catalog")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "csrf_token={csrf}&url={admin_catalog_url}&title=Admin+catalog+source&description=Editable+catalog+entry&category=Testing&country=Global&language=en&featured=true&sort_order=9"
                 )))
@@ -438,7 +441,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get(format!("/feeds/{}/settings", unsubscribed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -463,13 +466,13 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .clone()
         .oneshot(
             Request::get("/admin/users")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    let csrf = cookie(&set_cookies(&response), "rustss_csrf")
+    let csrf = cookie(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let response = app
@@ -477,7 +480,10 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .oneshot(
             Request::post(format!("/admin/users/{}/role", user.id))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}&role=user")))
                 .unwrap(),
         )
@@ -500,7 +506,10 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .oneshot(
             Request::post(format!("/admin/users/{}/role", member.id))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}&role=admin")))
                 .unwrap(),
         )
@@ -660,7 +669,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         .clone()
         .oneshot(
             Request::get(format!("/catalog/{}/preview", unpublished_feed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -680,7 +689,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         .clone()
         .oneshot(
             Request::get(format!("/catalog/{}/preview", feed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -688,7 +697,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["cache-control"], "private, no-store");
-    let csrf = cookie(&set_cookies(&response), "rustss_csrf")
+    let csrf = cookie(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let page = body_string(response).await;
@@ -705,7 +714,10 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         .oneshot(
             Request::post(format!("/catalog/{}/preview/analyze", feed.id))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from("csrf_token=wrong"))
                 .unwrap(),
         )
@@ -721,7 +733,10 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
                     feed.id
                 ))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}")))
                 .unwrap(),
             )
@@ -771,7 +786,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         .clone()
         .oneshot(
             Request::get(format!("/catalog/{}/preview?view=processed", feed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )

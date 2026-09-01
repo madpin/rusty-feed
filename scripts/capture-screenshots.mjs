@@ -1,7 +1,7 @@
-// Capture product screenshots for the README/docs against a running RustSS.
+// Capture product screenshots for the README/docs against a running Rusty Feed.
 //
 // Usage:
-//   1. Start RustSS (see docs/screenshots/README.md), e.g. on http://127.0.0.1:8088
+//   1. Start Rusty Feed (see docs/screenshots/README.md), e.g. on http://127.0.0.1:8088
 //   2. node scripts/capture-screenshots.mjs
 //
 // It logs in (or registers) a showcase account, subscribes it to the discovery
@@ -13,7 +13,7 @@ import { mkdir } from "node:fs/promises";
 
 const baseURL = process.env.SHOT_BASE_URL || "http://127.0.0.1:8088";
 const outDir = process.env.SHOT_OUT_DIR || "docs/screenshots";
-const email = process.env.SHOT_EMAIL || "showcase@rustss.local";
+const email = process.env.SHOT_EMAIL || "showcase@rusty-feed.local";
 const password = process.env.SHOT_PASSWORD || "showcase-password-123";
 
 await mkdir(outDir, { recursive: true });

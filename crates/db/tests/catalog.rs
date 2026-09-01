@@ -1,6 +1,6 @@
-use rustss_core::feed_content::ContentLifetime;
-use rustss_db::models::NewArticle;
-use rustss_db::{articles, catalog, feeds, subscriptions, users, Db};
+use rusty_feed_core::feed_content::ContentLifetime;
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{articles, catalog, feeds, subscriptions, users, Db};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 

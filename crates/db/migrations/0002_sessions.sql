@@ -1,6 +1,6 @@
 -- Server-side sessions (docs/ARCHITECTURE.md §15; FR-AUTH-3).
 --
--- RustSS uses a small, dependency-light session scheme instead of a third-party
+-- Rusty Feed uses a small, dependency-light session scheme instead of a third-party
 -- session library (see docs/FINDINGS.md FND-116): the browser holds an opaque
 -- random token in a secure, HTTP-only cookie; only its SHA-256 hash is stored
 -- here, so a database read never exposes live session tokens.

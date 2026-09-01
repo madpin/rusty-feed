@@ -17,7 +17,7 @@
   <div class="section-heading">
     <div>
       <h2>Anonymous public-content check</h2>
-      <p class="muted">RustSS checks at most three current public article pages in the background. It always respects robots.txt, follows no redirects, and never uses publisher credentials. This check never changes the source’s shared content policy.</p>
+      <p class="muted">Rusty Feed checks at most three current public article pages in the background. It always respects robots.txt, follows no redirects, and never uses publisher credentials. This check never changes the source’s shared content policy.</p>
     </div>
     {% if preview.needs_analysis %}
     <form method="post" action="/catalog/{{ preview.feed_id }}/preview/analyze?view={% if preview.show_processed %}processed{% else %}rss{% endif %}">
@@ -43,7 +43,7 @@
     <div><dt>Reader failed</dt><dd>{{ stats.reader_failed_count }}</dd></div>
     <div><dt>Fetch failed</dt><dd>{{ stats.fetch_failed_count }}</dd></div>
   </dl>
-  <p class="muted">HTTP 401/402/403 are anonymous access observations. They can indicate sign-in, payment, bot protection, geographic restrictions, or publisher policy; RustSS does not bypass them.</p>
+  <p class="muted">HTTP 401/402/403 are anonymous access observations. They can indicate sign-in, payment, bot protection, geographic restrictions, or publisher policy; Rusty Feed does not bypass them.</p>
   {% else %}
   <p class="muted">No public-content analysis has run for this source yet. The RSS preview below is available immediately.</p>
   {% endif %}

@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rustss_db::catalog::{self, ContentProbeCandidate};
-use rustss_extract::{ExtractOutcome, Extracted, ExtractionService};
+use rusty_feed_db::catalog::{self, ContentProbeCandidate};
+use rusty_feed_extract::{ExtractOutcome, Extracted, ExtractionService};
 
 use crate::{Agent, AgentContext};
 

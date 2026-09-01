@@ -1,27 +1,27 @@
 [package]
-name = "rustss-server"
+name = "rusty-feed-server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS HTTP server (optionally embeds the AGENTS worker)."
+description = "Rusty Feed HTTP server (optionally embeds the AGENTS worker)."
 
 [[bin]]
-name = "rustss-server"
+name = "rusty-feed-server"
 path = "src/main.rs"
 
 [dependencies]
-rustss-core = { workspace = true, features = ["telemetry"] }
-rustss-web = { workspace = true }
-rustss-db = { workspace = true }
-rustss-cache = { workspace = true }
-rustss-agents = { workspace = true }
-rustss-embed = { workspace = true }
-rustss-llm = { workspace = true }
-rustss-feeds = { workspace = true }
-rustss-extract = { workspace = true }
+rusty-feed-core = { workspace = true, features = ["telemetry"] }
+rusty-feed-web = { workspace = true }
+rusty-feed-db = { workspace = true }
+rusty-feed-cache = { workspace = true }
+rusty-feed-agents = { workspace = true }
+rusty-feed-embed = { workspace = true }
+rusty-feed-llm = { workspace = true }
+rusty-feed-feeds = { workspace = true }
+rusty-feed-extract = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

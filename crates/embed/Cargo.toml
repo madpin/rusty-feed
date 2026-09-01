@@ -1,15 +1,15 @@
 [package]
-name = "rustss-embed"
+name = "rusty-feed-embed"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS embeddings: one embedding space per instance (local/OpenAI)."
+description = "Rusty Feed embeddings: one embedding space per instance (local/OpenAI)."
 
 [dependencies]
-rustss-core = { workspace = true }
+rusty-feed-core = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

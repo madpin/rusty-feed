@@ -4,7 +4,7 @@ Guidance for Gemini (and other AI assistants) working in this repository.
 
 **➡️ The canonical guide is [`AGENTS.md`](./AGENTS.md). Read it first.** This file is a pointer.
 
-**Project:** RustSS — a self-hosted, multi-user, AI-augmented RSS reader in Rust
+**Project:** Rusty Feed — a self-hosted, multi-user, AI-augmented RSS reader in Rust
 (Axum + Askama/HTMX, PostgreSQL/pgvector, Redis, background "AGENTS" workers). A
 ground-up Rust reimplementation of the original `neureed` (Next.js/TypeScript).
 

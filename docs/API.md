@@ -1,4 +1,4 @@
-# RustSS native API
+# Rusty Feed native API
 
 Article URLs returned by both native and compatibility APIs use the effective
 instance tracking-parameter policy. The native detail resource also returns the
@@ -47,14 +47,14 @@ IDs return `404` without revealing another user's data.
 Example:
 
 ```bash
-curl -H "Authorization: Bearer $RUSTSS_TOKEN" \
+curl -H "Authorization: Bearer $RUSTY_FEED_TOKEN" \
   "https://reader.example/api/v1/articles?unread=true&limit=25"
 ```
 
 ## Google Reader compatibility
 
 Existing mobile clients can use the implemented GReader subset. Configure the
-server/base URL as the RustSS origin; the protocol routes are the conventional
+server/base URL as the Rusty Feed origin; the protocol routes are the conventional
 `/accounts/ClientLogin` and `/reader/api/0/*` paths, not `/api/v1`.
 
 `ClientLogin` accepts a local account password or an existing app API token and
@@ -90,7 +90,7 @@ New custom integrations should still prefer the clearer versioned native API.
 ## Fever compatibility
 
 Create a named Fever username/password under **Account → API tokens** and use
-the RustSS origin in a Fever-compatible client. RustSS stores only a hash of
+the Rusty Feed origin in a Fever-compatible client. Rusty Feed stores only a hash of
 the protocol's `md5(username:password)` key; the credential is independently
 revocable in the token list. `/fever/` supports JSON groups, feeds, favicons,
 items, unread/saved ID synchronization, and read/unread/save/unsave mutations.

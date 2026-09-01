@@ -5,10 +5,10 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use rustss_cache::Cache;
-use rustss_db::models::NewArticle;
-use rustss_db::{api_tokens, articles, feeds, subscriptions, users, Db};
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_cache::Cache;
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{api_tokens, articles, feeds, subscriptions, users, Db};
+use rusty_feed_web::{router, AppSettings, AppState};
 
 async fn body(response: axum::response::Response) -> String {
     String::from_utf8(
@@ -66,7 +66,7 @@ async fn client_sequence_preserves_shared_content_and_personal_state() {
             comments_url: None,
             guid: None,
             title: "Protocol article".into(),
-            author: Some("RustSS".into()),
+            author: Some("Rusty Feed".into()),
             content: "<p>Protocol body</p>".into(),
             excerpt: Some("Protocol body".into()),
             image_url: None,
@@ -81,7 +81,7 @@ async fn client_sequence_preserves_shared_content_and_personal_state() {
         state.db.pool(),
         user.id,
         "GReader replay",
-        &rustss_web::auth::token::hash(&raw_token),
+        &rusty_feed_web::auth::token::hash(&raw_token),
         &["greader".to_string()],
     )
     .await
@@ -195,12 +195,12 @@ async fn client_sequence_preserves_shared_content_and_personal_state() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert!(
-        rustss_db::read_articles::is_read(state.db.pool(), user.id, article.id)
+        rusty_feed_db::read_articles::is_read(state.db.pool(), user.id, article.id)
             .await
             .unwrap()
     );
     assert!(
-        rustss_db::bookmarks::is_bookmarked(state.db.pool(), user.id, article.id)
+        rusty_feed_db::bookmarks::is_bookmarked(state.db.pool(), user.id, article.id)
             .await
             .unwrap()
     );

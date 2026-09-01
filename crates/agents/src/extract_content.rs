@@ -1,5 +1,5 @@
 //! ExtractContentAgent: enrich a shared article with full text (once per
-//! article), via `rustss-extract` and the SSRF-safe client.
+//! article), via `rusty-feed-extract` and the SSRF-safe client.
 
 use std::sync::Arc;
 
@@ -8,13 +8,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rustss_core::{
+use rusty_feed_core::{
     content_rules::apply_rewrite_rules,
     feed_content::FeedContentSettings,
     html::{sanitize_article_html_with_policies, ARTICLE_PAGE_PROCESSING_VERSION},
 };
-use rustss_db::{articles, feeds, subscriptions};
-use rustss_extract::{ExtractOutcome, ExtractionService};
+use rusty_feed_db::{articles, feeds, subscriptions};
+use rusty_feed_extract::{ExtractOutcome, ExtractionService};
 
 use crate::{Agent, AgentContext};
 

@@ -14,7 +14,7 @@ use base64::Engine;
 use rand::RngCore;
 use serde::Deserialize;
 
-use rustss_db::{oauth_accounts, users, User};
+use rusty_feed_db::{oauth_accounts, users, User};
 
 use crate::auth::csrf::constant_time_eq;
 use crate::auth::{session, token};
@@ -22,8 +22,8 @@ use crate::error::AppError;
 use crate::extract::ClientIp;
 use crate::state::{AppState, OAuthProvider, ProviderKind};
 
-const STATE_COOKIE: &str = "rustss_oauth_state";
-const PKCE_COOKIE: &str = "rustss_oauth_pkce";
+const STATE_COOKIE: &str = "rusty_feed_oauth_state";
+const PKCE_COOKIE: &str = "rusty_feed_oauth_pkce";
 
 /// A normalized identity extracted from a provider's userinfo response.
 struct Profile {
@@ -164,7 +164,7 @@ async fn exchange_and_fetch(
 ) -> anyhow::Result<Profile> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
-        .user_agent("RustSS")
+        .user_agent("Rusty Feed")
         .build()?;
 
     // Exchange the code for an access token.
@@ -296,7 +296,7 @@ async fn upsert_oauth_user(
             if !bootstrap
                 && !matches!(
                     state.settings.registration_mode,
-                    rustss_core::config::RegistrationMode::Open
+                    rusty_feed_core::config::RegistrationMode::Open
                 )
             {
                 return Err(AppError::Validation(
@@ -326,7 +326,7 @@ fn pkce_pair() -> (String, String) {
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     let verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
     let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(rustss_core::hash::sha256_bytes(verifier.as_bytes()));
+        .encode(rusty_feed_core::hash::sha256_bytes(verifier.as_bytes()));
     (verifier, challenge)
 }
 

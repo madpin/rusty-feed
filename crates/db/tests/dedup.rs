@@ -8,9 +8,11 @@
 //! Isolation: each test uses unique URLs/emails and asserts on URL-scoped
 //! queries, so tests can share one database and run in parallel.
 
-use rustss_core::feed_content::{ContentLifetime, FeedContentMode, SubscriptionContentSettings};
-use rustss_db::models::{NewArticle, NewArticleEnclosure};
-use rustss_db::{articles, bookmarks, feeds, jobs, subscriptions, users, Db, UpsertAction};
+use rusty_feed_core::feed_content::{
+    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+};
+use rusty_feed_db::models::{NewArticle, NewArticleEnclosure};
+use rusty_feed_db::{articles, bookmarks, feeds, jobs, subscriptions, users, Db, UpsertAction};
 use uuid::Uuid;
 
 /// Connect + migrate (idempotent) if a test DB is configured; else `None`.
@@ -177,7 +179,7 @@ async fn retention_uses_configured_age_and_preserves_every_users_bookmarks() {
         articles::delete_expired_unbookmarked(
             pool,
             36_500,
-            rustss_core::config::RetentionAgeBasis::Published,
+            rusty_feed_core::config::RetentionAgeBasis::Published,
         )
         .await
         .unwrap()
@@ -197,7 +199,7 @@ async fn retention_uses_configured_age_and_preserves_every_users_bookmarks() {
         articles::delete_expired_unbookmarked(
             pool,
             36_500,
-            rustss_core::config::RetentionAgeBasis::Published,
+            rusty_feed_core::config::RetentionAgeBasis::Published,
         )
         .await
         .unwrap()
@@ -402,7 +404,7 @@ async fn attachment_only_articles_do_not_queue_public_page_extraction() {
         pool,
         &NewArticle {
             feed_id: feed.id,
-            url: format!("urn:rustss:article:{}:{}", feed.id, unique("episode")),
+            url: format!("urn:rusty-feed:article:{}:{}", feed.id, unique("episode")),
             comments_url: None,
             guid: Some(unique("attachment-guid")),
             title: "Attachment only".into(),
@@ -797,7 +799,7 @@ async fn public_page_lifetime_expires_only_page_copy_and_infinite_is_retained() 
         .unwrap();
     assert_eq!(
         reprocessed.article_page_processing_version,
-        rustss_core::html::ARTICLE_PAGE_PROCESSING_VERSION
+        rusty_feed_core::html::ARTICLE_PAGE_PROCESSING_VERSION
     );
     assert_eq!(
         reprocessed.article_page_content.as_deref(),
@@ -861,7 +863,7 @@ async fn extraction_backfill_prioritizes_untried_content_and_skips_recent_failur
         "https://example.com/{}",
         unique("backfill-old-failure")
     ))
-    .bind(rustss_core::hash::content_hash("RSS body old-failure"))
+    .bind(rusty_feed_core::hash::content_hash("RSS body old-failure"))
     .execute(pool)
     .await
     .unwrap();

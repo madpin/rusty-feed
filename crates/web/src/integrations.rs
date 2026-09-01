@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{articles, integrations, jobs, subscriptions, User};
+use rusty_feed_db::{articles, integrations, jobs, subscriptions, User};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -183,7 +183,7 @@ async fn render_page(
         csrf_token,
         ui,
         is_admin: user.role == "admin",
-        providers: rustss_core::integrations::PROVIDERS
+        providers: rusty_feed_core::integrations::PROVIDERS
             .iter()
             .map(|provider| ProviderView {
                 id: provider.id.into(),
@@ -253,7 +253,7 @@ pub async fn create(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::Integrations,
+        rusty_feed_core::quotas::QuotaKind::Integrations,
     )
     .await?;
     let name = form.name.trim();
@@ -267,7 +267,7 @@ pub async fn create(
         )
         .await;
     }
-    if rustss_core::integrations::provider(&form.provider).is_none() {
+    if rusty_feed_core::integrations::provider(&form.provider).is_none() {
         return render_page(
             &state,
             &user,
@@ -547,7 +547,7 @@ async fn authorized_article(
     state: &AppState,
     user_id: Uuid,
     article_id: Uuid,
-) -> Result<rustss_db::Article, AppError> {
+) -> Result<rusty_feed_db::Article, AppError> {
     let article = articles::find_by_id(state.db.pool(), article_id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -561,7 +561,7 @@ async fn render_send(
     state: &AppState,
     user: &User,
     jar: CookieJar,
-    article: &rustss_db::Article,
+    article: &rusty_feed_db::Article,
     notice: Option<String>,
     error: Option<String>,
 ) -> Result<Response, AppError> {

@@ -6,10 +6,10 @@ use sha2::Sha256;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_agents::{Agent, AgentContext, IntegrationDeliveryAgent};
-use rustss_core::crypto::Cryptor;
-use rustss_db::{integrations, users, Db};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_agents::{Agent, AgentContext, IntegrationDeliveryAgent};
+use rusty_feed_core::crypto::Cryptor;
+use rusty_feed_db::{integrations, users, Db};
+use rusty_feed_feeds::SafeFetchClient;
 
 async fn connect() -> Option<Db> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
@@ -34,7 +34,7 @@ async fn profile(
     )
     .await
     .unwrap();
-    let cryptor = Cryptor::new(b"rustss-agent-test-integration-key");
+    let cryptor = Cryptor::new(b"rusty-feed-agent-test-integration-key");
     integrations::create_profile(
         db.pool(),
         user.id,
@@ -97,7 +97,7 @@ async fn signed_delivery_records_success_and_uses_versioned_payload() {
     assert_eq!(
         request
             .headers
-            .get("x-rustss-payload-version")
+            .get("x-rusty-feed-payload-version")
             .unwrap()
             .to_str()
             .unwrap(),
@@ -114,7 +114,7 @@ async fn signed_delivery_records_success_and_uses_versioned_payload() {
     assert_eq!(
         request
             .headers
-            .get("x-rustss-signature")
+            .get("x-rusty-feed-signature")
             .unwrap()
             .to_str()
             .unwrap(),

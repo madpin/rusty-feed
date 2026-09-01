@@ -1,4 +1,4 @@
-use rustss_db::{categories, feeds, subscriptions, users, Db};
+use rusty_feed_db::{categories, feeds, subscriptions, users, Db};
 use uuid::Uuid;
 
 async fn test_db() -> Option<Db> {

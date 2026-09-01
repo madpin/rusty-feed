@@ -1,4 +1,4 @@
-//! # rustss-llm
+//! # rusty-feed-llm
 //!
 //! LLM access for summaries/digests (M12): an OpenAI-compatible client that also
 //! drives Ollama (via its `/v1/chat/completions` endpoint), robust
@@ -15,11 +15,11 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_core::ai_budget::AiBudget;
-use rustss_core::config::LlmProvider;
-use rustss_core::crypto::Cryptor;
-use rustss_core::html::article_html_to_markdown;
-use rustss_db::{articles, cost_ledger, llm_profiles, Article, Db};
+use rusty_feed_core::ai_budget::AiBudget;
+use rusty_feed_core::config::LlmProvider;
+use rusty_feed_core::crypto::Cryptor;
+use rusty_feed_core::html::article_html_to_markdown;
+use rusty_feed_db::{articles, cost_ledger, llm_profiles, Article, Db};
 
 /// Why a cascade summarize did not produce a summary.
 #[derive(Debug, thiserror::Error)]
@@ -200,7 +200,7 @@ impl ProviderCascade {
             db,
             cryptor: Cryptor::new_with_context(
                 encryption_secret,
-                b"rustss/llm-provider-credentials/v1",
+                b"rusty-feed/llm-provider-credentials/v1",
             ),
             environment,
         }

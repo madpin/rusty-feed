@@ -73,8 +73,8 @@ impl AppError {
     }
 }
 
-impl From<rustss_db::DbError> for AppError {
-    fn from(e: rustss_db::DbError) -> Self {
+impl From<rusty_feed_db::DbError> for AppError {
+    fn from(e: rusty_feed_db::DbError) -> Self {
         AppError::Internal(anyhow::Error::new(e))
     }
 }

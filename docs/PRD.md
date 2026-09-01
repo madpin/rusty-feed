@@ -1,8 +1,8 @@
-# RustSS — Product Requirements Document
+# Rusty Feed — Product Requirements Document
 
 **Status:** Living specification — v1 release candidate; expanded parity 65/67
 **Version:** 0.1.0
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-01
 **Owners:** Platform team
 **Supersedes:** `neureed` (Next.js 16 / TypeScript reference implementation)
 
@@ -10,16 +10,16 @@
 
 ## 1. Overview
 
-RustSS is a **self-hosted, intelligent RSS/Atom reader** that learns what each user cares about and surfaces it using semantic (vector) search, per-user personalization, and optional LLM summarization. This document specifies the requirements for a **ground-up reimplementation in Rust** of the existing `neureed` product.
+Rusty Feed is a **self-hosted, intelligent RSS/Atom reader** that learns what each user cares about and surfaces it using semantic (vector) search, per-user personalization, and optional LLM summarization. This document specifies the requirements for a **ground-up reimplementation in Rust** of the existing `neureed` product.
 
 The reimplementation exists to deliver the same (and eventually a superset of the) product capabilities with **dramatically lower memory footprint, higher throughput, and simpler operations** — the qualities that matter most for software people run on their own hardware (a NAS, a small VPS, a home server, or a single container).
 
-This is **not** a rewrite for its own sake. The reference implementation is feature-rich and battle-tested; its **data model and algorithms are the source of truth** for behavior. RustSS preserves that behavior while fixing a set of known deficiencies (documented in §9) and re-architecting the runtime for performance and operability.
+This is **not** a rewrite for its own sake. The reference implementation is feature-rich and battle-tested; its **data model and algorithms are the source of truth** for behavior. Rusty Feed preserves that behavior while fixing a set of known deficiencies (documented in §9) and re-architecting the runtime for performance and operability.
 
 Broader ecosystem parity with Miniflux is tracked as a living, testable product
 program in [`docs/MINIFLUX_PARITY.md`](MINIFLUX_PARITY.md). That tracker is the
 source of truth for parity status and customization acceptance criteria; this PRD
-continues to define RustSS-specific architecture, priorities, and invariants.
+continues to define Rusty Feed-specific architecture, priorities, and invariants.
 
 ### 1.1 Product one-liner
 
@@ -141,7 +141,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-EXTRACT-1 (P0):** Full-text extraction via a **Readability** strategy; **headless-Chromium** strategy for JS-rendered pages (full infra), selected per-feed with a fallback chain.
 - **FR-EXTRACT-2 (P0):** RSS content is always sanitized and stored. Public-page extraction runs **once per shared article version** whenever at least one subscriber requests it (never once per user); an expired or missing copy may be re-extracted.
 - **FR-EXTRACT-3 (P0):** Per-**domain** rate limiting with configurable base delay (default 3s), robots.txt `Crawl-delay` support, and adaptive `429` backoff (10s→30s→60s→120s honoring `Retry-After`).
-- **FR-EXTRACT-4 (P0):** The content choice is owned by each subscription: RSS, or public article-page content with RSS fallback. If any subscriber requests a public page, RustSS stores one shared copy; the longest requested lifetime wins, and infinite is supported. Administrators control shared acquisition mechanics (selector, rewrite rules, robots policy, delay, and refresh controls). An explicitly assigned, host/path-pinned shared profile may contain an encrypted authorized cookie, outbound proxy, or expiring self-signed-certificate exception; ordinary users cannot create variants, and profiles must never bypass paywalls or access controls.
+- **FR-EXTRACT-4 (P0):** The content choice is owned by each subscription: RSS, or public article-page content with RSS fallback. If any subscriber requests a public page, Rusty Feed stores one shared copy; the longest requested lifetime wins, and infinite is supported. Administrators control shared acquisition mechanics (selector, rewrite rules, robots policy, delay, and refresh controls). An explicitly assigned, host/path-pinned shared profile may contain an encrypted authorized cookie, outbound proxy, or expiring self-signed-certificate exception; ordinary users cannot create variants, and profiles must never bypass paywalls or access controls.
 - **FR-EXTRACT-7 (P0):** Opening an article whose requested public-page copy is missing or expired immediately enqueues one deduplicated extraction job. The request returns stored RSS content without waiting, and enhanced clients poll briefly so the public page replaces it as soon as it is available.
 - **FR-EXTRACT-5 (P0):** **SSRF protection on all extraction and robots.txt fetches** (fixes a known reference gap — see §9). HTML output is sanitized before storage/render.
 - **FR-EXTRACT-6 (P0):** Privacy-enhanced, on-demand YouTube embeds preserve linked start times and expose explicit load, ready/error, unload, and reload states in every reader mode. User/subscription controls affect rendering only; no player request occurs before consent, removing the iframe immediately ends its presence in the article, and the no-referrer publisher link remains available. A validated named Invidious-compatible alternative and disabled-by-default, budgeted shared duration enrichment are implemented; bare-text URL rewriting remains backlog.
@@ -211,7 +211,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-API-2 (P0):** Consistent JSON envelopes (`{ data, message }` / `{ error, details }`) and status codes (200/400/401/403/404/409/429/500). Request validation on all mutating endpoints.
 - **FR-API-3 (P0):** `/api/health` liveness/readiness endpoint (checks DB, and reports optional-dependency status).
 - **FR-API-4 (P1):** A safe **proxy** endpoint for images/media to avoid mixed-content and leaking the reader's IP, with SSRF protection.
-- **FR-API-5 (P1) — Open-standard client API (GReader):** Expose a **Google Reader API (GReader)-compatible** endpoint surface so existing third-party RSS clients (Reeder, FeedMe, FocusReader, NetNewsWire, etc.) can connect out of the box. RustSS's own API can be new/clean; the GReader layer is an adapter on top of the same services. Scope: `ClientLogin` token auth + write token (`T`), `subscription/list` & `subscription/edit`, `tag/list`, `stream/contents` & `stream/items/ids` & `stream/items/contents`, `edit-tag` (read/star/like state), `mark-all-as-read`, and `user-info`. Reads map to shared articles; read/star/tag state maps to the per-user tables. (See Architecture §9.1.) *Rationale: interoperability with the established self-hosted ecosystem, as used by FreshRSS/Miniflux.*
+- **FR-API-5 (P1) — Open-standard client API (GReader):** Expose a **Google Reader API (GReader)-compatible** endpoint surface so existing third-party RSS clients (Reeder, FeedMe, FocusReader, NetNewsWire, etc.) can connect out of the box. Rusty Feed's own API can be new/clean; the GReader layer is an adapter on top of the same services. Scope: `ClientLogin` token auth + write token (`T`), `subscription/list` & `subscription/edit`, `tag/list`, `stream/contents` & `stream/items/ids` & `stream/items/contents`, `edit-tag` (read/star/like state), `mark-all-as-read`, and `user-info`. Reads map to shared articles; read/star/tag state maps to the per-user tables. (See Architecture §9.1.) *Rationale: interoperability with the established self-hosted ecosystem, as used by FreshRSS/Miniflux.*
 - **FR-API-6 (P2):** A JSON-only Fever compatibility adapter reuses the same tenant-scoped repositories for groups, feeds, favicons, items, unread/saved IDs, and read/save mutations; credential and full client-sequence replay tests are required.
 
 ### 5.14 Ecosystem, Automation & Authentication
@@ -331,7 +331,7 @@ News **clustering + LLM cluster digests**; ADHD-friendly reading formatting; com
 
 ## 9. Known Reference-Implementation Deficiencies to Fix
 
-RustSS explicitly corrects these behaviors discovered during analysis of `neureed`:
+Rusty Feed explicitly corrects these behaviors discovered during analysis of `neureed`:
 
 1. **Conditional GET not wired into refresh.** ETag/Last-Modified columns exist but are never populated/used → every refresh does a full GET. **Fix:** implement conditional GET end-to-end (FR-REFRESH-3).
 2. **Mixed-dimension embedding corruption.** Local (384-dim) vectors are zero-padded into the same `vector(1536)` column as OpenAI vectors, silently breaking similarity when providers are mixed across articles. **Fix:** model/space-tagged embedding storage (FR-EMB-3).
@@ -369,7 +369,7 @@ RustSS explicitly corrects these behaviors discovered during analysis of `neuree
 ## 12. Decisions & Open Questions
 
 ### 12.1 Resolved (this cycle)
-1. **Product name:** ✅ **RustSS** (repo `rustss`).
+1. **Product name:** ✅ **Rusty Feed** (repo `rusty-feed`).
 2. **Local model distribution:** ✅ **Download on first run**, cached in a persistent volume (smaller image; first run needs network).
 3. **Embedding policy:** ✅ **One embedding model per instance** (single vector space; model change ⇒ explicit re-embed).
 4. **Client API compatibility:** ✅ A **new, clean native API** *plus* a **Google Reader (GReader)-compatible** adapter for open-standard client interoperability (FR-API-5).

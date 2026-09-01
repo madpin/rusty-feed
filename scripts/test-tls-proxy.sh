@@ -2,7 +2,7 @@
 set -eu
 
 test_root=$(mktemp -d)
-container_name="rustss-caddy-tls-test-$$"
+container_name="rusty-feed-caddy-tls-test-$$"
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
   rm -rf "$test_root"
@@ -14,13 +14,13 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
   -keyout "$test_root/key.pem" -out "$test_root/cert.pem" >/dev/null 2>&1
 
 docker run --rm \
-  -e RUSTSS_DOMAIN=reader.example.test \
+  -e RUSTY_FEED_DOMAIN=reader.example.test \
   -e TLS_EMAIL=admin@example.test \
   -v "$PWD/docker/Caddyfile.auto:/etc/caddy/Caddyfile:ro" \
   caddy:2.11.4-alpine caddy validate --config /etc/caddy/Caddyfile
 
 docker run -d --name "$container_name" -p 18443:443 \
-  -e RUSTSS_DOMAIN=reader.example.test \
+  -e RUSTY_FEED_DOMAIN=reader.example.test \
   -v "$PWD/docker/Caddyfile.custom:/etc/caddy/Caddyfile:ro" \
   -v "$test_root:/certs:ro" \
   caddy:2.11.4-alpine >/dev/null

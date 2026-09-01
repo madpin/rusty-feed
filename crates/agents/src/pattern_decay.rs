@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use rustss_db::patterns;
+use rusty_feed_db::patterns;
 
 use crate::{Agent, AgentContext};
 

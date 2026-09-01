@@ -9,10 +9,10 @@ use tower::ServiceExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_cache::Cache;
-use rustss_core::Secret;
-use rustss_db::{oauth_accounts, users, Db};
-use rustss_web::{router, AppSettings, AppState, OAuthProvider, ProviderKind};
+use rusty_feed_cache::Cache;
+use rusty_feed_core::Secret;
+use rusty_feed_db::{oauth_accounts, users, Db};
+use rusty_feed_web::{router, AppSettings, AppState, OAuthProvider, ProviderKind};
 
 fn set_cookies(resp: &Response<Body>) -> Vec<(String, String)> {
     resp.headers()
@@ -104,10 +104,10 @@ async fn oauth_generic_login_creates_and_links_user() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     let cookies = set_cookies(&resp);
-    let oauth_state = find(&cookies, "rustss_oauth_state")
+    let oauth_state = find(&cookies, "rusty_feed_oauth_state")
         .expect("state cookie")
         .to_string();
-    let pkce = find(&cookies, "rustss_oauth_pkce")
+    let pkce = find(&cookies, "rusty_feed_oauth_pkce")
         .expect("pkce cookie")
         .to_string();
 
@@ -119,7 +119,7 @@ async fn oauth_generic_login_creates_and_links_user() {
             ))
             .header(
                 "cookie",
-                format!("rustss_oauth_state={oauth_state}; rustss_oauth_pkce={pkce}"),
+                format!("rusty_feed_oauth_state={oauth_state}; rusty_feed_oauth_pkce={pkce}"),
             )
             .body(Body::empty())
             .unwrap(),
@@ -132,7 +132,7 @@ async fn oauth_generic_login_creates_and_links_user() {
         "callback should sign in and redirect"
     );
     assert!(
-        find(&set_cookies(&resp), "rustss_sid").is_some(),
+        find(&set_cookies(&resp), "rusty_feed_sid").is_some(),
         "a session cookie should be set"
     );
 
@@ -180,7 +180,10 @@ async fn oauth_callback_rejects_bad_state() {
     let resp = app
         .oneshot(
             Request::get("/auth/oauth/test/callback?code=abc&state=attacker")
-                .header("cookie", "rustss_oauth_state=expected; rustss_oauth_pkce=v")
+                .header(
+                    "cookie",
+                    "rusty_feed_oauth_state=expected; rusty_feed_oauth_pkce=v",
+                )
                 .body(Body::empty())
                 .unwrap(),
         )

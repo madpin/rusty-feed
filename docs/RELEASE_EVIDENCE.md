@@ -1,7 +1,7 @@
 # v1 release evidence
 
 Evidence recorded on **2026-08-30–31**. This is a reproducible acceptance record,
-not a promise that every unrelated Miniflux v2/backlog item ships in RustSS v1.
+not a promise that every unrelated Miniflux v2/backlog item ships in Rusty Feed v1.
 
 ## Reference host and corpus
 
@@ -27,7 +27,7 @@ after the run. No user database was deleted or reset.
 
 ## Model and extraction
 
-- `rustss-cli fetch-model` downloaded and initialized
+- `rusty-feed-cli fetch-model` downloaded and initialized
   `BAAI/bge-small-en-v1.5` at 384 dimensions in a clean cache.
 - Re-running with `HF_HUB_OFFLINE=1` used the same cache successfully.
 - The real remote-CDP integration test rendered script-generated content while
@@ -52,7 +52,7 @@ counts matched the source exactly; the compressed dump was 7.5 MiB.
 
 On 2026-08-31 the restore drill was repeated with the current 41-migration
 schema. A 319,544-byte custom dump restored into a newly created database,
-`rustss-cli migrate` completed idempotently, and source/restored counts matched:
+`rusty-feed-cli migrate` completed idempotently, and source/restored counts matched:
 41 successful migrations, 178 users, 327 feeds, 123 articles, and 1,776
 subscriptions. The production image reached readiness and served an
 authenticated Library page using the restored database. The isolated restore

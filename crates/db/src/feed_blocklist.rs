@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use rustss_core::blocklist::{BlockEntry, BlockKind, Blocklist};
+use rusty_feed_core::blocklist::{BlockEntry, BlockKind, Blocklist};
 
 use crate::error::Result;
 

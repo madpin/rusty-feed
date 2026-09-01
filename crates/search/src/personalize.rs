@@ -8,9 +8,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use rustss_cache::Cache;
-use rustss_core::html::article_html_to_markdown;
-use rustss_db::{feedback, patterns, Article, Db, Result};
+use rusty_feed_cache::Cache;
+use rusty_feed_core::html::article_html_to_markdown;
+use rusty_feed_db::{feedback, patterns, Article, Db, Result};
 
 use crate::{
     explicit_value, extract_keywords, implicit_value, pattern_delta, relevance_score,

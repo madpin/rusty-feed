@@ -12,10 +12,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rustss_db::{embeddings, notifications, saved_search_matches, saved_searches};
-use rustss_embed::{Embedder, HashEmbedder};
-use rustss_search::dsl;
-use rustss_search::saved;
+use rusty_feed_db::{embeddings, notifications, saved_search_matches, saved_searches};
+use rusty_feed_embed::{Embedder, HashEmbedder};
+use rusty_feed_search::dsl;
+use rusty_feed_search::saved;
 
 use crate::{Agent, AgentContext};
 
@@ -38,7 +38,7 @@ impl Agent for SavedSearchScanAgent {
         let mut enqueued = 0u64;
         for ss in &searches {
             let dedup = format!("saved_search_match:{}", ss.id);
-            if rustss_db::jobs::enqueue(
+            if rusty_feed_db::jobs::enqueue(
                 pool,
                 "saved_search_match",
                 json!({ "saved_search_id": ss.id }),

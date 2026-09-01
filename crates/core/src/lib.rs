@@ -1,6 +1,6 @@
-//! # rustss-core
+//! # rusty-feed-core
 //!
-//! Foundational, mostly I/O-free building blocks shared across every RustSS
+//! Foundational, mostly I/O-free building blocks shared across every Rusty Feed
 //! crate: configuration, the error taxonomy, secret handling, telemetry setup,
 //! and shared policy/value types. Narrow substitution seams live beside the
 //! feature types they operate on instead of in a catch-all port module.
@@ -40,12 +40,12 @@ pub use error::ConfigError;
 pub use secret::Secret;
 
 /// Human-facing application name.
-pub const APP_NAME: &str = "RustSS";
+pub const APP_NAME: &str = "Rusty Feed";
 
 /// The crate/package version (from Cargo at build time).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// A short build/version banner, e.g. `"RustSS 0.1.0"`.
+/// A short build/version banner, e.g. `"Rusty Feed 0.1.0"`.
 pub fn banner() -> String {
     format!("{APP_NAME} {VERSION}")
 }

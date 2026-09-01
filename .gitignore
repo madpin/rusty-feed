@@ -20,7 +20,7 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# ── RustSS ───────────────────────────────────────────────────────────────────
+# ── Rusty Feed ───────────────────────────────────────────────────────────────────
 # Local environment & secrets (never commit). `.env.example` IS committed.
 .env
 .env.*

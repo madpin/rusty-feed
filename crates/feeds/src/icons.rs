@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use reqwest::header::ACCEPT;
-use rustss_db::{feed_icons, Db};
+use rusty_feed_db::{feed_icons, Db};
 use uuid::Uuid;
 
 use crate::SafeFetchClient;
@@ -33,7 +33,7 @@ pub async fn try_refresh_feed_icon(
     client: &SafeFetchClient,
     feed_id: Uuid,
     source_url: &str,
-) -> rustss_db::Result<()> {
+) -> rusty_feed_db::Result<()> {
     if !feed_icons::should_attempt(db.pool(), feed_id, source_url).await? {
         return Ok(());
     }

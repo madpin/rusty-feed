@@ -6,7 +6,7 @@
   <div>
     <p class="eyebrow">Sources</p>
     <h1>Manage feeds</h1>
-    <p class="muted">Subscribe to the publications you want RustSS to follow. Refreshes and enrichment are queued once per shared feed.</p>
+    <p class="muted">Subscribe to the publications you want Rusty Feed to follow. Refreshes and enrichment are queued once per shared feed.</p>
   </div>
   {% if !feeds.is_empty() %}
   <div class="header-actions">
@@ -41,8 +41,8 @@
 
 <section class="panel" id="bookmarklet">
   <h2>Subscribe from any website</h2>
-  <p class="muted">Drag this button to your browser's bookmarks bar. While viewing a website, activate it to let RustSS discover advertised RSS, Atom, or JSON feeds and show a confirmation screen. Nothing is subscribed automatically.</p>
-  <p><a class="btn primary" href="{{ bookmarklet_href }}" rel="bookmark">Subscribe with RustSS</a></p>
+  <p class="muted">Drag this button to your browser's bookmarks bar. While viewing a website, activate it to let Rusty Feed discover advertised RSS, Atom, or JSON feeds and show a confirmation screen. Nothing is subscribed automatically.</p>
+  <p><a class="btn primary" href="{{ bookmarklet_href }}" rel="bookmark">Subscribe with Rusty Feed</a></p>
   <details>
     <summary>Manual bookmarklet setup</summary>
     <p class="muted">If your browser does not support dragging, create a bookmark and paste this complete address into its URL field:</p>
@@ -66,7 +66,7 @@
     </label>
     <label>Or public OPML URL
       <input type="url" name="opml_url" maxlength="8192" placeholder="https://example.com/subscriptions.opml" />
-      <span class="field-help">Fetched through RustSS's private-network protection.</span>
+      <span class="field-help">Fetched through Rusty Feed's private-network protection.</span>
     </label>
     <div class="form-actions"><button type="submit" class="primary">Preview import</button></div>
   </form>

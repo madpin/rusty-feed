@@ -4,12 +4,12 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_db::Db;
+use rusty_feed_db::Db;
 
 use crate::auth::token;
 
 /// Name of the session cookie.
-pub const SESSION_COOKIE: &str = "rustss_sid";
+pub const SESSION_COOKIE: &str = "rusty_feed_sid";
 /// Session lifetime.
 pub const SESSION_TTL_DAYS: i64 = 30;
 
@@ -19,7 +19,7 @@ pub async fn login(
     db: &Db,
     user_id: Uuid,
     secure: bool,
-) -> Result<CookieJar, rustss_db::DbError> {
+) -> Result<CookieJar, rusty_feed_db::DbError> {
     login_with_ttl(jar, db, user_id, secure, Duration::days(SESSION_TTL_DAYS)).await
 }
 
@@ -31,10 +31,10 @@ pub async fn login_with_ttl(
     user_id: Uuid,
     secure: bool,
     ttl: Duration,
-) -> Result<CookieJar, rustss_db::DbError> {
+) -> Result<CookieJar, rusty_feed_db::DbError> {
     let generated = token::generate();
     let expires = OffsetDateTime::now_utc() + ttl;
-    rustss_db::sessions::create(db.pool(), user_id, &generated.hash, expires).await?;
+    rusty_feed_db::sessions::create(db.pool(), user_id, &generated.hash, expires).await?;
 
     let cookie = Cookie::build((SESSION_COOKIE, generated.raw))
         .http_only(true)
@@ -50,8 +50,9 @@ pub async fn login_with_ttl(
 /// cleared.
 pub async fn logout(jar: CookieJar, db: &Db) -> CookieJar {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
-        let _ = rustss_db::sessions::delete_by_token_hash(db.pool(), &token::hash(cookie.value()))
-            .await;
+        let _ =
+            rusty_feed_db::sessions::delete_by_token_hash(db.pool(), &token::hash(cookie.value()))
+                .await;
     }
     jar.remove(Cookie::build((SESSION_COOKIE, "")).path("/").build())
 }

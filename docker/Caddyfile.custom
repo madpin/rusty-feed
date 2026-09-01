@@ -1,4 +1,4 @@
-https://{$RUSTSS_DOMAIN} {
+https://{$RUSTY_FEED_DOMAIN} {
 	tls /certs/{$TLS_CERT_FILE:cert.pem} /certs/{$TLS_KEY_FILE:key.pem}
 	encode zstd gzip
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"

@@ -7,10 +7,10 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_core::ai_budget::AiBudget;
-use rustss_db::models::NewArticle;
-use rustss_db::{articles, cost_ledger, feeds, llm_profiles, users, Db};
-use rustss_llm::{
+use rusty_feed_core::ai_budget::AiBudget;
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{articles, cost_ledger, feeds, llm_profiles, users, Db};
+use rusty_feed_llm::{
     summarize, summarize_article, summarize_article_with_cascade, LlmClient, OpenAiCompatClient,
     ProviderCascade,
 };
@@ -52,7 +52,7 @@ async fn summarize_parses_json_response() {
     assert_eq!(summary.topics, vec!["t"]);
 }
 
-async fn seed_article(db: &Db) -> rustss_db::Article {
+async fn seed_article(db: &Db) -> rusty_feed_db::Article {
     let (feed, _) = feeds::upsert_by_url(
         db.pool(),
         &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
@@ -197,9 +197,9 @@ async fn managed_provider_cascade_prefers_user_then_falls_back_to_admin() {
         .mount(&working)
         .await;
     let secret = b"cascade-test-encryption-secret";
-    let cryptor = rustss_core::crypto::Cryptor::new_with_context(
+    let cryptor = rusty_feed_core::crypto::Cryptor::new_with_context(
         secret,
-        b"rustss/llm-provider-credentials/v1",
+        b"rusty-feed/llm-provider-credentials/v1",
     );
     let encrypted = cryptor.encrypt_str("test-key").unwrap();
     llm_profiles::create(
@@ -270,9 +270,9 @@ async fn per_user_daily_call_cap_blocks_further_summaries() {
         .mount(&working)
         .await;
     let secret = b"cap-test-encryption-secret";
-    let cryptor = rustss_core::crypto::Cryptor::new_with_context(
+    let cryptor = rusty_feed_core::crypto::Cryptor::new_with_context(
         secret,
-        b"rustss/llm-provider-credentials/v1",
+        b"rusty-feed/llm-provider-credentials/v1",
     );
     let encrypted = cryptor.encrypt_str("test-key").unwrap();
     llm_profiles::create(
@@ -301,7 +301,7 @@ async fn per_user_daily_call_cap_blocks_further_summaries() {
     let article2 = seed_article(&db).await;
     let result = summarize_article_with_cascade(&cascade, &budget, Some(user.id), &article2).await;
     assert!(
-        matches!(result, Err(rustss_llm::SummarizeError::Budget(_))),
+        matches!(result, Err(rusty_feed_llm::SummarizeError::Budget(_))),
         "the second summary must be blocked by the per-user daily cap"
     );
     assert!(!articles::is_summarized(db.pool(), article2.id)

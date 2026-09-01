@@ -1,17 +1,17 @@
 [package]
-name = "rustss-extract"
+name = "rusty-feed-extract"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS content extraction: readability + politeness + sanitization."
+description = "Rusty Feed content extraction: readability + politeness + sanitization."
 
 [dependencies]
-rustss-core = { workspace = true }
-rustss-db = { workspace = true }
-rustss-feeds = { workspace = true }
+rusty-feed-core = { workspace = true }
+rusty-feed-db = { workspace = true }
+rusty-feed-feeds = { workspace = true }
 reqwest = { workspace = true }
 scraper = { workspace = true }
 dom_smoothie = { workspace = true }

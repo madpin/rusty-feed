@@ -22,7 +22,7 @@ pub enum FeedError {
     Parse(String),
 
     #[error(transparent)]
-    Db(#[from] rustss_db::DbError),
+    Db(#[from] rusty_feed_db::DbError),
 }
 
 /// Convenience alias.

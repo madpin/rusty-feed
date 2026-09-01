@@ -1,4 +1,4 @@
-//! # rustss-agents
+//! # rusty-feed-agents
 //!
 //! The AGENTS runtime (M7): a durable Postgres job queue (`SKIP LOCKED`
 //! consumers), a periodic scheduler, singleton leases, and per-run records —
@@ -6,7 +6,7 @@
 //! feed with N subscribers is fetched once (see `docs/ARCHITECTURE.md` §8).
 //!
 //! Concrete agents so far: [`FeedRefreshAgent`] (enqueue due feeds, deduped) and
-//! [`FetchFeedAgent`] (fetch + ingest one feed, via `rustss-feeds`).
+//! [`FetchFeedAgent`] (fetch + ingest one feed, via `rusty-feed-feeds`).
 
 mod catalog_preview;
 mod content_cleanup;
@@ -38,11 +38,11 @@ pub use youtube_duration::YouTubeDurationAgent;
 
 use async_trait::async_trait;
 
-use rustss_core::ai_budget::AiBudget;
-use rustss_core::crypto::Cryptor;
-use rustss_core::{tracking_pixel::TrackingPixelPolicy, tracking_url::TrackingUrlPolicy};
-use rustss_db::Db;
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_core::ai_budget::AiBudget;
+use rusty_feed_core::crypto::Cryptor;
+use rusty_feed_core::{tracking_pixel::TrackingPixelPolicy, tracking_url::TrackingUrlPolicy};
+use rusty_feed_db::Db;
+use rusty_feed_feeds::SafeFetchClient;
 use uuid::Uuid;
 
 /// Ports injected into every agent.
@@ -83,10 +83,10 @@ impl AgentContext {
             eager_extraction: true,
             tracking_url_policy: TrackingUrlPolicy::default(),
             tracking_pixel_policy: TrackingPixelPolicy::default(),
-            integration_credentials: Cryptor::new(b"rustss-agent-test-integration-key"),
+            integration_credentials: Cryptor::new(b"rusty-feed-agent-test-integration-key"),
             acquisition_credentials: Cryptor::new_with_context(
-                b"rustss-agent-test-acquisition-key",
-                b"rustss/acquisition-profile-secrets/v1",
+                b"rusty-feed-agent-test-acquisition-key",
+                b"rusty-feed/acquisition-profile-secrets/v1",
             ),
             youtube_duration_enabled: false,
             youtube_duration_daily_budget: 100,
@@ -143,7 +143,7 @@ impl AgentContext {
 
     pub async fn fetch_for_feed(&self, feed_id: Uuid) -> anyhow::Result<SafeFetchClient> {
         let Some(profile) =
-            rustss_db::acquisition_profiles::for_feed(self.db.pool(), feed_id).await?
+            rusty_feed_db::acquisition_profiles::for_feed(self.db.pool(), feed_id).await?
         else {
             return Ok(self.fetch.clone());
         };
@@ -153,12 +153,14 @@ impl AgentContext {
             .map(|encrypted| self.acquisition_credentials.decrypt_str(encrypted))
             .transpose()
             .map_err(|_| anyhow::anyhow!("acquisition profile secrets could not be decrypted"))?
-            .map(|json| serde_json::from_str::<rustss_core::acquisition::AcquisitionSecrets>(&json))
+            .map(|json| {
+                serde_json::from_str::<rusty_feed_core::acquisition::AcquisitionSecrets>(&json)
+            })
             .transpose()?
             .unwrap_or_default();
         Ok(self
             .fetch
-            .for_acquisition(rustss_feeds::AcquisitionPolicy {
+            .for_acquisition(rusty_feed_feeds::AcquisitionPolicy {
                 allowed_hosts: profile.allowed_hosts,
                 allowed_path_prefix: profile.allowed_path_prefix,
                 cookie_header: secrets.cookie_header,

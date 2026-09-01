@@ -3,10 +3,10 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use rustss_cache::Cache;
-use rustss_db::models::NewArticle;
-use rustss_db::{api_tokens, articles, feeds, subscriptions, users, Db};
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_cache::Cache;
+use rusty_feed_db::models::NewArticle;
+use rusty_feed_db::{api_tokens, articles, feeds, subscriptions, users, Db};
+use rusty_feed_web::{router, AppSettings, AppState};
 
 async fn state() -> Option<AppState> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
@@ -26,9 +26,9 @@ async fn state_with_saved_search_cap(cap: u32) -> Option<AppState> {
     let db = Db::connect(&url).await.ok()?;
     db.migrate().await.ok()?;
     let settings = AppSettings {
-        quotas: rustss_core::quotas::Quotas {
+        quotas: rusty_feed_core::quotas::Quotas {
             max_saved_searches: cap,
-            ..rustss_core::quotas::Quotas::default()
+            ..rusty_feed_core::quotas::Quotas::default()
         },
         ..AppSettings::default()
     };
@@ -42,12 +42,12 @@ async fn state_with_saved_search_cap(cap: u32) -> Option<AppState> {
 
 async fn session_cookie(state: &AppState, user_id: uuid::Uuid) -> String {
     let raw = format!("sess-{}", uuid::Uuid::now_v7());
-    let hash = rustss_web::auth::token::hash(&raw);
+    let hash = rusty_feed_web::auth::token::hash(&raw);
     let expires = time::OffsetDateTime::now_utc() + time::Duration::days(1);
-    rustss_db::sessions::create(state.db.pool(), user_id, &hash, expires)
+    rusty_feed_db::sessions::create(state.db.pool(), user_id, &hash, expires)
         .await
         .unwrap();
-    format!("rustss_sid={raw}")
+    format!("rusty_feed_sid={raw}")
 }
 
 #[tokio::test]
@@ -278,8 +278,8 @@ async fn first_run_wizard_routes_and_persists() {
         .await
         .unwrap();
     assert_eq!(welcome.status(), StatusCode::OK);
-    let csrf = set_cookies_value(&welcome, "rustss_csrf").unwrap_or_else(|| "x".to_string());
-    let welcome_cookie = format!("{cookie}; rustss_csrf={csrf}");
+    let csrf = set_cookies_value(&welcome, "rusty_feed_csrf").unwrap_or_else(|| "x".to_string());
+    let welcome_cookie = format!("{cookie}; rusty_feed_csrf={csrf}");
 
     // Finishing the wizard stamps onboarded_at.
     let finish = app
@@ -395,7 +395,7 @@ async fn users_can_report_a_feed() {
     )
     .await
     .unwrap();
-    let (feed, _) = rustss_db::feeds::upsert_by_url(
+    let (feed, _) = rusty_feed_db::feeds::upsert_by_url(
         state.db.pool(),
         &format!("https://example.test/feed-{}.xml", uuid::Uuid::now_v7()),
         "Reportable feed",
@@ -416,14 +416,14 @@ async fn users_can_report_a_feed() {
         )
         .await
         .unwrap();
-    let csrf = set_cookies_value(&page, "rustss_csrf").unwrap_or_else(|| "x".to_string());
-    let before = rustss_db::abuse_reports::count_open(state.db.pool())
+    let csrf = set_cookies_value(&page, "rusty_feed_csrf").unwrap_or_else(|| "x".to_string());
+    let before = rusty_feed_db::abuse_reports::count_open(state.db.pool())
         .await
         .unwrap();
     let response = app
         .oneshot(
             Request::post(format!("/feeds/{}/report", feed.id))
-                .header("cookie", format!("{cookie}; rustss_csrf={csrf}"))
+                .header("cookie", format!("{cookie}; rusty_feed_csrf={csrf}"))
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!("csrf_token={csrf}&reason=spam")))
                 .unwrap(),
@@ -431,7 +431,7 @@ async fn users_can_report_a_feed() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER, "report redirects");
-    let after = rustss_db::abuse_reports::count_open(state.db.pool())
+    let after = rusty_feed_db::abuse_reports::count_open(state.db.pool())
         .await
         .unwrap();
     assert_eq!(after, before + 1, "a feed report row was created");
@@ -463,11 +463,11 @@ async fn data_export_includes_bookmarks() {
         .await
         .unwrap();
     assert_eq!(page.status(), StatusCode::OK);
-    let csrf = set_cookies_value(&page, "rustss_csrf").unwrap_or_else(|| "x".to_string());
+    let csrf = set_cookies_value(&page, "rusty_feed_csrf").unwrap_or_else(|| "x".to_string());
     let response = app
         .oneshot(
             Request::post("/settings/account/export")
-                .header("cookie", format!("{cookie}; rustss_csrf={csrf}"))
+                .header("cookie", format!("{cookie}; rusty_feed_csrf={csrf}"))
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!("csrf_token={csrf}")))
                 .unwrap(),
@@ -544,13 +544,13 @@ async fn blocklisted_feed_is_rejected_on_add() {
         state.db.pool(),
         user.id,
         "test",
-        &rustss_web::auth::token::hash(&raw),
+        &rusty_feed_web::auth::token::hash(&raw),
         &[],
     )
     .await
     .unwrap();
     let host = format!("blocked-{}.example", uuid::Uuid::now_v7());
-    rustss_db::feed_blocklist::add(
+    rusty_feed_db::feed_blocklist::add(
         state.db.pool(),
         "domain",
         &host,
@@ -596,7 +596,7 @@ async fn per_user_quota_returns_409_past_the_cap() {
         state.db.pool(),
         user.id,
         "test",
-        &rustss_web::auth::token::hash(&raw),
+        &rusty_feed_web::auth::token::hash(&raw),
         &[],
     )
     .await
@@ -681,7 +681,7 @@ async fn bearer_resources_are_tenant_scoped_and_state_is_mutable() {
         state.db.pool(),
         user.id,
         "test",
-        &rustss_web::auth::token::hash(&raw),
+        &rusty_feed_web::auth::token::hash(&raw),
         &[],
     )
     .await
@@ -779,12 +779,12 @@ async fn bearer_resources_are_tenant_scoped_and_state_is_mutable() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert!(
-        rustss_db::read_articles::is_read(state.db.pool(), user.id, article.id)
+        rusty_feed_db::read_articles::is_read(state.db.pool(), user.id, article.id)
             .await
             .unwrap()
     );
     assert!(
-        rustss_db::bookmarks::is_bookmarked(state.db.pool(), user.id, article.id)
+        rusty_feed_db::bookmarks::is_bookmarked(state.db.pool(), user.id, article.id)
             .await
             .unwrap()
     );

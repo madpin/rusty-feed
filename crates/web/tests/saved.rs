@@ -6,9 +6,9 @@ use axum::Router;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use rustss_cache::Cache;
-use rustss_db::{saved_searches, users, Db};
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_cache::Cache;
+use rusty_feed_db::{saved_searches, users, Db};
+use rusty_feed_web::{router, AppSettings, AppState};
 
 fn set_cookies(resp: &Response<Body>) -> Vec<(String, String)> {
     resp.headers()
@@ -42,7 +42,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let resp = app
@@ -50,7 +50,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -58,7 +58,9 @@ async fn register(app: &Router) -> (String, String) {
         )
         .await
         .unwrap();
-    let sid = find(&set_cookies(&resp), "rustss_sid").unwrap().to_string();
+    let sid = find(&set_cookies(&resp), "rusty_feed_sid")
+        .unwrap()
+        .to_string();
     (sid, email.replace("%40", "@"))
 }
 
@@ -83,14 +85,14 @@ async fn create_list_and_delete_saved_search() {
         .clone()
         .oneshot(
             Request::get("/searches")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
 
@@ -100,7 +102,10 @@ async fn create_list_and_delete_saved_search() {
         .oneshot(
             Request::post("/searches")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "name=My+Rust+Alert&query=rust+%2Basync&notify=true&csrf_token={csrf}"
                 )))
@@ -127,7 +132,7 @@ async fn create_list_and_delete_saved_search() {
         .clone()
         .oneshot(
             Request::get("/searches")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -140,7 +145,10 @@ async fn create_list_and_delete_saved_search() {
         .oneshot(
             Request::post(format!("/searches/{id}/delete"))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}")))
                 .unwrap(),
         )

@@ -9,8 +9,8 @@ use serde::Deserialize;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_core::acquisition::AcquisitionSecrets;
-use rustss_db::{acquisition_profiles, feeds, User};
+use rusty_feed_core::acquisition::AcquisitionSecrets;
+use rusty_feed_db::{acquisition_profiles, feeds, User};
 
 use crate::auth::csrf;
 use crate::auth::extractor::{AdminReadUser, AdminUser};
@@ -244,7 +244,7 @@ pub async fn create(
         cookie_header: (!cookie.is_empty()).then(|| cookie.to_string()),
         proxy_url: (!proxy.is_empty()).then(|| proxy.to_string()),
     };
-    let policy = rustss_feeds::AcquisitionPolicy {
+    let policy = rusty_feed_feeds::AcquisitionPolicy {
         allowed_hosts: hosts.clone(),
         allowed_path_prefix: path.map(str::to_string),
         cookie_header: secrets.cookie_header.clone(),

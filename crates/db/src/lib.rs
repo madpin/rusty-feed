@@ -1,4 +1,4 @@
-//! # rustss-db
+//! # rusty-feed-db
 //!
 //! PostgreSQL + pgvector persistence via SQLx: the embedded migrations and the
 //! repositories that enforce the shared/per-user data model

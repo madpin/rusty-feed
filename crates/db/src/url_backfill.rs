@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rustss_core::tracking_url::TrackingUrlPolicy;
+use rusty_feed_core::tracking_url::TrackingUrlPolicy;
 use sqlx::PgPool;
 use uuid::Uuid;
 

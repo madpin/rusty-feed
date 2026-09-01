@@ -11,13 +11,13 @@ use tower::ServiceExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_agents::{Agent, AgentContext, FetchFeedAgent};
-use rustss_cache::Cache;
-use rustss_db::{
+use rusty_feed_agents::{Agent, AgentContext, FetchFeedAgent};
+use rusty_feed_cache::Cache;
+use rusty_feed_db::{
     articles, categories, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle,
 };
-use rustss_feeds::SafeFetchClient;
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_feeds::SafeFetchClient;
+use rusty_feed_web::{router, AppSettings, AppState};
 use serde_json::json;
 
 /// RSS with unique item URLs per `run` (article URLs are globally unique, so a
@@ -67,7 +67,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let resp = app
@@ -75,7 +75,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -83,7 +83,9 @@ async fn register(app: &Router) -> (String, String) {
         )
         .await
         .unwrap();
-    let sid = find(&set_cookies(&resp), "rustss_sid").unwrap().to_string();
+    let sid = find(&set_cookies(&resp), "rusty_feed_sid")
+        .unwrap()
+        .to_string();
     (sid, email.replace("%40", "@"))
 }
 
@@ -122,7 +124,7 @@ async fn bookmarklet_discovers_feeds_and_requires_confirmation() {
     let response = app
         .oneshot(
             Request::get(format!("/bookmarklet/subscribe?url={encoded}"))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -170,14 +172,14 @@ async fn add_feed_ingests_and_shows_articles() {
         .clone()
         .oneshot(
             Request::get("/feeds")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let csrf = find(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
 
@@ -188,7 +190,10 @@ async fn add_feed_ingests_and_shows_articles() {
         .oneshot(
             Request::post("/feeds")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "url={}&csrf_token={csrf}",
                     urlencoding_min(&feed_url)
@@ -235,7 +240,7 @@ async fn add_feed_ingests_and_shows_articles() {
         .clone()
         .oneshot(
             Request::get("/feeds")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -251,7 +256,7 @@ async fn add_feed_ingests_and_shows_articles() {
         .clone()
         .oneshot(
             Request::get(format!("/articles?feed={}", feed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -266,7 +271,10 @@ async fn add_feed_ingests_and_shows_articles() {
         .oneshot(
             Request::post(format!("/feeds/{}/unsubscribe", feed.id))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}")))
                 .unwrap(),
         )
@@ -321,14 +329,14 @@ async fn subscriber_owns_content_choice_while_admin_controls_shared_acquisition(
         .clone()
         .oneshot(
             Request::get(format!("/feeds/{}/settings", feed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let csrf = find(&set_cookies(&response), "rustss_csrf")
+    let csrf = find(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let body = body_string(response).await;
@@ -339,7 +347,7 @@ async fn subscriber_owns_content_choice_while_admin_controls_shared_acquisition(
         .oneshot(
             Request::post(format!("/feeds/{}/settings", feed.id))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "csrf_token={csrf}&content_mode=article_page&content_lifetime=infinite&youtube_player_mode=links_only&enclosure_delivery_mode=proxy&enclosure_load_mode=links-only&selector=article&respect_robots_txt=false&extraction_delay_ms=500&fetch_interval_minutes=30"
                 )))
@@ -372,22 +380,23 @@ async fn subscriber_owns_content_choice_while_admin_controls_shared_acquisition(
         subscriptions::youtube_mode_for_user(state.db.pool(), user.id, feed.id)
             .await
             .unwrap(),
-        Some(rustss_core::youtube::SubscriptionYouTubeMode::LinksOnly)
+        Some(rusty_feed_core::youtube::SubscriptionYouTubeMode::LinksOnly)
     );
     let subscription = subscriptions::find(state.db.pool(), user.id, feed.id)
         .await
         .unwrap()
         .unwrap();
-    let enclosure_settings = rustss_core::feed_content::SubscriptionEnclosureSettings::from_json(
-        subscription.settings.as_ref(),
-    );
+    let enclosure_settings =
+        rusty_feed_core::feed_content::SubscriptionEnclosureSettings::from_json(
+            subscription.settings.as_ref(),
+        );
     assert_eq!(
         enclosure_settings.delivery,
-        rustss_core::feed_content::SubscriptionEnclosureDelivery::Proxy
+        rusty_feed_core::feed_content::SubscriptionEnclosureDelivery::Proxy
     );
     assert_eq!(
         enclosure_settings.load,
-        rustss_core::feed_content::SubscriptionEnclosureLoad::LinksOnly
+        rusty_feed_core::feed_content::SubscriptionEnclosureLoad::LinksOnly
     );
     assert_eq!(
         jobs::count_active_by_dedup(state.db.pool(), &format!("fetch_feed:{}", feed.id))
@@ -436,13 +445,13 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
         .clone()
         .oneshot(
             Request::get("/feeds")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    let csrf = find(&set_cookies(&response), "rustss_csrf")
+    let csrf = find(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let response = app
@@ -450,7 +459,10 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
         .oneshot(
             Request::post("/feeds/categories")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}&name=Work")))
                 .unwrap(),
         )
@@ -468,7 +480,10 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
         .oneshot(
             Request::post("/feeds/categories")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&name=Research&parent_id={}",
                     work.id
@@ -489,7 +504,10 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
         .oneshot(
             Request::post(format!("/feeds/{}/organization", feed.id))
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&tags=Rust%2C+Work&folder_id={}",
                     research.id
@@ -543,7 +561,7 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
         .clone()
         .oneshot(
             Request::get(format!("/articles?category={}", work.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -569,7 +587,7 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
         .clone()
         .oneshot(
             Request::get(format!("/articles?category={}", foreign.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -591,7 +609,7 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
         .clone()
         .oneshot(
             Request::get("/feeds")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -603,7 +621,7 @@ async fn users_organize_feeds_into_one_folder_and_multiple_tags() {
     let response = app
         .oneshot(
             Request::get(format!("/feeds/{}/icon", feed.id))
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -714,14 +732,14 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .clone()
         .oneshot(
             Request::get("/feeds")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let csrf = find(&set_cookies(&response), "rustss_csrf")
+    let csrf = find(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let page = body_string(response).await;
@@ -734,7 +752,10 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
             Request::post(format!("/feeds/categories/{}/collapse", folder.id))
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("x-requested-with", "fetch")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}&collapsed=true")))
                 .unwrap(),
         )
@@ -753,7 +774,10 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .oneshot(
             Request::post("/feeds/refresh-everything")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}")))
                 .unwrap(),
         )
@@ -769,7 +793,7 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .clone()
         .oneshot(
             Request::get("/feeds")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -785,7 +809,10 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .oneshot(
             Request::post("/feeds/bulk-move")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&feed_id={}&feed_id={}&folder_id={}",
                     first.id, second.id, folder.id
@@ -802,7 +829,7 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .oneshot(
             Request::post("/feeds/bulk-tags")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "csrf_token={csrf}&feed_id={}&feed_id={}&tag_operation=add&tags=project%2Cpriority",
                     first.id, second.id
@@ -843,7 +870,10 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
             Request::post(format!("/feeds/{}/folder", first.id))
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("x-requested-with", "fetch")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!("csrf_token={csrf}&folder_id=")))
                 .unwrap(),
         )
@@ -871,7 +901,10 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .oneshot(
             Request::post("/feeds/refresh-selected")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&feed_id={}&feed_id={}",
                     first.id, second.id
@@ -897,7 +930,10 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
         .oneshot(
             Request::post("/feeds/refresh-selected")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(format!(
                     "csrf_token={csrf}&feed_id={}",
                     foreign.id
@@ -930,17 +966,17 @@ async fn opml_preview_import_url_and_export_round_trip() {
         .clone()
         .oneshot(
             Request::get("/feeds")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    let csrf = find(&set_cookies(&feeds_page), "rustss_csrf")
+    let csrf = find(&set_cookies(&feeds_page), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let run = uuid::Uuid::now_v7();
-    let empty_boundary = format!("rustss-empty-{run}");
+    let empty_boundary = format!("rusty-feed-empty-{run}");
     let empty_multipart = format!(
         "--{empty_boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
          --{empty_boundary}\r\nContent-Disposition: form-data; name=\"opml_url\"\r\n\r\n\r\n\
@@ -955,7 +991,10 @@ async fn opml_preview_import_url_and_export_round_trip() {
                     "content-type",
                     format!("multipart/form-data; boundary={empty_boundary}"),
                 )
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(empty_multipart))
                 .unwrap(),
         )
@@ -975,7 +1014,7 @@ async fn opml_preview_import_url_and_export_round_trip() {
         <outline text="Duplicate" xmlUrl="{first_url}"/>
         </body></opml>"#
     );
-    let boundary = format!("rustss-{run}");
+    let boundary = format!("rusty-feed-{run}");
     let multipart = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
          --{boundary}\r\nContent-Disposition: form-data; name=\"opml_url\"\r\n\r\n\r\n\
@@ -990,7 +1029,10 @@ async fn opml_preview_import_url_and_export_round_trip() {
                     "content-type",
                     format!("multipart/form-data; boundary={boundary}"),
                 )
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(multipart))
                 .unwrap(),
         )
@@ -1017,7 +1059,10 @@ async fn opml_preview_import_url_and_export_round_trip() {
         .oneshot(
             Request::post("/feeds/opml/import")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(serializer.finish()))
                 .unwrap(),
         )
@@ -1053,7 +1098,7 @@ async fn opml_preview_import_url_and_export_round_trip() {
         .clone()
         .oneshot(
             Request::get("/feeds/opml/export")
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1065,7 +1110,7 @@ async fn opml_preview_import_url_and_export_round_trip() {
         "text/x-opml; charset=utf-8"
     );
     let exported = body_string(exported).await;
-    let round_trip = rustss_feeds::parse_opml(exported.as_bytes(), 2_000).unwrap();
+    let round_trip = rusty_feed_feeds::parse_opml(exported.as_bytes(), 2_000).unwrap();
     assert!(round_trip.subscriptions.len() >= 2);
     assert!(round_trip
         .subscriptions
@@ -1082,7 +1127,7 @@ async fn opml_preview_import_url_and_export_round_trip() {
         .respond_with(ResponseTemplate::new(200).set_body_string(document))
         .mount(&server)
         .await;
-    let boundary = format!("rustss-url-{run}");
+    let boundary = format!("rusty-feed-url-{run}");
     let multipart = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
          --{boundary}\r\nContent-Disposition: form-data; name=\"opml_url\"\r\n\r\n{}/subscriptions.opml\r\n\
@@ -1098,7 +1143,10 @@ async fn opml_preview_import_url_and_export_round_trip() {
                     "content-type",
                     format!("multipart/form-data; boundary={boundary}"),
                 )
-                .header("cookie", format!("rustss_sid={sid}; rustss_csrf={csrf}"))
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
                 .body(Body::from(multipart))
                 .unwrap(),
         )

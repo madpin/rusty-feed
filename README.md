@@ -1,10 +1,10 @@
-# RustSS &nbsp;·&nbsp; `rustss`
+# Rusty Feed &nbsp;·&nbsp; `rusty-feed`
 
 > Your RSS reader, but it actually understands what you read — and it runs as a single fast binary you own.
 
-**RustSS** is a self-hosted, multi-user, AI-augmented RSS/Atom reader. It learns what each user cares about and surfaces it using **semantic (vector) search**, **per-user personalization**, and optional **LLM summarization** — while staying lean enough to run on a home server or a small VPS.
+**Rusty Feed** is a self-hosted, multi-user, AI-augmented RSS/Atom reader. It learns what each user cares about and surfaces it using **semantic (vector) search**, **per-user personalization**, and optional **LLM summarization** — while staying lean enough to run on a home server or a small VPS.
 
-This repository (`rustss`) is a **ground-up reimplementation in Rust** of the original [`neureed`](https://github.com/madpin/neureed) (a Next.js 16 / TypeScript app). The goal: the same (and eventually more) capabilities, with a **fraction of the memory footprint**, higher throughput, and dramatically simpler operations.
+This repository (`rusty-feed`) is a **ground-up reimplementation in Rust** of the original [`neureed`](https://github.com/madpin/neureed) (a Next.js 16 / TypeScript app). The goal: the same (and eventually more) capabilities, with a **fraction of the memory footprint**, higher throughput, and dramatically simpler operations.
 
 > **Status: 🧪 v1 release candidate.** All fourteen implementation milestones are complete. The expanded Miniflux audit is **65/67 complete**, with full-string localization and turnkey contracts for every advertised hosted integration still partial. The repository has not been tagged or published from this worktree; see the [Roadmap](#-roadmap), [release evidence](docs/RELEASE_EVIDENCE.md), and [parity tracker](docs/MINIFLUX_PARITY.md).
 
@@ -12,7 +12,7 @@ This repository (`rustss`) is a **ground-up reimplementation in Rust** of the or
 
 ## ✨ Vision
 
-RSS is the best way to own your information diet — but classic readers drown you in noise. RustSS makes the feed *smart*:
+RSS is the best way to own your information diet — but classic readers drown you in noise. Rusty Feed makes the feed *smart*:
 
 - **🧠 It learns you.** Thumbs up/down and natural reading behavior train a per-user model; articles you'll care about float to the top.
 - **🔍 Search by meaning.** "machine learning tutorials for beginners" finds the right articles even when they never use those words (pgvector embeddings).
@@ -23,11 +23,11 @@ RSS is the best way to own your information diet — but classic readers drown y
 
 ---
 
-## 🎯 Why RustSS?
+## 🎯 Why Rusty Feed?
 
-The original `neureed` is feature-rich and proven — its data model and algorithms are our source of truth. RustSS keeps that behavior while re-architecting the runtime for the things self-hosters feel every day:
+The original `neureed` is feature-rich and proven — its data model and algorithms are our source of truth. Rusty Feed keeps that behavior while re-architecting the runtime for the things self-hosters feel every day:
 
-| | Original (`neureed`) | RustSS |
+| | Original (`neureed`) | Rusty Feed |
 |---|---|---|
 | Runtime | Node.js 24 / Next.js 16 | Rust + Tokio (single binary) |
 | UI | React SPA (SSR + client) | Askama HTML + progressive local JavaScript |
@@ -122,7 +122,7 @@ Browser (HTML + progressive JS) ─▶ Axum server (Askama HTML / JSON API)
 Quick version (Docker Compose):
 
 ```bash
-git clone https://github.com/madpin/rustss.git && cd rustss
+git clone https://github.com/madpin/rusty-feed.git && cd rusty-feed
 cp .env.example .env      # set SESSION_SECRET and ENCRYPTION_SECRET (openssl rand -base64 48)
 docker compose --env-file .env -f docker/compose.yaml up -d
 curl http://localhost:8080/api/health
@@ -136,8 +136,8 @@ curl http://localhost:8080/api/health
 ### Run it (Docker Compose — recommended)
 
 ```bash
-git clone https://github.com/madpin/rustss.git
-cd rustss
+git clone https://github.com/madpin/rusty-feed.git
+cd rusty-feed
 cp .env.example .env          # set SESSION_SECRET, ENCRYPTION_SECRET, OAuth/keys as needed
 docker compose --env-file .env -f docker/compose.yaml up -d  # full stack
 open http://localhost:8080
@@ -147,11 +147,11 @@ The first account you register becomes the **admin**. New users can choose from 
 
 ### Redis-free single-process mode
 
-Redis is optional. `rustss-server` embeds the background worker by default, so a
+Redis is optional. `rusty-feed-server` embeds the background worker by default, so a
 small single-node deployment needs only PostgreSQL 17 with pgvector:
 
 ```bash
-CACHE_ENABLED=false rustss-server
+CACHE_ENABLED=false rusty-feed-server
 ```
 
 Set `DATABASE_URL`, `SESSION_SECRET`, and `ENCRYPTION_SECRET` first. SQLite is
@@ -166,11 +166,11 @@ docker compose --env-file .env -f docker/compose.yaml up -d postgres
 # Optional Redis L2 cache and bounded Chromium extraction fallback:
 # docker compose --env-file .env -f docker/compose.yaml up -d redis chromium
 
-cargo run -p rustss-cli -- migrate            # apply DB migrations
-cargo run -p rustss-server                    # start the server (embedded worker by default)
+cargo run -p rusty-feed-cli -- migrate            # apply DB migrations
+cargo run -p rusty-feed-server                    # start the server (embedded worker by default)
 
 # Useful:
-cargo run -p rustss-worker                    # run AGENTS separately (scaled mode)
+cargo run -p rusty-feed-worker                    # run AGENTS separately (scaled mode)
 cargo test                                     # unit + integration tests
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all --check
@@ -185,22 +185,22 @@ bootstrap and maintenance workflows; use `--help` for their current arguments.
 ```bash
 npm ci
 docker compose --env-file .env -f docker/compose.yaml exec -T postgres \
-  createdb --username rustss rustss_e2e
-PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss_e2e \
+  createdb --username rusty_feed rusty_feed_e2e
+PLAYWRIGHT_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_feed_e2e \
   PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
   npm run test:e2e
 ```
 
-Create the dedicated database once; an "already exists" response on later runs is harmless. Do not point Playwright at the database used by Rust integration tests or a real RustSS instance. Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled and the deterministic test embedding model selected. It exercises discovery and OPML flows, reader modes and typography, Live View, privacy-gated media/YouTube, public sharing, feed organization and drag/drop, keyboard shortcuts, the fixed side panel, live AI-summary progress, admin queue refresh, no-JavaScript fallbacks, and authorization boundaries. CI creates a fresh `rustss_e2e` database, installs Chromium, and runs this suite after Rust tests.
+Create the dedicated database once; an "already exists" response on later runs is harmless. Do not point Playwright at the database used by Rust integration tests or a real Rusty Feed instance. Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled and the deterministic test embedding model selected. It exercises discovery and OPML flows, reader modes and typography, Live View, privacy-gated media/YouTube, public sharing, feed organization and drag/drop, keyboard shortcuts, the fixed side panel, live AI-summary progress, admin queue refresh, no-JavaScript fallbacks, and authorization boundaries. CI creates a fresh `rusty_feed_e2e` database, installs Chromium, and runs this suite after Rust tests.
 
 ### Configuration (essentials)
 
 ```bash
-DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss
+DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5432/rusty_feed
 # Optional Redis L2 cache. For L1-only, omit REDIS_URL and use CACHE_ENABLED=false.
 REDIS_URL=redis://localhost:6379
 CACHE_ENABLED=true
-CACHE_NAMESPACE=rustss                    # make unique when Redis is shared by installations
+CACHE_NAMESPACE=rusty-feed                    # make unique when Redis is shared by installations
 SESSION_SECRET=<32+ random bytes>
 ENCRYPTION_SECRET=<32+ random bytes>         # encrypts stored API credentials
 
@@ -211,7 +211,7 @@ REGISTRATION_MODE=open                        # open | invite | closed
 ```
 
 See the complete [configuration reference](docs/CONFIGURATION.md), including
-TOML layering and the secret-safe `rustss-cli config-check` diagnostic. RustSS
+TOML layering and the secret-safe `rusty-feed-cli config-check` diagnostic. Rusty Feed
 refuses to boot with missing or invalid required configuration.
 
 ---
@@ -227,7 +227,7 @@ refuses to boot with missing or invalid required configuration.
 | **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** | Every runtime and Compose setting, precedence, validation, security notes, and safe diagnostics |
 | **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** | Complete guide to reading, organizing feeds, search, summaries, APIs, customization, and administration |
 | **[docs/OPERATIONS.md](docs/OPERATIONS.md)** | Production health, backup/restore, upgrades, queues, retention, and failure recovery |
-| **[docs/MIGRATION.md](docs/MIGRATION.md)** | RustSS upgrades, NeuReed OPML migration, and moving hosts |
+| **[docs/MIGRATION.md](docs/MIGRATION.md)** | Rusty Feed upgrades, NeuReed OPML migration, and moving hosts |
 | **[docs/RELEASE_EVIDENCE.md](docs/RELEASE_EVIDENCE.md)** | Reproducible performance, resilience, model, accessibility, and restore evidence |
 | **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)** | Evidence-backed milestone status, remaining acceptance work, and delivery order |
 | **[docs/MINIFLUX_PARITY.md](docs/MINIFLUX_PARITY.md)** | Living 67-item Miniflux parity and customization tracker |

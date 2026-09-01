@@ -22,7 +22,7 @@
           {% if enclosure.load_on_demand %}
           <div class="enclosure-loader" data-enclosure-loader>
             <button type="button" data-enclosure-load data-enclosure-kind="audio">Load audio player</button>
-            <span>{% if enclosure.proxied %}RustSS privately fetches the media only after you choose Load.{% else %}Contacts the media host only after you choose Load.{% endif %}</span>
+            <span>{% if enclosure.proxied %}Rusty Feed privately fetches the media only after you choose Load.{% else %}Contacts the media host only after you choose Load.{% endif %}</span>
             <audio controls preload="none" data-enclosure-player data-src="{{ enclosure.url }}" aria-label="{{ enclosure.title }}" hidden></audio>
           </div>
           {% else %}
@@ -32,7 +32,7 @@
           {% if enclosure.load_on_demand %}
           <div class="enclosure-loader" data-enclosure-loader>
             <button type="button" data-enclosure-load data-enclosure-kind="video">Load video player</button>
-            <span>{% if enclosure.proxied %}RustSS privately fetches the media only after you choose Load.{% else %}Contacts the media host only after you choose Load.{% endif %}</span>
+            <span>{% if enclosure.proxied %}Rusty Feed privately fetches the media only after you choose Load.{% else %}Contacts the media host only after you choose Load.{% endif %}</span>
             <video controls playsinline preload="none" data-enclosure-player data-src="{{ enclosure.url }}" aria-label="{{ enclosure.title }}" hidden></video>
           </div>
           {% else %}
@@ -42,7 +42,7 @@
           {% if enclosure.load_on_demand %}
           <div class="enclosure-loader" data-enclosure-loader>
             <button type="button" data-enclosure-load data-enclosure-kind="image">Load image preview</button>
-            <span>{% if enclosure.proxied %}RustSS privately fetches the image only after you choose Load.{% else %}Contacts the image host only after you choose Load.{% endif %}</span>
+            <span>{% if enclosure.proxied %}Rusty Feed privately fetches the image only after you choose Load.{% else %}Contacts the image host only after you choose Load.{% endif %}</span>
             <img data-enclosure-player data-src="{{ enclosure.url }}" alt="{{ enclosure.title }}" referrerpolicy="no-referrer" hidden />
           </div>
           {% else %}

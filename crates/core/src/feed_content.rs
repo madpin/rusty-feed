@@ -99,7 +99,7 @@ impl FeedContentSettings {
     }
 }
 
-/// How long a subscriber asks RustSS to retain a fetched public article page.
+/// How long a subscriber asks Rusty Feed to retain a fetched public article page.
 /// RSS content is always stored with the shared article and is not governed by
 /// this lifetime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

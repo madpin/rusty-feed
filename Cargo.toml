@@ -21,24 +21,24 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.94"
 license = "MIT"
-repository = "https://github.com/madpin/rustss"
-authors = ["RustSS contributors"]
+repository = "https://github.com/madpin/rusty-feed"
+authors = ["Rusty Feed contributors"]
 
 # Shared dependency versions. Add new deps here (per the development plan's
 # milestones) and reference them from member crates with `dep.workspace = true`.
 # Versions use conservative, well-established releases (see AGENTS.md).
 [workspace.dependencies]
 # internal crates
-rustss-core = { path = "crates/core" }
-rustss-db = { path = "crates/db" }
-rustss-cache = { path = "crates/cache" }
-rustss-feeds = { path = "crates/feeds" }
-rustss-extract = { path = "crates/extract" }
-rustss-embed = { path = "crates/embed" }
-rustss-llm = { path = "crates/llm" }
-rustss-search = { path = "crates/search" }
-rustss-agents = { path = "crates/agents" }
-rustss-web = { path = "crates/web" }
+rusty-feed-core = { path = "crates/core" }
+rusty-feed-db = { path = "crates/db" }
+rusty-feed-cache = { path = "crates/cache" }
+rusty-feed-feeds = { path = "crates/feeds" }
+rusty-feed-extract = { path = "crates/extract" }
+rusty-feed-embed = { path = "crates/embed" }
+rusty-feed-llm = { path = "crates/llm" }
+rusty-feed-search = { path = "crates/search" }
+rusty-feed-agents = { path = "crates/agents" }
+rusty-feed-web = { path = "crates/web" }
 
 # runtime / web
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time"] }

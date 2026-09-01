@@ -8,7 +8,7 @@ use crate::error::{DbError, Result};
 /// the durable active model/dimension.
 pub async fn ensure(pool: &PgPool, model: &str, dimensions: i32) -> Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('rustss:embedding-space'))")
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('rusty-feed:embedding-space'))")
         .execute(&mut *tx)
         .await?;
     let current: Option<(String, i32)> =
@@ -20,7 +20,7 @@ pub async fn ensure(pool: &PgPool, model: &str, dimensions: i32) -> Result<()> {
             if active_model != model || active_dimensions != dimensions =>
         {
             return Err(DbError::Validation(format!(
-                "embedding space is {active_model}/{active_dimensions}, but configuration requests {model}/{dimensions}; run `rustss-cli reindex --confirm`"
+                "embedding space is {active_model}/{active_dimensions}, but configuration requests {model}/{dimensions}; run `rusty-feed-cli reindex --confirm`"
             )));
         }
         Some(_) => {}
@@ -32,7 +32,7 @@ pub async fn ensure(pool: &PgPool, model: &str, dimensions: i32) -> Result<()> {
             .await?;
             if existing.iter().any(|existing| existing != model) {
                 return Err(DbError::Validation(format!(
-                    "stored vectors use model(s) {}, but configuration requests {model}; run `rustss-cli reindex --confirm`",
+                    "stored vectors use model(s) {}, but configuration requests {model}; run `rusty-feed-cli reindex --confirm`",
                     existing.join(", ")
                 )));
             }
@@ -53,7 +53,7 @@ pub async fn ensure(pool: &PgPool, model: &str, dimensions: i32) -> Result<()> {
 /// operation is transactional and only exposed through the confirmed CLI.
 pub async fn replace(pool: &PgPool, model: &str, dimensions: i32) -> Result<u64> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('rustss:embedding-space'))")
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('rusty-feed:embedding-space'))")
         .execute(&mut *tx)
         .await?;
     let removed = sqlx::query("DELETE FROM article_embeddings")

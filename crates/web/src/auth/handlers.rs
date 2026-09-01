@@ -9,8 +9,8 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use time::OffsetDateTime;
 
-use rustss_core::config::RegistrationMode;
-use rustss_db::users;
+use rusty_feed_core::config::RegistrationMode;
+use rusty_feed_db::users;
 
 use crate::auth::extractor::MaybeUser;
 use crate::auth::password::{hash_password, validate_strength, verify_password};
@@ -134,7 +134,7 @@ pub async fn home(
         demo_admin_readonly: state.settings.demo_mode && state.settings.demo_admin_readonly,
         registration_open: matches!(
             state.settings.registration_mode,
-            rustss_core::config::RegistrationMode::Open
+            rusty_feed_core::config::RegistrationMode::Open
         ),
         // Verify the Miniflux column against current docs before changing this.
         comparison_date: "2026-08",
@@ -180,14 +180,14 @@ pub async fn demo_start(
         "Demo user"
     };
     let user = users::create_demo(state.db.pool(), &email, name, role).await?;
-    metrics::counter!("rustss_demo_provisions_total", "role" => role).increment(1);
+    metrics::counter!("rusty_feed_demo_provisions_total", "role" => role).increment(1);
     // Demo sessions get a short TTL so abandoned ones expire before the reset.
     let ttl = time::Duration::hours(i64::from(state.settings.demo_session_ttl_hours).max(1));
     let jar =
         session::login_with_ttl(jar, &state.db, user.id, state.settings.cookie_secure, ttl).await?;
     // A readable (non-HttpOnly) marker so the client shows the demo banner.
     let jar = jar.add(
-        axum_extra::extract::cookie::Cookie::build(("rustss_demo", "1"))
+        axum_extra::extract::cookie::Cookie::build(("rusty_feed_demo", "1"))
             .path("/")
             .same_site(axum_extra::extract::cookie::SameSite::Lax)
             .secure(state.settings.cookie_secure)
@@ -336,7 +336,7 @@ pub async fn register_submit(
     let invite_token = form.invite_token.trim();
     let invitation_allowed = matches!(state.settings.registration_mode, RegistrationMode::Invite)
         && !invite_token.is_empty()
-        && rustss_db::invitations::is_valid(
+        && rusty_feed_db::invitations::is_valid(
             state.db.pool(),
             &crate::auth::token::hash(invite_token),
             Some(form.email.trim()),
@@ -450,7 +450,7 @@ pub async fn register_submit(
         .await?
     };
 
-    metrics::counter!("rustss_signups_total").increment(1);
+    metrics::counter!("rusty_feed_signups_total").increment(1);
     // Record consent for lawful contact/consent (FND-195).
     if accepted_terms || state.settings.require_tos_acceptance {
         let _ = users::record_consent(state.db.pool(), user.id).await;
@@ -497,7 +497,7 @@ async fn registration_open(state: &AppState, invite_token: &str) -> Result<bool,
     if matches!(state.settings.registration_mode, RegistrationMode::Invite)
         && !invite_token.is_empty()
     {
-        return Ok(rustss_db::invitations::is_valid(
+        return Ok(rusty_feed_db::invitations::is_valid(
             state.db.pool(),
             &crate::auth::token::hash(invite_token),
             None,

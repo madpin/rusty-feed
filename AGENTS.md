@@ -1,6 +1,6 @@
-# AGENTS.md — Working in the RustSS repo
+# AGENTS.md — Working in the Rusty Feed repo
 
-Guidance for AI coding agents (and humans) contributing to **RustSS**, a self-hosted, multi-user, AI-augmented RSS reader written in Rust. This is a ground-up Rust reimplementation of the original `neureed` (Next.js/TypeScript).
+Guidance for AI coding agents (and humans) contributing to **Rusty Feed**, a self-hosted, multi-user, AI-augmented RSS reader written in Rust. This is a ground-up Rust reimplementation of the original `neureed` (Next.js/TypeScript).
 
 > This file is the **canonical** contributor guide. `CLAUDE.md`, `.cursorrules`, and `GEMINI.md` are thin pointers to it — keep this one authoritative and up to date.
 
@@ -79,11 +79,11 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test                      # workspace unit + integration tests
 cargo test -p <crate>           # a single crate
 
-# Browser E2E (dev-only Node dependency; starts RustSS on :8088 with worker off)
+# Browser E2E (dev-only Node dependency; starts Rusty Feed on :8088 with worker off)
 npm ci
 docker compose --env-file .env -f docker/compose.yaml exec -T postgres \
-  createdb --username rustss rustss_e2e
-PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss_e2e \
+  createdb --username rusty_feed rusty_feed_e2e
+PLAYWRIGHT_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_feed_e2e \
   PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
   npm run test:e2e
 
@@ -91,16 +91,16 @@ PLAYWRIGHT_DATABASE_URL=postgres://rustss:rustss@localhost:5435/rustss_e2e \
 docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 
 # Database (SQLx)
-cargo run -p rustss-cli -- migrate          # apply migrations (needs DATABASE_URL)
+cargo run -p rusty-feed-cli -- migrate          # apply migrations (needs DATABASE_URL)
 # DB integration tests run when TEST_DATABASE_URL is set, else they skip:
 #   docker compose --env-file .env -f docker/compose.yaml up -d postgres
-#   TEST_DATABASE_URL=postgres://rustss:rustss@localhost:5432/rustss cargo test  # use POSTGRES_PORT
+#   TEST_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5432/rusty_feed cargo test  # use POSTGRES_PORT
 
 # Run
-cargo run -p rustss-server                  # server (embedded worker by default)
-cargo run -p rustss-worker                  # standalone AGENTS worker
+cargo run -p rusty-feed-server                  # server (embedded worker by default)
+cargo run -p rusty-feed-worker                  # standalone AGENTS worker
 # The first registered account becomes admin. create-admin/fetch-model/reindex/
-cargo run -p rustss-cli -- demo-reset --confirm   # wipe all demo accounts (public launch §7)
+cargo run -p rusty-feed-cli -- demo-reset --confirm   # wipe all demo accounts (public launch §7)
 
 # Frontend CSS/JS/icons are embedded directly via rust-embed.
 
@@ -115,7 +115,7 @@ docker compose --env-file .env -f docker/compose.yaml up -d # app + postgres + r
 ## 5. Conventions
 
 - **Errors:** `thiserror` enums in libraries; `anyhow` only in bins/agent boundaries. No `unwrap()`/`expect()` on fallible paths outside tests and startup. Map to HTTP via the single `web::AppError: IntoResponse`.
-- **SQL:** use **runtime** `sqlx::query`/`query_as` (not the compile-time macros) so builds stay hermetic (no DB or `.sqlx/` needed); SQL is validated by integration tests against a real Postgres (FND-107). Shared writes are **idempotent** (`ON CONFLICT`). Per-user reads/writes are **always scoped by `user_id`**. `FromRow` structs live in `rustss-db` with column-list constants kept in sync with the schema.
+- **SQL:** use **runtime** `sqlx::query`/`query_as` (not the compile-time macros) so builds stay hermetic (no DB or `.sqlx/` needed); SQL is validated by integration tests against a real Postgres (FND-107). Shared writes are **idempotent** (`ON CONFLICT`). Per-user reads/writes are **always scoped by `user_id`**. `FromRow` structs live in `rusty-feed-db` with column-list constants kept in sync with the schema.
 - **IDs:** UUIDv7. **Time:** `time` crate + `timestamptz`. **Vectors:** the `pgvector` crate; one fixed dimension per instance (`EMBEDDING_MODEL`); never pad/truncate across dimensions (FND-002).
 - **Outbound HTTP:** only via `SafeFetchClient` (SSRF-guarded). No direct `reqwest` calls to feed/article/robots/media URLs (FND-006).
 - **Secrets:** encrypt with the unified AEAD helper; never log secret material; use the masking helper for display.

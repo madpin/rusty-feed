@@ -20,7 +20,7 @@
   {% if feed.is_subscribed %}
   <section class="panel">
     <h2>Your stored content</h2>
-    <p class="muted">This choice belongs to your subscription. RSS content is always stored. If any subscriber requests the public page, RustSS fetches and stores one shared copy for everyone who requests it.</p>
+    <p class="muted">This choice belongs to your subscription. RSS content is always stored. If any subscriber requests the public page, Rusty Feed fetches and stores one shared copy for everyone who requests it.</p>
     <fieldset>
       <legend>What do you want to read?</legend>
       <label class="radio-row">
@@ -56,7 +56,7 @@
       <label>Attachment delivery for this subscription
         <select name="enclosure_delivery_mode">
           <option value="inherit"{% if feed.enclosure_delivery_mode == "inherit" %} selected{% endif %}>Inherit my reading preference</option>
-          <option value="proxy"{% if feed.enclosure_delivery_mode == "proxy" %} selected{% endif %}>Always use RustSS proxy</option>
+          <option value="proxy"{% if feed.enclosure_delivery_mode == "proxy" %} selected{% endif %}>Always use Rusty Feed proxy</option>
           <option value="mixed-content"{% if feed.enclosure_delivery_mode == "mixed-content" %} selected{% endif %}>Proxy HTTP media only</option>
           <option value="direct"{% if feed.enclosure_delivery_mode == "direct" %} selected{% endif %}>Load directly from publisher</option>
         </select>
@@ -87,7 +87,7 @@
     </label>
     <label>Shared rewrite rules (JSON)
       <textarea name="rewrite_rules_json" rows="10" spellcheck="false">{{ feed.rewrite_rules_json }}</textarea>
-      <small>Ordered rules may remove a CSS selector or replace matching text inside one. Rules are versionable data—not code—and RustSS sanitizes the result again before storage.</small>
+      <small>Ordered rules may remove a CSS selector or replace matching text inside one. Rules are versionable data—not code—and Rusty Feed sanitizes the result again before storage.</small>
     </label>
     {% if !rewrite_versions.is_empty() %}<details><summary>Rewrite rule history</summary><ul class="token-list">{% for version in rewrite_versions %}<li class="token-row"><span>Version {{ version.version }} · {{ version.rule_count }} rule(s) · {{ version.created_at }}</span><button type="submit" formaction="/feeds/{{ feed.id }}/rules/{{ version.id }}/restore" formmethod="post">Restore as new version</button></li>{% endfor %}</ul></details>{% endif %}
     <div class="form-grid">

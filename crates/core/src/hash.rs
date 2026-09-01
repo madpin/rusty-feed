@@ -3,7 +3,7 @@
 //! The hash is `SHA-256(trim(content))` as a lowercase hex string, matching the
 //! reference implementation so behavior is comparable (`docs/ARCHITECTURE.md`
 //! §11.1). It is a pure function with no I/O, deliberately kept in `core` so
-//! both ingest (`rustss-feeds`) and the repositories (`rustss-db`) agree on it.
+//! both ingest (`rusty-feed-feeds`) and the repositories (`rusty-feed-db`) agree on it.
 
 use sha2::{Digest, Sha256};
 

@@ -1,7 +1,9 @@
 use std::time::Duration;
 
-use rustss_extract::{chromium::ChromiumConfig, ExtractConfig, ExtractOutcome, ExtractionService};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_extract::{
+    chromium::ChromiumConfig, ExtractConfig, ExtractOutcome, ExtractionService,
+};
+use rusty_feed_feeds::SafeFetchClient;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -14,7 +16,7 @@ async fn chromium_renders_inline_application_content_without_publisher_network_a
         eprintln!("skipping: TEST_DATABASE_URL or CHROMIUM_CDP_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&database_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&database_url).await.unwrap();
     db.migrate().await.unwrap();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -62,7 +64,7 @@ async fn unavailable_chromium_falls_back_to_local_content() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let db = rustss_db::Db::connect(&database_url).await.unwrap();
+    let db = rusty_feed_db::Db::connect(&database_url).await.unwrap();
     db.migrate().await.unwrap();
     let server = MockServer::start().await;
     Mock::given(method("GET"))

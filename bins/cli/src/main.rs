@@ -1,4 +1,4 @@
-//! RustSS admin/maintenance CLI.
+//! Rusty Feed admin/maintenance CLI.
 //!
 //! Commands intentionally use the same validated configuration as the server,
 //! so maintenance cannot create an incompatible embedding space.
@@ -34,7 +34,7 @@ async fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Some("--version") | Some("-V") => {
-            println!("{}", rustss_core::banner());
+            println!("{}", rusty_feed_core::banner());
             ExitCode::SUCCESS
         }
         Some("--help") | Some("-h") | Some("help") | None => {
@@ -51,11 +51,11 @@ async fn main() -> ExitCode {
 
 /// Report legacy URL collisions and optionally update only conflict-free keys.
 async fn canonicalize_urls(apply: bool) -> anyhow::Result<()> {
-    let config = rustss_core::AppConfig::load()?;
+    let config = rusty_feed_core::AppConfig::load()?;
     let policy = config.tracking_url_policy().map_err(anyhow::Error::msg)?;
-    let db = rustss_db::Db::connect(&config.database_url).await?;
+    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
     db.migrate().await?;
-    let plan = rustss_db::url_backfill::plan(db.pool(), &policy).await?;
+    let plan = rusty_feed_db::url_backfill::plan(db.pool(), &policy).await?;
     println!(
         "canonical URL plan: {} safe change(s), {} collision(s), {} unchanged",
         plan.changes.len(),
@@ -75,7 +75,7 @@ async fn canonicalize_urls(apply: bool) -> anyhow::Result<()> {
         );
     }
     if apply {
-        let changed = rustss_db::url_backfill::apply(db.pool(), &plan).await?;
+        let changed = rusty_feed_db::url_backfill::apply(db.pool(), &plan).await?;
         println!("updated {changed} collision-free article key(s)");
     } else if !plan.changes.is_empty() {
         println!("dry run only; rerun with --apply to update collision-free keys");
@@ -87,8 +87,8 @@ async fn canonicalize_urls(apply: bool) -> anyhow::Result<()> {
 /// readiness probe. A populated cache can subsequently be copied to an
 /// air-gapped host without runtime network access.
 async fn fetch_model() -> anyhow::Result<()> {
-    let config = rustss_core::AppConfig::load()?;
-    let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
+    let config = rusty_feed_core::AppConfig::load()?;
+    let embedder = rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
         provider: config.embedding_provider,
         model: config.embedding_model,
         openai_api_key: config
@@ -98,12 +98,14 @@ async fn fetch_model() -> anyhow::Result<()> {
         openai_base_url: config.openai_base_url,
         model_cache_dir: config.model_cache_dir.clone(),
     })?;
-    let vector = embedder.embed_one("RustSS model readiness probe").await?;
-    if vector.len() != rustss_embed::EMBEDDING_DIM {
+    let vector = embedder
+        .embed_one("Rusty Feed model readiness probe")
+        .await?;
+    if vector.len() != rusty_feed_embed::EMBEDDING_DIM {
         anyhow::bail!(
-            "model returned {} dimensions; RustSS requires {}",
+            "model returned {} dimensions; Rusty Feed requires {}",
             vector.len(),
-            rustss_embed::EMBEDDING_DIM
+            rusty_feed_embed::EMBEDDING_DIM
         );
     }
     println!(
@@ -118,10 +120,10 @@ async fn fetch_model() -> anyhow::Result<()> {
 /// Delete every ephemeral demo account (and its data). Scoped strictly to
 /// `is_demo = true`, so real users are never touched (docs/PUBLIC_LAUNCH_PLAN.md §7.3).
 async fn demo_reset() -> anyhow::Result<()> {
-    let config = rustss_core::AppConfig::load()?;
-    let db = rustss_db::Db::connect(&config.database_url).await?;
+    let config = rusty_feed_core::AppConfig::load()?;
+    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
     db.migrate().await?;
-    let deleted = rustss_db::users::delete_all_demo(db.pool()).await?;
+    let deleted = rusty_feed_db::users::delete_all_demo(db.pool()).await?;
     println!("demo reset complete: {deleted} demo account(s) deleted");
     Ok(())
 }
@@ -131,32 +133,32 @@ async fn demo_reset() -> anyhow::Result<()> {
 async fn create_admin() -> anyhow::Result<()> {
     use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
 
-    let config = rustss_core::AppConfig::load()?;
-    let email = std::env::var("RUSTSS_ADMIN_EMAIL")
-        .map_err(|_| anyhow::anyhow!("RUSTSS_ADMIN_EMAIL must be set"))?;
+    let config = rusty_feed_core::AppConfig::load()?;
+    let email = std::env::var("RUSTY_FEED_ADMIN_EMAIL")
+        .map_err(|_| anyhow::anyhow!("RUSTY_FEED_ADMIN_EMAIL must be set"))?;
     let email = email.trim().to_ascii_lowercase();
     if !email.contains('@') || email.len() > 320 {
-        anyhow::bail!("RUSTSS_ADMIN_EMAIL is not a valid email address");
+        anyhow::bail!("RUSTY_FEED_ADMIN_EMAIL is not a valid email address");
     }
-    let db = rustss_db::Db::connect(&config.database_url).await?;
+    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
     db.migrate().await?;
-    if let Some(user) = rustss_db::users::find_by_email(db.pool(), &email).await? {
-        rustss_db::users::set_role(db.pool(), user.id, "admin").await?;
+    if let Some(user) = rusty_feed_db::users::find_by_email(db.pool(), &email).await? {
+        rusty_feed_db::users::set_role(db.pool(), user.id, "admin").await?;
         println!("promoted {email} to administrator");
         return Ok(());
     }
-    let password = std::env::var("RUSTSS_ADMIN_PASSWORD")
-        .map_err(|_| anyhow::anyhow!("RUSTSS_ADMIN_PASSWORD must be set for a new account"))?;
+    let password = std::env::var("RUSTY_FEED_ADMIN_PASSWORD")
+        .map_err(|_| anyhow::anyhow!("RUSTY_FEED_ADMIN_PASSWORD must be set for a new account"))?;
     if password.chars().count() < 8 {
-        anyhow::bail!("RUSTSS_ADMIN_PASSWORD must contain at least 8 characters");
+        anyhow::bail!("RUSTY_FEED_ADMIN_PASSWORD must contain at least 8 characters");
     }
     let salt = SaltString::generate(&mut OsRng);
     let password_hash = argon2::Argon2::default()
         .hash_password(password.as_bytes(), &salt)
         .map_err(|error| anyhow::anyhow!("password hashing failed: {error}"))?
         .to_string();
-    let name = std::env::var("RUSTSS_ADMIN_NAME").ok();
-    rustss_db::users::create_with_default_feeds(
+    let name = std::env::var("RUSTY_FEED_ADMIN_NAME").ok();
+    rusty_feed_db::users::create_with_default_feeds(
         db.pool(),
         &email,
         name.as_deref(),
@@ -173,35 +175,40 @@ async fn create_admin() -> anyhow::Result<()> {
 /// vector space. Reindex first replaces the durable space guard and removes old
 /// vectors, making the disruptive model transition explicit.
 async fn queue_embedding_backfill(reindex: bool) -> anyhow::Result<()> {
-    let config = rustss_core::AppConfig::load()?;
-    let model = rustss_embed::canonical_model(config.embedding_provider, &config.embedding_model)?;
-    let db = rustss_db::Db::connect(&config.database_url).await?;
+    let config = rusty_feed_core::AppConfig::load()?;
+    let model =
+        rusty_feed_embed::canonical_model(config.embedding_provider, &config.embedding_model)?;
+    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
     db.migrate().await?;
     if reindex {
-        let removed = rustss_db::embedding_space::replace(
+        let removed = rusty_feed_db::embedding_space::replace(
             db.pool(),
             &model,
-            rustss_embed::EMBEDDING_DIM as i32,
+            rusty_feed_embed::EMBEDDING_DIM as i32,
         )
         .await?;
         println!("removed {removed} vectors from the previous embedding space");
     } else {
-        rustss_db::embedding_space::ensure(db.pool(), &model, rustss_embed::EMBEDDING_DIM as i32)
-            .await?;
+        rusty_feed_db::embedding_space::ensure(
+            db.pool(),
+            &model,
+            rusty_feed_embed::EMBEDDING_DIM as i32,
+        )
+        .await?;
     }
 
     let mut cursor = None;
     let mut queued = 0_u64;
     loop {
         let batch =
-            rustss_db::articles::list_needing_embedding_space(db.pool(), &model, cursor, 1_000)
+            rusty_feed_db::articles::list_needing_embedding_space(db.pool(), &model, cursor, 1_000)
                 .await?;
         if batch.is_empty() {
             break;
         }
         for article in &batch {
             let dedup = format!("embed:{}:{}", article.id, article.content_revision);
-            if rustss_db::jobs::enqueue(
+            if rusty_feed_db::jobs::enqueue(
                 db.pool(),
                 "embed_article",
                 serde_json::json!({
@@ -229,7 +236,7 @@ async fn queue_embedding_backfill(reindex: bool) -> anyhow::Result<()> {
 
 /// Validate all application configuration and print only a secret-safe summary.
 fn config_check() -> anyhow::Result<()> {
-    let config = rustss_core::AppConfig::load()?;
+    let config = rusty_feed_core::AppConfig::load()?;
     println!(
         "{}",
         serde_json::to_string_pretty(&config.diagnostic_summary())?
@@ -244,7 +251,7 @@ async fn migrate() -> anyhow::Result<()> {
     let database_url =
         std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?;
 
-    let db = rustss_db::Db::connect(&database_url).await?;
+    let db = rusty_feed_db::Db::connect(&database_url).await?;
     db.migrate().await?;
     println!("migrations applied");
     Ok(())
@@ -264,12 +271,12 @@ fn run(result: anyhow::Result<()>) -> ExitCode {
 fn print_help() {
     println!(
         "{banner}\n\n\
-         RustSS admin/maintenance CLI\n\n\
-         USAGE:\n    rustss-cli <COMMAND>\n\n\
+         Rusty Feed admin/maintenance CLI\n\n\
+         USAGE:\n    rusty-feed-cli <COMMAND>\n\n\
          COMMANDS:\n\
          \x20   migrate           Apply database migrations\n\
          \x20   config-check      Validate config and print a secret-safe summary\n\
-         \x20   create-admin      Create/promote using RUSTSS_ADMIN_* environment variables\n\
+         \x20   create-admin      Create/promote using RUSTY_FEED_ADMIN_* environment variables\n\
          \x20   fetch-model       Download/cache and verify the embedding model\n\
          \x20   backfill          Queue missing vectors for the active model\n\
          \x20   canonicalize-urls [--apply]\n\
@@ -278,6 +285,6 @@ fn print_help() {
          \x20   demo-reset --confirm\n\
          \x20                      Delete all demo accounts and their data\n\
          \x20   help              Show this help\n",
-        banner = rustss_core::banner()
+        banner = rusty_feed_core::banner()
     );
 }

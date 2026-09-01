@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use sha2::Sha256;
 use uuid::Uuid;
 
-use rustss_db::integrations;
+use rusty_feed_db::integrations;
 
 use crate::{Agent, AgentContext};
 
@@ -17,21 +17,21 @@ struct Payload {
 pub struct IntegrationDeliveryAgent;
 
 fn outbound_body(profile: &integrations::IntegrationProfile, payload: &Value) -> Value {
-    let message = rustss_core::integrations::render_template(
+    let message = rusty_feed_core::integrations::render_template(
         &profile.payload_template,
         payload,
         &profile.tags,
     );
-    match rustss_core::integrations::provider(&profile.provider)
+    match rusty_feed_core::integrations::provider(&profile.provider)
         .map(|provider| provider.payload_kind)
     {
         Some("discord") => json!({"content": message}),
         Some("slack") => json!({"text": message}),
         Some("telegram") => json!({"text": message, "disable_web_page_preview": false}),
         Some("ntfy") => {
-            json!({"topic": "rustss", "title": payload.pointer("/article/title"), "message": message, "tags": profile.tags})
+            json!({"topic": "rusty-feed", "title": payload.pointer("/article/title"), "message": message, "tags": profile.tags})
         }
-        _ => json!({"rustss": payload, "message": message, "tags": profile.tags}),
+        _ => json!({"rusty-feed": payload, "message": message, "tags": profile.tags}),
     }
 }
 
@@ -70,9 +70,9 @@ impl Agent for IntegrationDeliveryAgent {
             .client_without_redirects()
             .post(&profile.endpoint_url)
             .header("content-type", "application/json")
-            .header("x-rustss-event-type", &delivery.event_type)
+            .header("x-rusty-feed-event-type", &delivery.event_type)
             .header(
-                "x-rustss-payload-version",
+                "x-rusty-feed-payload-version",
                 delivery.payload_version.to_string(),
             )
             .body(body.clone());
@@ -92,7 +92,7 @@ impl Agent for IntegrationDeliveryAgent {
                     .iter()
                     .map(|byte| format!("{byte:02x}"))
                     .collect();
-                request = request.header("x-rustss-signature", format!("sha256={signature}"));
+                request = request.header("x-rusty-feed-signature", format!("sha256={signature}"));
             }
             _ => {}
         }

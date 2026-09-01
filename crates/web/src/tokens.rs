@@ -10,7 +10,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{api_tokens, User};
+use rusty_feed_db::{api_tokens, User};
 
 use crate::auth::extractor::AuthUser;
 use crate::auth::{csrf, token};
@@ -128,7 +128,12 @@ pub async fn create(
     }
     crate::verify::deny_demo(&user)?;
     crate::verify::require_verified(&state, &user)?;
-    crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::ApiTokens).await?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rusty_feed_core::quotas::QuotaKind::ApiTokens,
+    )
+    .await?;
     let name = form.name.trim();
     if name.is_empty() {
         return render_page(
@@ -155,7 +160,7 @@ pub async fn create(
 }
 
 /// Create a revocable Fever credential. Fever clients transmit
-/// `md5(username:password)`; RustSS stores only a SHA-256 hash of that digest.
+/// `md5(username:password)`; Rusty Feed stores only a SHA-256 hash of that digest.
 pub async fn create_fever(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -170,7 +175,12 @@ pub async fn create_fever(
     }
     crate::verify::deny_demo(&user)?;
     crate::verify::require_verified(&state, &user)?;
-    crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::ApiTokens).await?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rusty_feed_core::quotas::QuotaKind::ApiTokens,
+    )
+    .await?;
     let name = form.name.trim();
     let username = form.username.trim();
     if name.is_empty()

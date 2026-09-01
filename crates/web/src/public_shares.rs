@@ -15,9 +15,9 @@ use serde::Deserialize;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_core::hash::sha256_hex;
-use rustss_core::html::{sanitize_article_html_with_policies, ARTICLE_PAGE_PROCESSING_VERSION};
-use rustss_db::{articles, feeds, public_shares};
+use rusty_feed_core::hash::sha256_hex;
+use rusty_feed_core::html::{sanitize_article_html_with_policies, ARTICLE_PAGE_PROCESSING_VERSION};
+use rusty_feed_db::{articles, feeds, public_shares};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -212,7 +212,7 @@ pub async fn create(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::PublicShares,
+        rusty_feed_core::quotas::QuotaKind::PublicShares,
     )
     .await?;
     let article = articles::find_by_id(state.db.pool(), article_id)

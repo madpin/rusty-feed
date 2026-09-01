@@ -5,10 +5,10 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_agents::{Agent, AgentContext, CatalogPreviewAgent};
-use rustss_db::{articles, catalog, feeds, Db, NewArticle};
-use rustss_extract::{ExtractConfig, ExtractionService};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_agents::{Agent, AgentContext, CatalogPreviewAgent};
+use rusty_feed_db::{articles, catalog, feeds, Db, NewArticle};
+use rusty_feed_extract::{ExtractConfig, ExtractionService};
+use rusty_feed_feeds::SafeFetchClient;
 
 const FULL_PAGE: &str = r#"<html><body><article><h1>Full page</h1>
 <p>This public article contains enough original prose to exceed the readability threshold and

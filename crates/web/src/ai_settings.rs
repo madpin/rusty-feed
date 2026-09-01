@@ -8,7 +8,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use rustss_db::{llm_profiles, User};
+use rusty_feed_db::{llm_profiles, User};
 
 use crate::auth::csrf;
 use crate::auth::{AdminReadUser, AdminUser, AuthUser};

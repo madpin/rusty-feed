@@ -1,21 +1,21 @@
 [package]
-name = "rustss-agents"
+name = "rusty-feed-agents"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS AGENTS: scheduler, durable job queue, run records, and agents."
+description = "Rusty Feed AGENTS: scheduler, durable job queue, run records, and agents."
 
 [dependencies]
-rustss-core = { workspace = true }
-rustss-db = { workspace = true }
-rustss-feeds = { workspace = true }
-rustss-extract = { workspace = true }
-rustss-embed = { workspace = true }
-rustss-search = { workspace = true }
-rustss-llm = { workspace = true }
+rusty-feed-core = { workspace = true }
+rusty-feed-db = { workspace = true }
+rusty-feed-feeds = { workspace = true }
+rusty-feed-extract = { workspace = true }
+rusty-feed-embed = { workspace = true }
+rusty-feed-search = { workspace = true }
+rusty-feed-llm = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -7,18 +7,18 @@ use ipnet::IpNet;
 use moka::future::Cache as MokaCache;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use rustss_cache::Cache;
-use rustss_core::ai_budget::AiBudget;
-use rustss_core::config::{RegistrationMode, SearchMode, SearchTextConfig};
-use rustss_core::crypto::Cryptor;
-use rustss_core::quotas::Quotas;
-use rustss_core::tracking_pixel::TrackingPixelPolicy;
-use rustss_core::tracking_url::TrackingUrlPolicy;
-use rustss_core::youtube::YouTubePolicy;
-use rustss_core::Secret;
-use rustss_db::Db;
-use rustss_embed::{Embedder, HashEmbedder};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_cache::Cache;
+use rusty_feed_core::ai_budget::AiBudget;
+use rusty_feed_core::config::{RegistrationMode, SearchMode, SearchTextConfig};
+use rusty_feed_core::crypto::Cryptor;
+use rusty_feed_core::quotas::Quotas;
+use rusty_feed_core::tracking_pixel::TrackingPixelPolicy;
+use rusty_feed_core::tracking_url::TrackingUrlPolicy;
+use rusty_feed_core::youtube::YouTubePolicy;
+use rusty_feed_core::Secret;
+use rusty_feed_db::Db;
+use rusty_feed_embed::{Embedder, HashEmbedder};
+use rusty_feed_feeds::SafeFetchClient;
 use tokio::sync::Mutex;
 use webauthn_rs::prelude::{Url as WebauthnUrl, Webauthn, WebauthnBuilder};
 
@@ -240,8 +240,8 @@ impl Default for AppSettings {
             reverse_proxy_auth: ReverseProxyAuthSettings::default(),
             cookie_secure: false,
             base_url: "http://localhost:8080".to_string(),
-            pwa_name: "RustSS".to_string(),
-            pwa_short_name: "RustSS".to_string(),
+            pwa_name: "Rusty Feed".to_string(),
+            pwa_short_name: "Rusty Feed".to_string(),
             pwa_theme_color: "#2563eb".to_string(),
             pwa_background_color: "#f8fafc".to_string(),
             external_links_new_tab_required: false,
@@ -256,7 +256,7 @@ impl Default for AppSettings {
             custom_javascript_enabled: false,
             ui_customization_max_bytes: 65_536,
             passkeys_enabled: false,
-            passkey_rp_name: "RustSS".to_string(),
+            passkey_rp_name: "Rusty Feed".to_string(),
             oauth_providers: Vec::new(),
             summarization_enabled: false,
             env_llm: None,
@@ -275,7 +275,7 @@ impl Default for AppSettings {
             youtube_policy: YouTubePolicy::default(),
             youtube_duration_enabled: false,
             youtube_duration_cache_days: 30,
-            outbound_user_agent: rustss_feeds::DEFAULT_USER_AGENT.to_string(),
+            outbound_user_agent: rusty_feed_feeds::DEFAULT_USER_AGENT.to_string(),
             outbound_http1_only: false,
             trusted_proxy_cidrs: vec!["127.0.0.1/32".parse().expect("static CIDR")],
             ai_budget: AiBudget::default(),
@@ -287,7 +287,7 @@ impl Default for AppSettings {
             login_lockout_seconds: 900,
             captcha: None,
             legal_contact_email: None,
-            legal_entity_name: "RustSS".to_string(),
+            legal_entity_name: "Rusty Feed".to_string(),
             require_tos_acceptance: false,
             demo_mode: false,
             demo_max_subscriptions: 20,
@@ -333,7 +333,7 @@ pub struct AppState {
     live_view_fetch_locks: MokaCache<String, Arc<Mutex<()>>>,
     media_fetch_locks: MokaCache<String, Arc<Mutex<()>>>,
     /// Cached compiled feed blocklist (shared; short TTL + invalidate on edit).
-    blocklist_cache: MokaCache<(), Arc<rustss_core::blocklist::Blocklist>>,
+    blocklist_cache: MokaCache<(), Arc<rusty_feed_core::blocklist::Blocklist>>,
     metrics: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
@@ -381,23 +381,23 @@ impl AppState {
             live_view_tokens: Cryptor::new(&live_view_key),
             public_share_tokens: Cryptor::new_with_context(
                 &live_view_key,
-                b"rustss/public-share-tokens/v1",
+                b"rusty-feed/public-share-tokens/v1",
             ),
             email_verification_tokens: Cryptor::new_with_context(
                 &live_view_key,
-                b"rustss/email-verification/v1",
+                b"rusty-feed/email-verification/v1",
             ),
             llm_credentials: Cryptor::new_with_context(
                 &live_view_key,
-                b"rustss/llm-provider-credentials/v1",
+                b"rusty-feed/llm-provider-credentials/v1",
             ),
             integration_credentials: Cryptor::new_with_context(
                 &live_view_key,
-                b"rustss/integration-credentials/v1",
+                b"rusty-feed/integration-credentials/v1",
             ),
             acquisition_credentials: Cryptor::new_with_context(
                 &live_view_key,
-                b"rustss/acquisition-profile-secrets/v1",
+                b"rusty-feed/acquisition-profile-secrets/v1",
             ),
             webauthn,
             live_view_fetch_locks: MokaCache::builder()
@@ -421,16 +421,16 @@ impl AppState {
     /// bypassing moderation.
     pub async fn blocklist(
         &self,
-    ) -> Result<Arc<rustss_core::blocklist::Blocklist>, crate::error::AppError> {
+    ) -> Result<Arc<rusty_feed_core::blocklist::Blocklist>, crate::error::AppError> {
         let pool = self.db.pool().clone();
         self.blocklist_cache
             .try_get_with((), async move {
-                rustss_db::feed_blocklist::compiled(&pool)
+                rusty_feed_db::feed_blocklist::compiled(&pool)
                     .await
                     .map(Arc::new)
             })
             .await
-            .map_err(|error: Arc<rustss_db::DbError>| {
+            .map_err(|error: Arc<rusty_feed_db::DbError>| {
                 crate::error::AppError::Internal(anyhow::anyhow!("blocklist load failed: {error}"))
             })
     }
@@ -455,9 +455,9 @@ impl AppState {
     /// Derive encrypted public-share token storage from the instance secret.
     pub fn with_public_share_secret(mut self, secret: &[u8]) -> Self {
         self.public_share_tokens =
-            Cryptor::new_with_context(secret, b"rustss/public-share-tokens/v1");
+            Cryptor::new_with_context(secret, b"rusty-feed/public-share-tokens/v1");
         self.email_verification_tokens =
-            Cryptor::new_with_context(secret, b"rustss/email-verification/v1");
+            Cryptor::new_with_context(secret, b"rusty-feed/email-verification/v1");
         self
     }
 
@@ -470,19 +470,19 @@ impl AppState {
     /// Derive the managed-AI credential key from the instance encryption secret.
     pub fn with_llm_secret(mut self, secret: &[u8]) -> Self {
         self.llm_credentials =
-            Cryptor::new_with_context(secret, b"rustss/llm-provider-credentials/v1");
+            Cryptor::new_with_context(secret, b"rusty-feed/llm-provider-credentials/v1");
         self
     }
 
     pub fn with_integration_secret(mut self, secret: &[u8]) -> Self {
         self.integration_credentials =
-            Cryptor::new_with_context(secret, b"rustss/integration-credentials/v1");
+            Cryptor::new_with_context(secret, b"rusty-feed/integration-credentials/v1");
         self
     }
 
     pub fn with_acquisition_secret(mut self, secret: &[u8]) -> Self {
         self.acquisition_credentials =
-            Cryptor::new_with_context(secret, b"rustss/acquisition-profile-secrets/v1");
+            Cryptor::new_with_context(secret, b"rusty-feed/acquisition-profile-secrets/v1");
         self
     }
 
@@ -491,7 +491,7 @@ impl AppState {
         feed_id: uuid::Uuid,
     ) -> anyhow::Result<SafeFetchClient> {
         let Some(profile) =
-            rustss_db::acquisition_profiles::for_feed(self.db.pool(), feed_id).await?
+            rusty_feed_db::acquisition_profiles::for_feed(self.db.pool(), feed_id).await?
         else {
             return Ok(self.fetch.clone());
         };
@@ -501,12 +501,14 @@ impl AppState {
             .map(|encrypted| self.acquisition_credentials.decrypt_str(encrypted))
             .transpose()
             .map_err(|_| anyhow::anyhow!("acquisition profile secrets could not be decrypted"))?
-            .map(|json| serde_json::from_str::<rustss_core::acquisition::AcquisitionSecrets>(&json))
+            .map(|json| {
+                serde_json::from_str::<rusty_feed_core::acquisition::AcquisitionSecrets>(&json)
+            })
             .transpose()?
             .unwrap_or_default();
         Ok(self
             .fetch
-            .for_acquisition(rustss_feeds::AcquisitionPolicy {
+            .for_acquisition(rusty_feed_feeds::AcquisitionPolicy {
                 allowed_hosts: profile.allowed_hosts,
                 allowed_path_prefix: profile.allowed_path_prefix,
                 cookie_header: secrets.cookie_header,

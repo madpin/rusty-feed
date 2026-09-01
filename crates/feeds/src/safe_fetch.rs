@@ -1,6 +1,6 @@
 //! SSRF-guarded HTTP client (docs/ARCHITECTURE.md §12; fixes FND-006).
 //!
-//! The **only** way RustSS makes outbound HTTP for feeds/extraction/robots. A
+//! The **only** way Rusty Feed makes outbound HTTP for feeds/extraction/robots. A
 //! custom DNS resolver rejects any host that resolves to a non-public address,
 //! which also protects every redirect hop (reqwest resolves each hop through the
 //! resolver), mitigating DNS-rebinding and redirect-to-internal attacks.
@@ -15,7 +15,7 @@ use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
 
 use crate::error::FeedError;
 
-pub const DEFAULT_USER_AGENT: &str = "RustSS/0.1 (+https://github.com/madpin/rustss)";
+pub const DEFAULT_USER_AGENT: &str = "Rusty-Feed/0.1 (+https://github.com/madpin/rusty-feed)";
 
 /// Validated construction policy for the one outbound publisher client.
 #[derive(Debug, Clone)]

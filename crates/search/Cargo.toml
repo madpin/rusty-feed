@@ -1,17 +1,17 @@
 [package]
-name = "rustss-search"
+name = "rusty-feed-search"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS personalization + search: TF keyword patterns, feedback, scoring."
+description = "Rusty Feed personalization + search: TF keyword patterns, feedback, scoring."
 
 [dependencies]
-rustss-core = { workspace = true }
-rustss-db = { workspace = true }
-rustss-cache = { workspace = true }
+rusty-feed-core = { workspace = true }
+rusty-feed-db = { workspace = true }
+rusty-feed-cache = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

@@ -1,4 +1,4 @@
-//! # rustss-cache
+//! # rusty-feed-cache
 //!
 //! A two-tier cache behind one small API (docs/ARCHITECTURE.md §10):
 //!
@@ -28,7 +28,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::invalidation::{InvalidationCoordinator, InvalidationKind};
 use crate::keys::L1_MAX_TTL;
 
-const DEFAULT_NAMESPACE: &str = "rustss";
+const DEFAULT_NAMESPACE: &str = "rusty-feed";
 
 /// An L1 entry: serialized bytes plus the per-key expiry deadline.
 #[derive(Clone)]
@@ -49,7 +49,7 @@ pub struct CacheConfig {
     /// Max number of entries kept in the in-process L1 cache.
     pub l1_max_capacity: u64,
     /// Isolates L2 keys and invalidation messages when Redis is shared by
-    /// multiple RustSS installations.
+    /// multiple Rusty Feed installations.
     pub namespace: String,
 }
 

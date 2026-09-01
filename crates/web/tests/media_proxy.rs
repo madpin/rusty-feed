@@ -11,10 +11,10 @@ use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rustss_cache::Cache;
-use rustss_db::{articles, feeds, subscriptions, users, Db, NewArticle, NewArticleEnclosure};
-use rustss_feeds::SafeFetchClient;
-use rustss_web::{router, AppSettings, AppState};
+use rusty_feed_cache::Cache;
+use rusty_feed_db::{articles, feeds, subscriptions, users, Db, NewArticle, NewArticleEnclosure};
+use rusty_feed_feeds::SafeFetchClient;
+use rusty_feed_web::{router, AppSettings, AppState};
 
 fn set_cookies(response: &Response<Body>) -> Vec<(String, String)> {
     response
@@ -43,7 +43,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = cookie(&set_cookies(&response), "rustss_csrf")
+    let csrf = cookie(&set_cookies(&response), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let response = app
@@ -51,7 +51,7 @@ async fn register(app: &Router) -> (String, String) {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", format!("rustss_csrf={csrf}"))
+                .header("cookie", format!("rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -60,7 +60,7 @@ async fn register(app: &Router) -> (String, String) {
         .await
         .unwrap();
     (
-        cookie(&set_cookies(&response), "rustss_sid")
+        cookie(&set_cookies(&response), "rusty_feed_sid")
             .unwrap()
             .to_string(),
         email.replace("%40", "@"),
@@ -175,7 +175,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
         .clone()
         .oneshot(
             Request::get(&route)
-                .header("cookie", format!("rustss_sid={second_sid}"))
+                .header("cookie", format!("rusty_feed_sid={second_sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -187,7 +187,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
         .clone()
         .oneshot(
             Request::get(&hero_route)
-                .header("cookie", format!("rustss_sid={second_sid}"))
+                .header("cookie", format!("rusty_feed_sid={second_sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -210,14 +210,14 @@ async fn media_is_article_authorized_range_capable_and_shared() {
     let (response, second_response) = tokio::join!(
         app.clone().oneshot(
             Request::get(&route)
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .header("range", "bytes=2-5")
                 .body(Body::empty())
                 .unwrap(),
         ),
         second_app.clone().oneshot(
             Request::get(&route)
-                .header("cookie", format!("rustss_sid={second_sid}"))
+                .header("cookie", format!("rusty_feed_sid={second_sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -245,13 +245,13 @@ async fn media_is_article_authorized_range_capable_and_shared() {
     let (response, second_response) = tokio::join!(
         app.clone().oneshot(
             Request::get(&hero_route)
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
         ),
         second_app.oneshot(
             Request::get(&hero_route)
-                .header("cookie", format!("rustss_sid={second_sid}"))
+                .header("cookie", format!("rusty_feed_sid={second_sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -270,7 +270,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
         .clone()
         .oneshot(
             Request::get(format!("{route}?download=1"))
-                .header("cookie", format!("rustss_sid={second_sid}"))
+                .header("cookie", format!("rusty_feed_sid={second_sid}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -289,7 +289,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
     let response = app
         .oneshot(
             Request::get(&route)
-                .header("cookie", format!("rustss_sid={sid}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
                 .header("range", "bytes=20-")
                 .body(Body::empty())
                 .unwrap(),

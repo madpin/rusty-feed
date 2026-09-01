@@ -10,7 +10,7 @@ use dom_smoothie::{Config, Readability};
 use lol_html::{element, rewrite_str, RewriteStrSettings};
 use scraper::{Html, Selector};
 
-use rustss_core::{
+use rusty_feed_core::{
     html::{sanitize_article_html, sanitize_article_html_with_policies},
     tracking_pixel::TrackingPixelPolicy,
     tracking_url::TrackingUrlPolicy,
@@ -431,7 +431,7 @@ fn content_score(element: &scraper::ElementRef<'_>) -> usize {
 
 /// Sanitize untrusted HTML (strips scripts/styles/handlers; keeps article tags).
 pub fn sanitize(html: &str) -> String {
-    sanitize_article_html(html, "https://rustss.invalid/")
+    sanitize_article_html(html, "https://rusty-feed.invalid/")
 }
 
 fn text_len(html: &str) -> usize {
@@ -593,7 +593,7 @@ mod tests {
         assert!(out.content.contains("An important quotation"));
         assert!(out.content.contains("First consequence"));
 
-        let markdown = rustss_core::html::article_html_to_markdown(
+        let markdown = rusty_feed_core::html::article_html_to_markdown(
             &out.content,
             "https://example.com/news/story",
         );

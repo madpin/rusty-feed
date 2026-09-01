@@ -9,11 +9,11 @@ use axum::Router;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use rustss_cache::Cache;
-use rustss_core::config::RegistrationMode;
-use rustss_db::{users, Db};
-use rustss_web::auth::AdminUser;
-use rustss_web::{router, AppSettings, AppState, ReverseProxyAuthSettings};
+use rusty_feed_cache::Cache;
+use rusty_feed_core::config::RegistrationMode;
+use rusty_feed_db::{users, Db};
+use rusty_feed_web::auth::AdminUser;
+use rusty_feed_web::{router, AppSettings, AppState, ReverseProxyAuthSettings};
 
 async fn test_state() -> Option<AppState> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
@@ -158,7 +158,7 @@ async fn register_login_logout_flow() {
     assert!(csp.contains("script-src 'self'"));
     assert!(!csp.contains("'unsafe-inline'"));
     let cookies = set_cookies(&resp);
-    let csrf = find_cookie(&cookies, "rustss_csrf")
+    let csrf = find_cookie(&cookies, "rusty_feed_csrf")
         .expect("csrf cookie")
         .to_string();
 
@@ -169,7 +169,7 @@ async fn register_login_logout_flow() {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -181,7 +181,7 @@ async fn register_login_logout_flow() {
         "register should redirect"
     );
     let sid = set_cookies(&resp);
-    let sid = find_cookie(&sid, "rustss_sid")
+    let sid = find_cookie(&sid, "rusty_feed_sid")
         .expect("session cookie")
         .to_string();
 
@@ -191,7 +191,7 @@ async fn register_login_logout_flow() {
         .clone()
         .oneshot(
             Request::get("/")
-                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .header("cookie", cookie_header(&[("rusty_feed_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -203,14 +203,14 @@ async fn register_login_logout_flow() {
         .clone()
         .oneshot(
             Request::get("/articles")
-                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .header("cookie", cookie_header(&[("rusty_feed_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let home_csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+    let home_csrf = find_cookie(&set_cookies(&resp), "rusty_feed_csrf")
         .expect("articles csrf")
         .to_string();
     let html = body_string(resp).await;
@@ -229,7 +229,7 @@ async fn register_login_logout_flow() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header(
                     "cookie",
-                    cookie_header(&[("rustss_sid", &sid), ("rustss_csrf", &home_csrf)]),
+                    cookie_header(&[("rusty_feed_sid", &sid), ("rusty_feed_csrf", &home_csrf)]),
                 )
                 .body(Body::from(format!("csrf_token={home_csrf}")))
                 .unwrap(),
@@ -242,7 +242,7 @@ async fn register_login_logout_flow() {
     let resp = app
         .oneshot(
             Request::get("/articles")
-                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .header("cookie", cookie_header(&[("rusty_feed_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -266,14 +266,14 @@ async fn login_rejects_wrong_password() {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find_cookie(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     app.clone()
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -287,7 +287,7 @@ async fn login_rejects_wrong_password() {
         .oneshot(
             Request::post("/login")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
                 .body(Body::from(format!(
                     "email={email}&password=WRONGpassword&csrf_token={csrf}"
                 )))
@@ -296,7 +296,7 @@ async fn login_rejects_wrong_password() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert!(find_cookie(&set_cookies(&resp), "rustss_sid").is_none());
+    assert!(find_cookie(&set_cookies(&resp), "rusty_feed_sid").is_none());
     assert!(body_string(resp)
         .await
         .contains("Invalid email or password"));
@@ -365,7 +365,7 @@ async fn api_token_create_list_revoke() {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find_cookie(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let resp = app
@@ -373,7 +373,7 @@ async fn api_token_create_list_revoke() {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -381,7 +381,7 @@ async fn api_token_create_list_revoke() {
         )
         .await
         .unwrap();
-    let sid = find_cookie(&set_cookies(&resp), "rustss_sid")
+    let sid = find_cookie(&set_cookies(&resp), "rusty_feed_sid")
         .unwrap()
         .to_string();
 
@@ -390,14 +390,14 @@ async fn api_token_create_list_revoke() {
         .clone()
         .oneshot(
             Request::get("/settings/tokens")
-                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .header("cookie", cookie_header(&[("rusty_feed_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let tcsrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+    let tcsrf = find_cookie(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
 
@@ -409,7 +409,7 @@ async fn api_token_create_list_revoke() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header(
                     "cookie",
-                    cookie_header(&[("rustss_sid", &sid), ("rustss_csrf", &tcsrf)]),
+                    cookie_header(&[("rusty_feed_sid", &sid), ("rusty_feed_csrf", &tcsrf)]),
                 )
                 .body(Body::from(format!("name=Reeder&csrf_token={tcsrf}")))
                 .unwrap(),
@@ -421,15 +421,15 @@ async fn api_token_create_list_revoke() {
     let body = body_string(resp).await;
     assert!(body.contains("Reeder"));
     assert!(body.contains("Copy this token now"));
-    assert!(body.contains("RustSS"));
+    assert!(body.contains("Rusty Feed"));
 
     // The token exists in the database.
     let email_local = email.replace("%40", "@");
-    let user = rustss_db::users::find_by_email(state.db.pool(), &email_local)
+    let user = rusty_feed_db::users::find_by_email(state.db.pool(), &email_local)
         .await
         .unwrap()
         .unwrap();
-    let toks = rustss_db::api_tokens::list_for_user(state.db.pool(), user.id)
+    let toks = rusty_feed_db::api_tokens::list_for_user(state.db.pool(), user.id)
         .await
         .unwrap();
     assert_eq!(toks.len(), 1);
@@ -442,7 +442,7 @@ async fn api_token_create_list_revoke() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header(
                     "cookie",
-                    cookie_header(&[("rustss_sid", &sid), ("rustss_csrf", &tcsrf)]),
+                    cookie_header(&[("rusty_feed_sid", &sid), ("rusty_feed_csrf", &tcsrf)]),
                 )
                 .body(Body::from(format!("csrf_token={tcsrf}")))
                 .unwrap(),
@@ -451,7 +451,7 @@ async fn api_token_create_list_revoke() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert!(body_string(resp).await.contains("Token revoked."));
-    let toks = rustss_db::api_tokens::list_for_user(state.db.pool(), user.id)
+    let toks = rusty_feed_db::api_tokens::list_for_user(state.db.pool(), user.id)
         .await
         .unwrap();
     assert!(toks[0].revoked_at.is_some(), "token should be revoked");
@@ -480,14 +480,14 @@ async fn admin_extractor_enforces_role() {
         .oneshot(Request::get("/register").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find_cookie(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     let resp = auth_app
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
                 .body(Body::from(format!(
                     "name=&email={email}&password=Str0ng-Test-Pass-9x&csrf_token={csrf}"
                 )))
@@ -495,7 +495,7 @@ async fn admin_extractor_enforces_role() {
         )
         .await
         .unwrap();
-    let sid = find_cookie(&set_cookies(&resp), "rustss_sid")
+    let sid = find_cookie(&set_cookies(&resp), "rusty_feed_sid")
         .unwrap()
         .to_string();
 
@@ -504,14 +504,14 @@ async fn admin_extractor_enforces_role() {
         .clone()
         .oneshot(
             Request::get("/admin-only")
-                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .header("cookie", cookie_header(&[("rusty_feed_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     let email_local = email.replace("%40", "@");
-    let user = rustss_db::users::find_by_email(state.db.pool(), &email_local)
+    let user = rusty_feed_db::users::find_by_email(state.db.pool(), &email_local)
         .await
         .unwrap()
         .unwrap();
@@ -520,13 +520,13 @@ async fn admin_extractor_enforces_role() {
     }
 
     // Promote to admin -> 200.
-    rustss_db::users::set_role(state.db.pool(), user.id, "admin")
+    rusty_feed_db::users::set_role(state.db.pool(), user.id, "admin")
         .await
         .unwrap();
     let resp = app
         .oneshot(
             Request::get("/admin-only")
-                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .header("cookie", cookie_header(&[("rusty_feed_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -553,12 +553,12 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
     std::sync::Arc::make_mut(&mut state.settings).registration_mode = RegistrationMode::Invite;
     let inviter_email = format!("admin-{}@example.com", uuid::Uuid::now_v7());
     let inviter =
-        rustss_db::users::create(state.db.pool(), &inviter_email, None, None, "admin", None)
+        rusty_feed_db::users::create(state.db.pool(), &inviter_email, None, None, "admin", None)
             .await
             .unwrap();
-    let invitation = rustss_web::auth::token::generate();
+    let invitation = rusty_feed_web::auth::token::generate();
     let invited_email = format!("invited-{}@example.com", uuid::Uuid::now_v7());
-    rustss_db::invitations::create(
+    rusty_feed_db::invitations::create(
         state.db.pool(),
         inviter.id,
         &invitation.hash,
@@ -579,7 +579,7 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+    let csrf = find_cookie(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     assert!(body_string(resp).await.contains("Create your account"));
@@ -589,7 +589,7 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
             .oneshot(
                 Request::post("/register")
                     .header("content-type", "application/x-www-form-urlencoded")
-                    .header("cookie", cookie_header(&[("rustss_csrf", &csrf)]))
+                    .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
                     .body(Body::from(format!(
                     "name=Invited&email={}&password=Str0ng-Test-Pass-9x&invite_token={}&csrf_token={csrf}",
                     invited_email.replace('@', "%40"), invitation.raw
@@ -599,10 +599,10 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
             .await
             .unwrap();
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
-    let sid = find_cookie(&set_cookies(&resp), "rustss_sid")
+    let sid = find_cookie(&set_cookies(&resp), "rusty_feed_sid")
         .unwrap()
         .to_string();
-    let user = rustss_db::users::find_by_email(state.db.pool(), &invited_email)
+    let user = rusty_feed_db::users::find_by_email(state.db.pool(), &invited_email)
         .await
         .unwrap()
         .unwrap();
@@ -619,7 +619,7 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
     .await
     .unwrap();
     assert_eq!(subscription_count, featured_count);
-    assert!(!rustss_db::invitations::is_valid(
+    assert!(!rusty_feed_db::invitations::is_valid(
         state.db.pool(),
         &invitation.hash,
         Some(&invited_email)
@@ -627,7 +627,7 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
     .await
     .unwrap());
 
-    rustss_db::sessions::create(
+    rusty_feed_db::sessions::create(
         state.db.pool(),
         user.id,
         "a-different-session-hash",
@@ -639,14 +639,14 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
         .clone()
         .oneshot(
             Request::get("/settings/sessions")
-                .header("cookie", cookie_header(&[("rustss_sid", &sid)]))
+                .header("cookie", cookie_header(&[("rusty_feed_sid", &sid)]))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    let session_csrf = find_cookie(&set_cookies(&resp), "rustss_csrf")
+    let session_csrf = find_cookie(&set_cookies(&resp), "rusty_feed_csrf")
         .unwrap()
         .to_string();
     assert!(body_string(resp).await.contains("This session"));
@@ -657,7 +657,7 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header(
                     "cookie",
-                    cookie_header(&[("rustss_sid", &sid), ("rustss_csrf", &session_csrf)]),
+                    cookie_header(&[("rusty_feed_sid", &sid), ("rusty_feed_csrf", &session_csrf)]),
                 )
                 .body(Body::from(format!("csrf_token={session_csrf}")))
                 .unwrap(),
@@ -668,7 +668,7 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
         .await
         .contains("Signed out 1 other session"));
     assert_eq!(
-        rustss_db::sessions::list_for_user(state.db.pool(), user.id)
+        rusty_feed_db::sessions::list_for_user(state.db.pool(), user.id)
             .await
             .unwrap()
             .len(),

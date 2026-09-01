@@ -1,8 +1,8 @@
-# RustSS — Architecture Document
+# Rusty Feed — Architecture Document
 
 **Status:** Living architecture — implemented incrementally
 **Version:** 0.1.0
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-01
 **Companion docs:** `docs/PRD.md` (requirements), `README.md` (project guide)
 
 ---
@@ -36,9 +36,9 @@
 
 ## 1. Purpose & Scope
 
-This document defines the technical architecture for RustSS — a self-hosted, multi-user, AI-augmented RSS reader. It proposes a **complete tech stack**, the **data model**, the **background-agent framework**, and the strategies (caching, dedup, security, deployment) needed to satisfy the PRD, with special emphasis on the **multi-user content-deduplication** guarantee and **self-hosted performance/footprint**.
+This document defines the technical architecture for Rusty Feed — a self-hosted, multi-user, AI-augmented RSS reader. It proposes a **complete tech stack**, the **data model**, the **background-agent framework**, and the strategies (caching, dedup, security, deployment) needed to satisfy the PRD, with special emphasis on the **multi-user content-deduplication** guarantee and **self-hosted performance/footprint**.
 
-Behavioral parity with the reference is the baseline; §21 and RustSS explicitly corrects these behaviors discovered during analysis of `neureed`.
+Behavioral parity with the reference is the baseline; §21 and Rusty Feed explicitly corrects these behaviors discovered during analysis of `neureed`.
 
 ---
 
@@ -147,7 +147,7 @@ Behavioral parity with the reference is the baseline; §21 and RustSS explicitly
                                                   │ HTML over HTTP     │ JSON over HTTP
                                                   ▼                    ▼
         ┌──────────────────────────────────────────────────────────────────────────────────┐
-        │                             rustss-server (Axum)                                  │
+        │                             rusty-feed-server (Axum)                                  │
         │                                                                                    │
         │  tower-http (trace, compression, timeout, CORS) → auth/session → CSRF → routers    │
         │                                                                                    │
@@ -170,7 +170,7 @@ Behavioral parity with the reference is the baseline; §21 and RustSS explicitly
                     │ SKIP LOCKED
                     ▼
         ┌──────────────────────────────────────────────────────────────────────────────────┐
-        │                     rustss-worker (AGENTS runtime)                                │
+        │                     rusty-feed-worker (AGENTS runtime)                                │
         │ Interval scheduler → enqueue │ Bounded lane consumers │ Singleton leases/guards    │
         │                                                                                    │
         │  FeedRefresh → FetchFeed → ExtractContent → EmbedArticle → SavedSearchMatch        │
@@ -189,7 +189,7 @@ The **server** and **worker** are the same codebase and can run **in one process
 A Cargo **workspace** with small, focused crates. Domain crates expose traits; adapters implement them. This keeps compile times reasonable, enables mocking, and enforces layering.
 
 ```
-rustss/
+rusty-feed/
 ├─ Cargo.toml                 # workspace
 ├─ crates/
 │  ├─ core/                   # config, errors, crypto, and shared pure algorithms
@@ -341,7 +341,7 @@ This section operationalizes PRD §6.
 - **Feed creation:** normalize URL → `INSERT ... ON CONFLICT (url) DO NOTHING RETURNING id` (or select existing). Subscription is a separate `user_feeds` upsert. A feed shared by N users has exactly one `feeds` row.
 - **Catalog selection:** an admin can attach one editorial catalog entry to a shared feed; users may subscribe to many published catalog feeds in one transaction. The catalog never substitutes for arbitrary user URL creation.
 - **Personal organization:** a nested personal folder and multi-valued tags update only `user_categories`, `user_feeds`, and `user_feed_categories`; one current folder is presented for each feed, and these changes never enqueue shared work or duplicate shared feeds/articles. Library article drag/drop moves the article's source feed, with the same folder picker available to keyboard and touch users. Folder collapse state persists on the personal category row, and sidebar quick tools edit the selected feed's personal tags/content preference in accessible dialogs.
-- **Bookmarklet discovery:** the instance-specific bookmarklet sends only the current public URL back to the authenticated RustSS origin. RustSS performs one SSRF-safe, cookie-free, 2 MiB fetch and bounded no-script alternate-link discovery, then requires an explicit CSRF-protected choice. Confirmation reuses normal global feed upsert/personal subscription semantics, so it cannot create per-user feed copies.
+- **Bookmarklet discovery:** the instance-specific bookmarklet sends only the current public URL back to the authenticated Rusty Feed origin. Rusty Feed performs one SSRF-safe, cookie-free, 2 MiB fetch and bounded no-script alternate-link discovery, then requires an explicit CSRF-protected choice. Confirmation reuses normal global feed upsert/personal subscription semantics, so it cannot create per-user feed copies.
 - **Article ingest:** dedup order = **GUID (feed-scoped) → URL (global unique) → content_hash (feed-scoped)**. Insert via `ON CONFLICT (url) DO UPDATE` only when `should_update` (content hash/title/published changed). One row per article regardless of subscriber count. Feed attachments are synchronized under the shared article row lock in stable order; unchanged metadata causes no writes. Attachment-only items use a stable feed-scoped internal URI and are excluded from public-page extraction.
 
 ### 7.3 Compute-path dedup (claim + idempotency, O(1) per content version)
@@ -473,10 +473,10 @@ This uniformity is what lets the v2 backlog (clustering, digests) land without t
 
 ### 9.1 Native and compatibility APIs
 
-RustSS exposes a versioned **native JSON resource API** plus **Google Reader API (GReader)** and **Fever** compatibility adapters so existing RSS clients can interoperate without a second domain model. All three reuse the same repositories and tenant authorization. (PRD FR-API-5.)
+Rusty Feed exposes a versioned **native JSON resource API** plus **Google Reader API (GReader)** and **Fever** compatibility adapters so existing RSS clients can interoperate without a second domain model. All three reuse the same repositories and tenant authorization. (PRD FR-API-5.)
 
 - **Design:** the GReader layer is a **thin adapter** mounted at `/accounts/ClientLogin` and `/reader/api/0/*`. It translates protocol shapes to the same repositories used by the native API and UI. Database triggers assign stable compact feed/article aliases once; UUIDs remain canonical and every visible-content query joins through the caller's subscriptions.
-- **Fever:** the JSON-only `/fever/` endpoint supports groups, feeds, favicons, items, unread/saved identifiers, and read/save mutations. Users derive a Fever API key locally from `username:password`; RustSS stores only its SHA-256 lookup hash and never stores the password.
+- **Fever:** the JSON-only `/fever/` endpoint supports groups, feeds, favicons, items, unread/saved identifiers, and read/save mutations. Users derive a Fever API key locally from `username:password`; Rusty Feed stores only its SHA-256 lookup hash and never stores the password.
 - **Native v1:** `/api/v1` covers users, feeds/subscriptions, folders, articles and personal state, and saved searches. It uses bounded cursor pagination, token scopes and revocation, per-token rate limiting, OpenAPI 3.1 documentation, and a token-safe 90-day mutation-attempt audit trail visible to administrators.
 - **Policy:** `API_ENABLED`, `GREADER_API_ENABLED`, and `FEVER_API_ENABLED` independently remove each surface with a fail-closed 404 response. Health and metrics remain separate operational endpoints.
 - **Auth:** `POST /accounts/ClientLogin` (email + password → `Auth` token) and a write **`T` token** (`/reader/api/0/token`). Tokens are minted as **app-specific tokens** (stored hashed) so both local-account and OAuth users can generate a client credential without exposing their real password. Rate-limited like other auth endpoints.
@@ -532,7 +532,7 @@ not call all catalog labels turnkey until exact provider contracts are tested.
 Two-tier cache behind a single `Cache` port, with **shared vs. per-user key separation** (enables cross-user reuse — PRD §6 FR-DEDUP-6).
 
 - **L1 — `moka`** (in-process, always on): microsecond hits for hot shared data (feed metadata, embeddings, summaries, parsed query ASTs). Bounded by entry count/size; TTL per namespace.
-- **L2 — Redis** (shared across instances): extends cached values across process restarts. Every key is prefixed by the validated `CACHE_NAMESPACE`, so independent RustSS installations may safely share one Redis service. Optional; if absent or down, L1+DB serve.
+- **L2 — Redis** (shared across instances): extends cached values across process restarts. Every key is prefixed by the validated `CACHE_NAMESPACE`, so independent Rusty Feed installations may safely share one Redis service. Optional; if absent or down, L1+DB serve.
 - **Pattern:** `cache_get_or_set(key, ttl, || fetch())` (cache-aside), storing only non-null. Write-through where cheap.
 - **Invalidation:** tag/prefix based via `SCAN` when Redis is configured (never `KEYS`), plus targeted local deletes. A versioned, namespace-scoped Pub/Sub protocol sends exact-key or prefix invalidations to sibling instances. Each message identifies its sender, is size bounded, and carries no cached value. Redis L2 is enabled only after the initial subscription succeeds; if that subscriber disconnects, the process clears and bypasses L1 until bounded reconnection and resubscription complete. Examples: on feedback → invalidate `score:{user}:*` and `patterns:{user}`; on article update → `*:{article_id}`; on feed refresh → `feed:{feed_id}*`.
 
@@ -601,12 +601,12 @@ Effective value = first present of **feed → category → user prefs → system
 
 - **`SafeFetchClient`** wraps `reqwest` and is the **only** way any code makes outbound HTTP (feeds, article pages, robots.txt, icons, Live View resources, media proxy). It enforces: scheme allow-list (http/https), DNS resolution + **private/link-local/loopback IP blocking** (IPv4 & IPv6, incl. mapped), redirect re-validation (guards DNS-rebinding/redirect-to-internal), size caps, and timeouts. A validated instance policy supplies one publisher-facing user agent and can force HTTP/1.1 to reduce fingerprinting or work around broken HTTP/2 origins. This closes the reference's SSRF gaps (PRD §9.6).
 - **Strategies** via an `Extractor` trait + registry with priority + fallback:
-  1. **Readability** (`dom_smoothie`): remove publisher chrome, extract main semantic content and metadata, then run RustSS boilerplate cleanup and sanitization. A configurable CSS selector overrides selection; malformed documents retain a density-scored `scraper` fallback. Default.
+  1. **Readability** (`dom_smoothie`): remove publisher chrome, extract main semantic content and metadata, then run Rusty Feed boilerplate cleanup and sanitization. A configurable CSS selector overrides selection; malformed documents retain a density-scored `scraper` fallback. Default.
   2. **Chromium** (`chromiumoxide`, remote CDP, semaphore-bounded): executes inline application rendering against the exact HTML already fetched through `SafeFetchClient`, under an injected no-network CSP, then runs Readability on the rendered DOM. This keeps DNS/redirect/size policy at the SSRF boundary instead of letting a browser navigate independently. The browser receives neither credentials nor network authority; any authorized cookie is applied only by the host-pinned source client before HTML crosses this boundary. Any CDP failure falls back to the local result.
 - **Per-domain rate limiting:** shared `domain_extraction_state`; base delay default **3000 ms**, overridable per feed; honor robots.txt `Crawl-delay` (cached 24h/1h-on-error); adaptive `429` backoff **10s→30s→60s→120s** honoring `Retry-After`. Article extraction runs once per shared content revision/lifetime, driven by the union of subscriber requests (§7.3).
 - **Catalog availability diagnostic:** the shared catalog snapshot checks at most three current article URLs. It is independent of the feed's source policy, uses no selector or per-feed delay override, always requires a readable robots.txt policy (404 permits), and disables redirects. Robots errors, redirects, rate limits, access statuses, and reader failures are reported as scalar outcomes only; no page HTML or excerpts are stored or rendered by Discover.
 - **Content normalization, manipulation, and sanitization:** feed media types are honored before storage: HTML is cleaned, Markdown is rendered with safe GFM structure, and plain text is escaped into paragraphs/line breaks instead of being misread as markup. RSS 2 FeedBurner `origLink` metadata is resolved locally before the ordinary entry link, avoiding a redirect while preserving publisher provenance. Extracted publisher HTML first loses navigation, forms, share/newsletter/recommendation blocks, and duplicate page titles. At most 20 administrator-owned ordered declarative rules may remove CSS-selected nodes or replace selected text with a bounded regex; sanitization always runs again afterward. Immutable rule versions restore as a new version. A change clears that feed's conditional validators, invalidates its requested public-page processing versions, and queues one shared rebuild (FND-179). Personal include/exclude regex filters are evaluated only at the subscription visibility boundary and never mutate shared ingestion. A deterministic no-network pixel policy then removes explicit tiny/CSS-hidden images, bounded administrator host rules, known tracker hosts/beacons, and optional strict URL signals before **`ammonia`** applies the semantic tag/attribute allow-list, resolves safe links/responsive media, and removes scripts. Separate RSS/public-page removal counts are stored on the one shared article and the matching count is selected at read time; a personal preference controls only indicator visibility. The instance URL policy removes a bounded built-in set of analytics parameters plus validated exact/prefix additions from shared article keys, extraction/Live View targets, comments, and surviving content links; named domains can be excepted where query signatures are functional. Original top-level URLs remain stored for provenance and a clean/original user preference. The same sanitized DOM converts to compact portable Markdown for LLM/text consumers, preserving headings, lists, links, tables, images, quotations, and code without sending raw publisher tags. A shared processing version makes legacy page copies—including infinite-lifetime copies—eligible for one deduplicated refresh on access after extraction rules improve; cleanup never runs per user/render.
-- **YouTube playback:** the reader detects a bounded set of YouTube URLs already present in shared article metadata/content without fetching the video page. Instance-approved source hosts are validated at startup. Linked offsets are parsed with bounded, overflow-safe rules, retained on the canonical fallback, and translated to the player's bounded `start` parameter. The default user mode renders an explicit on-demand iframe from fixed `youtube-nocookie.com`; an administrator may additionally configure one named credential-free HTTPS Invidious-compatible base whose exact origin is added to `frame-src`. Link-only mode never creates an iframe. The reader exposes idle, connecting, ready/error, unload, and reload states; unload removes `src` immediately and restores consent. Ordinary publisher/alternative requests remain no-referrer, while the built-in player alone uses YouTube's required `strict-origin-when-cross-origin` policy so it receives the RustSS origin but never the article path. Users choose the validated provider, autoplay-after-consent, and truthful caption preference; each subscription may inherit, force the built-in privacy player, or reduce to links. These are personal render choices only and never duplicate shared acquisition. Optional duration enrichment is separately disabled by default, daily-budgeted, source-size bounded, cache-limited, and keyed once by validated video id.
+- **YouTube playback:** the reader detects a bounded set of YouTube URLs already present in shared article metadata/content without fetching the video page. Instance-approved source hosts are validated at startup. Linked offsets are parsed with bounded, overflow-safe rules, retained on the canonical fallback, and translated to the player's bounded `start` parameter. The default user mode renders an explicit on-demand iframe from fixed `youtube-nocookie.com`; an administrator may additionally configure one named credential-free HTTPS Invidious-compatible base whose exact origin is added to `frame-src`. Link-only mode never creates an iframe. The reader exposes idle, connecting, ready/error, unload, and reload states; unload removes `src` immediately and restores consent. Ordinary publisher/alternative requests remain no-referrer, while the built-in player alone uses YouTube's required `strict-origin-when-cross-origin` policy so it receives the Rusty Feed origin but never the article path. Users choose the validated provider, autoplay-after-consent, and truthful caption preference; each subscription may inherit, force the built-in privacy player, or reduce to links. These are personal render choices only and never duplicate shared acquisition. Optional duration enrichment is separately disabled by default, daily-budgeted, source-size bounded, cache-limited, and keyed once by validated video id.
 - **Publisher access profiles:** anonymous public acquisition remains the default. An administrator may assign one shared profile to a feed for authorized access: explicit host pins, an optional path pin, encrypted cookie and/or encrypted explicit proxy, and an optional invalid-certificate exception. Cookies require a path and 1–365 day expiry; certificate exceptions require expiry. Proxy redirects are disabled, proxy DNS has a separate connection pin, and private publisher targets remain blocked. Profiles are audited without secret values and cannot create per-user variants or legitimize paywall/access-control bypass. Each shared feed can explicitly respect or ignore robots.txt for normal public-page extraction; the catalog diagnostic always uses the anonymous client and respects it.
 
 ---
@@ -623,7 +623,7 @@ Effective value = first present of **feed → category → user prefs → system
 - A **`VectorStore` port** abstracts this so the multi-space design remains *possible* later (per-model tables) without complicating the v1 common case.
 
 ### 13.2 Generation
-- **Local default:** `fastembed` runs BAAI BGE-small-en-v1.5 as a normalized 384-dimension ONNX model. It downloads once into `MODEL_CACHE_DIR`; `rustss-cli fetch-model` provides an explicit online preparation step and that cache can be copied to an air-gapped host. The legacy deterministic hash model remains available only when explicitly selected for lightweight tests or emergency lexical fallback.
+- **Local default:** `fastembed` runs BAAI BGE-small-en-v1.5 as a normalized 384-dimension ONNX model. It downloads once into `MODEL_CACHE_DIR`; `rusty-feed-cli fetch-model` provides an explicit online preparation step and that cache can be copied to an air-gapped host. The legacy deterministic hash model remains available only when explicitly selected for lightweight tests or emergency lexical fallback.
 - **OpenAI-compatible:** the focused `reqwest` client batches requests and requires the configured provider to return the instance's fixed 384 dimensions.
 - **Text embedded:** `title + "\n\n" + excerpt + "\n\n" + content[..2000]`. Batched (configurable size, default 10; streaming batch 25). Idempotent insert (skip if present) → O(1) across users.
 
@@ -657,8 +657,8 @@ Effective value = first present of **feed → category → user prefs → system
 
 ## 16. Configuration
 
-- **Source:** environment variables (12-factor) layered over an optional TOML file named by `RUSTSS_CONFIG_FILE` via **`figment`**; `.env` is supported in development (`dotenvy`) without overriding an existing process variable. Parsed into a **typed, validated `AppConfig`** at startup; the process refuses to boot on invalid/missing required config. The exhaustive operator reference is `docs/CONFIGURATION.md`, and `rustss-cli config-check` reports resolved modes/presence without printing URLs or secret values.
-- **Key groups** (superset of reference): database URL; Redis URL/password + `CACHE_ENABLED` and a 1–64 character ASCII `CACHE_NAMESPACE` (`rustss` by default; make it unique when installations share Redis); auth (`SESSION_SECRET`, OAuth client IDs/secrets, provider URLs, `REGISTRATION_MODE`, `PASSKEYS_ENABLED`, `PASSKEY_RP_NAME`, and the disabled-by-default `REVERSE_PROXY_AUTH_*` trust boundary); APIs (`API_ENABLED`, `GREADER_API_ENABLED`, `FEVER_API_ENABLED`); installed-app branding (`PWA_NAME`, `PWA_SHORT_NAME`, `PWA_THEME_COLOR`, `PWA_BACKGROUND_COLOR`); UI customization (`CUSTOM_CSS_ENABLED`, disabled-by-default `CUSTOM_JAVASCRIPT_ENABLED`, byte limit); public sharing (`PUBLIC_ARTICLE_SHARING_ENABLED`, bounded default/maximum finite lifetime, and explicit infinite-link policy); embeddings (`EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `MODEL_CACHE_DIR`, batch sizes, `EMBEDDING_AUTO_GENERATE`); search (`SEARCH_MODE`, `SEARCH_TEXT_CONFIG`, `SEARCH_SEMANTIC_WEIGHT_PERCENT`); LLM (`LLM_PROVIDER`, models, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OLLAMA_BASE_URL`); extraction/acquisition (`EXTRACTION_*`, `CHROMIUM_ENABLED`/endpoint, `EXTRACTION_DELAY_MS`, `RESPECT_ROBOTS_TXT`, validated `OUTBOUND_USER_AGENT`, `OUTBOUND_HTTP1_ONLY`; sensitive per-feed acquisition profiles live encrypted in PostgreSQL); URL privacy (`TRACKING_URL_CLEANUP_ENABLED`, bounded cleanup/exception rules); tracking-image privacy (`TRACKING_PIXEL_*`); YouTube privacy/duration (`YOUTUBE_*`); media proxy (`MEDIA_PROXY_ENABLED`, per-object maximum, aggregate cache budget, positive/negative TTLs, and the bounded passive-only `MEDIA_PROXY_EXTRA_INLINE_MIME_TYPES` extension list); jobs (`ENABLE_CRON_JOBS`, schedules/concurrency/locks); crypto (`ENCRYPTION_SECRET`); server (`BIND_ADDR`, `BASE_URL`, `LOG_LEVEL`, `SYSTEMD_NOTIFY_ENABLED`).
+- **Source:** environment variables (12-factor) layered over an optional TOML file named by `RUSTY_FEED_CONFIG_FILE` via **`figment`**; `.env` is supported in development (`dotenvy`) without overriding an existing process variable. Parsed into a **typed, validated `AppConfig`** at startup; the process refuses to boot on invalid/missing required config. The exhaustive operator reference is `docs/CONFIGURATION.md`, and `rusty-feed-cli config-check` reports resolved modes/presence without printing URLs or secret values.
+- **Key groups** (superset of reference): database URL; Redis URL/password + `CACHE_ENABLED` and a 1–64 character ASCII `CACHE_NAMESPACE` (`rusty-feed` by default; make it unique when installations share Redis); auth (`SESSION_SECRET`, OAuth client IDs/secrets, provider URLs, `REGISTRATION_MODE`, `PASSKEYS_ENABLED`, `PASSKEY_RP_NAME`, and the disabled-by-default `REVERSE_PROXY_AUTH_*` trust boundary); APIs (`API_ENABLED`, `GREADER_API_ENABLED`, `FEVER_API_ENABLED`); installed-app branding (`PWA_NAME`, `PWA_SHORT_NAME`, `PWA_THEME_COLOR`, `PWA_BACKGROUND_COLOR`); UI customization (`CUSTOM_CSS_ENABLED`, disabled-by-default `CUSTOM_JAVASCRIPT_ENABLED`, byte limit); public sharing (`PUBLIC_ARTICLE_SHARING_ENABLED`, bounded default/maximum finite lifetime, and explicit infinite-link policy); embeddings (`EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `MODEL_CACHE_DIR`, batch sizes, `EMBEDDING_AUTO_GENERATE`); search (`SEARCH_MODE`, `SEARCH_TEXT_CONFIG`, `SEARCH_SEMANTIC_WEIGHT_PERCENT`); LLM (`LLM_PROVIDER`, models, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OLLAMA_BASE_URL`); extraction/acquisition (`EXTRACTION_*`, `CHROMIUM_ENABLED`/endpoint, `EXTRACTION_DELAY_MS`, `RESPECT_ROBOTS_TXT`, validated `OUTBOUND_USER_AGENT`, `OUTBOUND_HTTP1_ONLY`; sensitive per-feed acquisition profiles live encrypted in PostgreSQL); URL privacy (`TRACKING_URL_CLEANUP_ENABLED`, bounded cleanup/exception rules); tracking-image privacy (`TRACKING_PIXEL_*`); YouTube privacy/duration (`YOUTUBE_*`); media proxy (`MEDIA_PROXY_ENABLED`, per-object maximum, aggregate cache budget, positive/negative TTLs, and the bounded passive-only `MEDIA_PROXY_EXTRA_INLINE_MIME_TYPES` extension list); jobs (`ENABLE_CRON_JOBS`, schedules/concurrency/locks); crypto (`ENCRYPTION_SECRET`); server (`BIND_ADDR`, `BASE_URL`, `LOG_LEVEL`, `SYSTEMD_NOTIFY_ENABLED`).
 
 ### 16.1 Live publisher isolation
 
@@ -684,9 +684,9 @@ Attachment players use `/articles/{article_id}/media/{position}` by default, and
 ## 18. Deployment Topology
 
 - **Default (single-node, self-hosted):** one server process **with embedded worker** (`RUN_EMBEDDED_WORKER=true`) + Postgres 17/pgvector. Redis is optional L2 caching and the current extractor does not require headless Chromium; Compose can start only the app and database for this mode.
-- **Scaled:** N stateless `rustss-server` replicas (no embedded worker) behind a load balancer + M `rustss-worker` replicas; all share Postgres, and may share Redis for L2 cache. Agents coordinate through database leases and the Postgres queue, so scheduled jobs run once and queue work is load-balanced.
+- **Scaled:** N stateless `rusty-feed-server` replicas (no embedded worker) behind a load balancer + M `rusty-feed-worker` replicas; all share Postgres, and may share Redis for L2 cache. Agents coordinate through database leases and the Postgres queue, so scheduled jobs run once and queue work is load-balanced.
 - **Images:** a multi-stage non-root runtime image and separate Chromium service exist. Signed amd64/arm64 publication, size verification, and upgrade tests remain release gates.
-- **Migrations:** applied by an entrypoint/CLI step (`rustss-cli migrate`) before serving; safe/idempotent; opt-in auto-run.
+- **Migrations:** applied by an entrypoint/CLI step (`rusty-feed-cli migrate`) before serving; safe/idempotent; opt-in auto-run.
 - **Assets:** curated CSS, dependency-free JavaScript, icons, and the service worker are embedded through `rust-embed` for a self-contained server artifact.
 
 ---
@@ -715,21 +715,21 @@ Attachment players use `/articles/{article_id}/media/{position}` by default, and
 
 ## 21. Migration and upgrades
 
-RustSS upgrades are performed in place: back up PostgreSQL, stop writers, deploy
-the new binary or image, and run `rustss-cli migrate` before restarting. All 41
+Rusty Feed upgrades are performed in place: back up PostgreSQL, stop writers, deploy
+the new binary or image, and run `rusty-feed-cli migrate` before restarting. All 41
 migrations are additive or explicitly data-preserving, and rollback is by
 restoring the pre-upgrade database backup with the previous binary.
 
 The supported migration path from NeuReed is OPML export/import. It preserves
-subscriptions and nested folder names while RustSS rebuilds shared articles,
+subscriptions and nested folder names while Rusty Feed rebuilds shared articles,
 extractions, and embeddings once for every subscriber. API credentials are
-entered again so they are encrypted directly with RustSS's single AEAD format;
+entered again so they are encrypted directly with Rusty Feed's single AEAD format;
 there is no legacy-secret conversion command that could silently misinterpret
 old ciphertext. A direct database converter may be added later only with
 fixture-backed validation for IDs, personal state, embeddings, and both legacy
 secret formats.
 
-RustSS and NeuReed must not write to the same database. The complete upgrade,
+Rusty Feed and NeuReed must not write to the same database. The complete upgrade,
 host-move, backup, and NeuReed OPML procedures are in `docs/MIGRATION.md`.
 
 ---

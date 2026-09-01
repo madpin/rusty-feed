@@ -1,5 +1,5 @@
 // @ts-check
-// RustSS progressive enhancement (M5). The UI works fully without JS; this just
+// Rusty Feed progressive enhancement (M5). The UI works fully without JS; this just
 // makes actions in-place and enables inline reading. Vanilla JS, no dependencies.
 (function () {
   "use strict";
@@ -35,7 +35,7 @@
     var button = panel.querySelector("[data-install-app-button]");
     var help = panel.querySelector("[data-install-app-help]");
     var installStatus = panel.querySelector("[data-install-app-status]");
-    var appName = panel.getAttribute("data-install-app-name") || "RustSS";
+    var appName = panel.getAttribute("data-install-app-name") || "Rusty Feed";
     if (mode === "installed") {
       if (button) button.hidden = true;
       if (help) help.hidden = true;
@@ -48,7 +48,7 @@
         button.disabled = false;
       }
       if (help) help.hidden = true;
-      if (installStatus) installStatus.textContent = "This browser is ready to install RustSS as an app.";
+      if (installStatus) installStatus.textContent = "This browser is ready to install Rusty Feed as an app.";
       return;
     }
     if (button) button.hidden = true;
@@ -65,7 +65,7 @@
     installPrompt = null;
     updateInstallApp("installed");
     var panel = document.querySelector("[data-install-app]");
-    var appName = panel ? panel.getAttribute("data-install-app-name") || "RustSS" : "RustSS";
+    var appName = panel ? panel.getAttribute("data-install-app-name") || "Rusty Feed" : "Rusty Feed";
     announce(appName + " was installed on this device.", false);
   });
 
@@ -190,7 +190,7 @@
 
   function reportReadingWithin(root) {
     Array.prototype.forEach.call(root.querySelectorAll("[data-track-reading]"), function (node) {
-      if (typeof node._rustssReportReading === "function") node._rustssReportReading();
+      if (typeof node._rustyFeedReportReading === "function") node._rustyFeedReportReading();
     });
   }
 
@@ -222,7 +222,7 @@
           fetch(url, { method: "POST", body: body, keepalive: true, credentials: "same-origin" }).catch(function () {});
         }
       };
-      node._rustssReportReading = report;
+      node._rustyFeedReportReading = report;
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState === "hidden") report();
       });
@@ -248,7 +248,7 @@
         fetch(url, { credentials: "same-origin", headers: { "X-Requested-With": "fetch" } })
           .then(function (response) {
             if (!response.ok) throw new Error("content refresh failed");
-            var contentStatus = response.headers.get("x-rustss-content-status") || "ready";
+            var contentStatus = response.headers.get("x-rusty-feed-content-status") || "ready";
             return response.text().then(function (html) { return { html: html, status: contentStatus }; });
           })
           .then(function (result) {
@@ -265,7 +265,7 @@
               node.removeAttribute("data-content-pending");
               var failedArticle = node.closest("article");
               var failedNotice = failedArticle ? failedArticle.querySelector(".content-notice") : null;
-              if (failedNotice) failedNotice.textContent = "The public page could not be updated. Stored RSS content remains available; RustSS will retry later.";
+              if (failedNotice) failedNotice.textContent = "The public page could not be updated. Stored RSS content remains available; Rusty Feed will retry later.";
               announce("The public page could not be updated. Stored RSS content remains available.", true);
               return;
             }
@@ -315,7 +315,7 @@
 
   function startSummaryPolling(form, options) {
     options = options || {};
-    if (form._rustssSummaryPromise) return form._rustssSummaryPromise;
+    if (form._rustyFeedSummaryPromise) return form._rustyFeedSummaryPromise;
     var statusUrl = form.getAttribute("data-summary-status-url");
     if (!statusUrl) return Promise.resolve();
     var progress = form.querySelector("[data-summary-progress]");
@@ -334,7 +334,7 @@
       }
     }
 
-    form._rustssSummaryPromise = new Promise(function (resolve) {
+    form._rustyFeedSummaryPromise = new Promise(function (resolve) {
       function finish(message, error) {
         if (progress) {
           progress.textContent = message;
@@ -409,10 +409,10 @@
       }
       poll();
     }).finally(function () {
-      delete form._rustssSummaryPromise;
+      delete form._rustyFeedSummaryPromise;
       if (form.isConnected && active) setPending(form, false);
     });
-    return form._rustssSummaryPromise;
+    return form._rustyFeedSummaryPromise;
   }
 
   function initializeSummaryActions(root) {
@@ -1206,9 +1206,9 @@
   }
 
   function loadPanel(panel, url, trigger) {
-    if (panel._rustssAbort) panel._rustssAbort.abort();
+    if (panel._rustyFeedAbort) panel._rustyFeedAbort.abort();
     var controller = window.AbortController ? new AbortController() : null;
-    panel._rustssAbort = controller;
+    panel._rustyFeedAbort = controller;
     var request = String((Number(panel.getAttribute("data-panel-request")) || 0) + 1);
     panel.setAttribute("data-panel-request", request);
     reportReadingWithin(panel);
@@ -1288,9 +1288,9 @@
         liveStatus.classList.remove("error");
         liveStatus.textContent = "Loading the current publisher page…";
       }
-      if (frame._rustssLiveController) frame._rustssLiveController.abort();
+      if (frame._rustyFeedLiveController) frame._rustyFeedLiveController.abort();
       var controller = window.AbortController ? new AbortController() : null;
-      frame._rustssLiveController = controller;
+      frame._rustyFeedLiveController = controller;
       var listenerOptions = controller ? { once: true, signal: controller.signal } : { once: true };
       var loadTimeout = window.setTimeout(function () {
         if (live.hidden || !liveStatus) return;
@@ -1299,7 +1299,7 @@
         liveStatus.classList.add("error");
         liveStatus.textContent = "The publisher is taking longer than expected. You can keep waiting or open the original page.";
       }, 35000);
-      frame._rustssLiveTimeout = loadTimeout;
+      frame._rustyFeedLiveTimeout = loadTimeout;
       frame.addEventListener("load", function () {
         window.clearTimeout(loadTimeout);
         if (live.hidden) return;
@@ -1347,8 +1347,8 @@
         frame.setAttribute("src", source);
       }
     } else {
-      if (frame._rustssLiveController) frame._rustssLiveController.abort();
-      window.clearTimeout(frame._rustssLiveTimeout);
+      if (frame._rustyFeedLiveController) frame._rustyFeedLiveController.abort();
+      window.clearTimeout(frame._rustyFeedLiveTimeout);
       frame.removeAttribute("src");
       live.hidden = true;
       live.removeAttribute("aria-busy");
@@ -2142,9 +2142,9 @@
 })();
 
 // Demo-mode banner: shown on every page for ephemeral demo accounts. Driven by
-// the readable `rustss_demo` cookie set at /demo/start (CSP-safe, no inline JS).
+// the readable `rusty_feed_demo` cookie set at /demo/start (CSP-safe, no inline JS).
 (function () {
-  if (!/(?:^|;\s*)rustss_demo=1(?:;|$)/.test(document.cookie)) return;
+  if (!/(?:^|;\s*)rusty_feed_demo=1(?:;|$)/.test(document.cookie)) return;
   var banner = document.createElement("div");
   banner.className = "demo-banner";
   banner.setAttribute("role", "status");

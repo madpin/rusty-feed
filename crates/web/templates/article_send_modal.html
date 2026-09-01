@@ -20,7 +20,7 @@
         {% for profile in profiles %}<option value="{{ profile.id }}"{% if profile.is_default %} selected{% endif %}>{{ profile.name }} · {{ profile.provider }}{% if profile.is_default %} · default{% endif %}</option>{% endfor %}
       </select>
     </label>
-    <p class="muted">Delivery runs in the background. You can keep reading while RustSS sends it.</p>
+    <p class="muted">Delivery runs in the background. You can keep reading while Rusty Feed sends it.</p>
     <div class="dialog-actions"><button type="button" data-article-send-close>Cancel</button><button type="submit" class="primary">Queue delivery</button></div>
   </form>
   {% endif %}

@@ -1,4 +1,4 @@
-//! RustSS HTTP server entry point.
+//! Rusty Feed HTTP server entry point.
 //!
 //! Loads and validates configuration, initializes telemetry, and serves the
 //! current HTTP surface (health + metrics). Auth, the reading UI, the
@@ -8,10 +8,10 @@
 use std::net::SocketAddr;
 
 use anyhow::Context;
-use rustss_cache::{Cache, CacheConfig};
-use rustss_core::AppConfig;
-use rustss_db::Db;
-use rustss_web::{
+use rusty_feed_cache::{Cache, CacheConfig};
+use rusty_feed_core::AppConfig;
+use rusty_feed_db::Db;
+use rusty_feed_web::{
     AppSettings, AppState, CaptchaSettings, OAuthProvider, ProviderKind, RateLimitSettings,
     ReverseProxyAuthSettings,
 };
@@ -25,8 +25,8 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::load().context("failed to load configuration")?;
     let systemd = systemd::Notifier::detect(config.systemd_notify_enabled);
 
-    rustss_core::telemetry::init_tracing(&config.log_level);
-    let metrics = rustss_core::telemetry::install_metrics();
+    rusty_feed_core::telemetry::init_tracing(&config.log_level);
+    let metrics = rusty_feed_core::telemetry::install_metrics();
 
     let addr: SocketAddr = config
         .bind_addr
@@ -40,12 +40,12 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to connect to the database")?;
     db.migrate().await.context("failed to apply migrations")?;
     let embedding_model =
-        rustss_embed::canonical_model(config.embedding_provider, &config.embedding_model)
+        rusty_feed_embed::canonical_model(config.embedding_provider, &config.embedding_model)
             .context("invalid embedding model")?;
-    rustss_db::embedding_space::ensure(
+    rusty_feed_db::embedding_space::ensure(
         db.pool(),
         &embedding_model,
-        rustss_embed::EMBEDDING_DIM as i32,
+        rusty_feed_embed::EMBEDDING_DIM as i32,
     )
     .await
     .context("embedding-space configuration is incompatible")?;
@@ -76,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("OAuth providers enabled: {}", names.join(", "));
     }
     // One embedding model per instance, shared by the search path and worker.
-    let embedder = rustss_embed::build_embedder(rustss_embed::EmbedConfig {
+    let embedder = rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
         provider: config.embedding_provider,
         model: embedding_model,
         openai_api_key: config
@@ -89,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
     .context("failed to build embedder")?;
 
     // Optional LLM client for summaries (None ⇒ summarization disabled).
-    let llm = rustss_llm::build_client(rustss_llm::LlmConfig {
+    let llm = rusty_feed_llm::build_client(rusty_feed_llm::LlmConfig {
         provider: config.llm_provider,
         model: config.llm_summary_model.clone(),
         openai_api_key: config
@@ -99,22 +99,22 @@ async fn main() -> anyhow::Result<()> {
         openai_base_url: config.openai_base_url.clone(),
         ollama_base_url: config.ollama_base_url.clone(),
     });
-    let llm_cascade = std::sync::Arc::new(rustss_llm::ProviderCascade::new(
+    let llm_cascade = std::sync::Arc::new(rusty_feed_llm::ProviderCascade::new(
         db.clone(),
         config.encryption_secret.expose().as_bytes(),
         llm.clone(),
     ));
     // Surface the environment-configured provider (the cascade fallback) on the
     // AI providers screen when one is actually usable.
-    let env_llm = llm.is_some().then(|| rustss_web::EnvLlmProvider {
+    let env_llm = llm.is_some().then(|| rusty_feed_web::EnvLlmProvider {
         provider: config.llm_provider.as_str().to_string(),
         model: config.llm_summary_model.clone(),
         base_url: match config.llm_provider {
-            rustss_core::config::LlmProvider::Openai => config
+            rusty_feed_core::config::LlmProvider::Openai => config
                 .openai_base_url
                 .clone()
                 .unwrap_or_else(|| "https://api.openai.com".to_string()),
-            rustss_core::config::LlmProvider::Ollama => config.ollama_base_url.clone(),
+            rusty_feed_core::config::LlmProvider::Ollama => config.ollama_base_url.clone(),
         },
         has_key: config.openai_api_key.is_some(),
     });
@@ -229,13 +229,14 @@ async fn main() -> anyhow::Result<()> {
     if config.feeds_allow_private_network {
         tracing::warn!("FEEDS_ALLOW_PRIVATE_NETWORK is on — feeds may reach private addresses");
     }
-    let fetch = rustss_feeds::SafeFetchClient::with_options(rustss_feeds::SafeFetchOptions {
-        timeout: std::time::Duration::from_millis(config.extraction_timeout_ms),
-        allow_private: config.feeds_allow_private_network,
-        user_agent: config.outbound_user_agent.clone(),
-        http1_only: config.outbound_http1_only,
-    })
-    .context("failed to build HTTP client")?;
+    let fetch =
+        rusty_feed_feeds::SafeFetchClient::with_options(rusty_feed_feeds::SafeFetchOptions {
+            timeout: std::time::Duration::from_millis(config.extraction_timeout_ms),
+            allow_private: config.feeds_allow_private_network,
+            user_agent: config.outbound_user_agent.clone(),
+            http1_only: config.outbound_http1_only,
+        })
+        .context("failed to build HTTP client")?;
 
     // Outbound mailer for email verification. A missing/broken SMTP config
     // degrades to a Noop mailer so signup never breaks (FND-191).
@@ -244,16 +245,16 @@ async fn main() -> anyhow::Result<()> {
             let from = config
                 .smtp_from
                 .clone()
-                .unwrap_or_else(|| "RustSS <no-reply@localhost>".to_string());
-            match rustss_web::mailer::Mailer::from_smtp_url(url.expose(), &from) {
+                .unwrap_or_else(|| "Rusty Feed <no-reply@localhost>".to_string());
+            match rusty_feed_web::mailer::Mailer::from_smtp_url(url.expose(), &from) {
                 Ok(mailer) => mailer,
                 Err(error) => {
                     tracing::error!(%error, "invalid SMTP configuration; email verification disabled");
-                    rustss_web::mailer::Mailer::Noop
+                    rusty_feed_web::mailer::Mailer::Noop
                 }
             }
         }
-        None => rustss_web::mailer::Mailer::Noop,
+        None => rusty_feed_web::mailer::Mailer::Noop,
     };
 
     let state = AppState::new(db, cache, settings, move || metrics.render())
@@ -267,26 +268,28 @@ async fn main() -> anyhow::Result<()> {
         .with_fetch(fetch);
 
     // Embedded AGENTS worker (default): refreshes feeds in the background.
-    // Disable with RUN_EMBEDDED_WORKER=false to run `rustss-worker` separately.
+    // Disable with RUN_EMBEDDED_WORKER=false to run `rusty-feed-worker` separately.
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let watchdog_handle = systemd.spawn_watchdog(shutdown_tx.subscribe());
     let worker_handle = if config.run_embedded_worker {
-        let worker = rustss_agents::Worker::new(
+        let worker = rusty_feed_agents::Worker::new(
             state.db.clone(),
             state.fetch.clone(),
             embedder,
             llm,
             Some(llm_cascade),
-            rustss_agents::WorkerConfig {
+            rusty_feed_agents::WorkerConfig {
                 concurrency: config.feed_refresh_concurrency,
                 interactive_concurrency: config.interactive_job_concurrency,
                 scheduler_enabled: config.enable_cron_jobs,
-                feed_refresh_schedule: rustss_core::cron::CronSchedule::parse(
+                feed_refresh_schedule: rusty_feed_core::cron::CronSchedule::parse(
                     &config.feed_refresh_schedule,
                 )
                 .map_err(|error| anyhow::anyhow!("invalid FEED_REFRESH_SCHEDULE: {error}"))?,
-                cleanup_schedule: rustss_core::cron::CronSchedule::parse(&config.cleanup_schedule)
-                    .map_err(|error| anyhow::anyhow!("invalid CLEANUP_SCHEDULE: {error}"))?,
+                cleanup_schedule: rusty_feed_core::cron::CronSchedule::parse(
+                    &config.cleanup_schedule,
+                )
+                .map_err(|error| anyhow::anyhow!("invalid CLEANUP_SCHEDULE: {error}"))?,
                 extraction_config: extraction_config(&config),
                 embed_on_ingest: config.embedding_auto_generate,
                 auto_summarize: config.llm_auto_summarize,
@@ -295,13 +298,13 @@ async fn main() -> anyhow::Result<()> {
                 tracking_pixel_policy,
                 article_retention_days: config.article_retention_days,
                 retention_age_basis: config.retention_age_basis,
-                integration_credentials: rustss_core::crypto::Cryptor::new_with_context(
+                integration_credentials: rusty_feed_core::crypto::Cryptor::new_with_context(
                     config.encryption_secret.expose().as_bytes(),
-                    b"rustss/integration-credentials/v1",
+                    b"rusty-feed/integration-credentials/v1",
                 ),
-                acquisition_credentials: rustss_core::crypto::Cryptor::new_with_context(
+                acquisition_credentials: rusty_feed_core::crypto::Cryptor::new_with_context(
                     config.encryption_secret.expose().as_bytes(),
-                    b"rustss/acquisition-profile-secrets/v1",
+                    b"rusty-feed/acquisition-profile-secrets/v1",
                 ),
                 youtube_duration_enabled: config.youtube_duration_enabled,
                 youtube_duration_daily_budget: config.youtube_duration_daily_budget,
@@ -309,11 +312,11 @@ async fn main() -> anyhow::Result<()> {
                 ai_budget: config.ai_budget(),
                 feed_max_items_per_refresh: config.feed_max_items_per_refresh,
                 demo_mode: config.demo_mode,
-                demo_reset_schedule: rustss_core::cron::CronSchedule::parse(
+                demo_reset_schedule: rusty_feed_core::cron::CronSchedule::parse(
                     &config.demo_reset_schedule,
                 )
                 .map_err(|error| anyhow::anyhow!("invalid DEMO_RESET_SCHEDULE: {error}"))?,
-                ..rustss_agents::WorkerConfig::default()
+                ..rusty_feed_agents::WorkerConfig::default()
             },
         );
         tracing::info!("embedded AGENTS worker enabled");
@@ -322,13 +325,13 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let app = rustss_web::router(state);
-    tracing::info!("{} starting on http://{addr}", rustss_core::banner());
+    let app = rusty_feed_web::router(state);
+    tracing::info!("{} starting on http://{addr}", rusty_feed_core::banner());
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("failed to bind {addr}"))?;
-    systemd.ready("RustSS is ready to accept HTTP requests");
+    systemd.ready("Rusty Feed is ready to accept HTTP requests");
 
     let shutdown_notifier = systemd;
     axum::serve(
@@ -337,7 +340,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
-        shutdown_notifier.stopping("RustSS is draining HTTP and worker activity");
+        shutdown_notifier.stopping("Rusty Feed is draining HTTP and worker activity");
         let _ = shutdown_tx.send(true); // stop the embedded worker too
     })
     .await
@@ -360,30 +363,29 @@ fn comma_values(value: &str) -> impl Iterator<Item = &str> {
         .filter(|item| !item.is_empty())
 }
 
-fn extraction_config(config: &AppConfig) -> rustss_extract::ExtractConfig {
+fn extraction_config(config: &AppConfig) -> rusty_feed_extract::ExtractConfig {
     let chromium = if config.chromium_enabled {
-        config
-            .chromium_cdp_url
-            .as_ref()
-            .map(|endpoint| rustss_extract::chromium::ChromiumConfig {
+        config.chromium_cdp_url.as_ref().map(|endpoint| {
+            rusty_feed_extract::chromium::ChromiumConfig {
                 endpoint: endpoint.clone(),
                 max_concurrency: config.feed_refresh_concurrency.min(4),
                 render_wait: std::time::Duration::from_millis(750),
                 timeout: std::time::Duration::from_millis(config.extraction_timeout_ms),
-            })
+            }
+        })
     } else {
         None
     };
-    rustss_extract::ExtractConfig {
+    rusty_feed_extract::ExtractConfig {
         base_delay: std::time::Duration::from_millis(config.extraction_delay_ms),
         chromium,
-        ..rustss_extract::ExtractConfig::default()
+        ..rusty_feed_extract::ExtractConfig::default()
     }
 }
 
 /// Assemble the enabled OAuth providers from configuration.
 fn build_oauth_providers(config: &AppConfig) -> Vec<OAuthProvider> {
-    use rustss_core::Secret;
+    use rusty_feed_core::Secret;
     let mut providers = Vec::new();
 
     if let (Some(id), Some(secret)) = (&config.google_client_id, &config.google_client_secret) {

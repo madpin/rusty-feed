@@ -6,9 +6,9 @@ use std::time::Duration;
 use serde_json::json;
 use uuid::Uuid;
 
-use rustss_agents::{Agent, AgentContext, PatternDecayAgent};
-use rustss_db::{patterns, users, Db};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_agents::{Agent, AgentContext, PatternDecayAgent};
+use rusty_feed_db::{patterns, users, Db};
+use rusty_feed_feeds::SafeFetchClient;
 
 async fn connect() -> Option<Db> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;

@@ -4,17 +4,17 @@
 use async_trait::async_trait;
 use serde_json::json;
 
-use rustss_db::{api_audit, articles, media_cache};
+use rusty_feed_db::{api_audit, articles, media_cache};
 
 use crate::{Agent, AgentContext};
 
 pub struct ContentCleanupAgent {
     retention_days: u32,
-    age_basis: rustss_core::config::RetentionAgeBasis,
+    age_basis: rusty_feed_core::config::RetentionAgeBasis,
 }
 
 impl ContentCleanupAgent {
-    pub fn new(retention_days: u32, age_basis: rustss_core::config::RetentionAgeBasis) -> Self {
+    pub fn new(retention_days: u32, age_basis: rusty_feed_core::config::RetentionAgeBasis) -> Self {
         Self {
             retention_days,
             age_basis,
@@ -24,7 +24,7 @@ impl ContentCleanupAgent {
 
 impl Default for ContentCleanupAgent {
     fn default() -> Self {
-        Self::new(0, rustss_core::config::RetentionAgeBasis::Published)
+        Self::new(0, rusty_feed_core::config::RetentionAgeBasis::Published)
     }
 }
 

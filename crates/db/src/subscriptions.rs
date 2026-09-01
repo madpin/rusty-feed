@@ -2,10 +2,10 @@
 
 use std::collections::BTreeSet;
 
-use rustss_core::feed_content::{
+use rusty_feed_core::feed_content::{
     ContentLifetime, FeedContentMode, SubscriptionContentSettings, SubscriptionEnclosureSettings,
 };
-use rustss_core::youtube::SubscriptionYouTubeMode;
+use rusty_feed_core::youtube::SubscriptionYouTubeMode;
 use serde_json::Value as Json;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -252,7 +252,7 @@ pub async fn update_entry_filters(
     pool: &PgPool,
     user_id: Uuid,
     feed_id: Uuid,
-    filters: &[rustss_core::content_rules::EntryFilter],
+    filters: &[rusty_feed_core::content_rules::EntryFilter],
 ) -> Result<()> {
     let patch = serde_json::json!({ "entry_filters": filters });
     let result = sqlx::query(

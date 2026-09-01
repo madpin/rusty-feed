@@ -169,7 +169,7 @@ pub enum RetentionAgeBasis {
     /// Age from the publisher date, falling back to ingestion time.
     #[default]
     Published,
-    /// Age only from the time RustSS first stored the article.
+    /// Age only from the time Rusty Feed first stored the article.
     Created,
 }
 
@@ -502,7 +502,7 @@ pub struct AppConfig {
     /// SMTP transport URL, e.g. `smtps://user:pass@smtp.example.com:465`.
     #[serde(default)]
     pub smtp_url: Option<Secret>,
-    /// From header for outbound mail, e.g. `RustSS <no-reply@example.com>`.
+    /// From header for outbound mail, e.g. `Rusty Feed <no-reply@example.com>`.
     #[serde(default)]
     pub smtp_from: Option<String>,
     /// Minimum accepted password length for new/changed local passwords.
@@ -557,11 +557,11 @@ pub struct AppConfig {
 impl AppConfig {
     /// Load configuration from an optional TOML file, `.env` (if present), and
     /// the process environment, then validate. Environment values have the
-    /// highest precedence. Set `RUSTSS_CONFIG_FILE` to opt into TOML.
+    /// highest precedence. Set `RUSTY_FEED_CONFIG_FILE` to opt into TOML.
     pub fn load() -> Result<Self, ConfigError> {
         // Best-effort: load `.env` for local development. Missing file is fine.
         let _ = dotenvy::dotenv();
-        let config_file = std::env::var_os("RUSTSS_CONFIG_FILE").map(PathBuf::from);
+        let config_file = std::env::var_os("RUSTY_FEED_CONFIG_FILE").map(PathBuf::from);
         Self::from_figment(figment_for_sources(config_file.as_deref())?)
     }
 
@@ -1023,7 +1023,7 @@ fn figment_for_sources(config_file: Option<&Path>) -> Result<Figment, ConfigErro
         Some(path) => {
             if !path.is_file() {
                 return Err(ConfigError::Load(format!(
-                    "RUSTSS_CONFIG_FILE does not name a readable file: {}",
+                    "RUSTY_FEED_CONFIG_FILE does not name a readable file: {}",
                     path.display()
                 )));
             }
@@ -1140,10 +1140,10 @@ mod defaults {
         "info".to_string()
     }
     pub fn pwa_name() -> String {
-        "RustSS".to_string()
+        "Rusty Feed".to_string()
     }
     pub fn pwa_short_name() -> String {
-        "RustSS".to_string()
+        "Rusty Feed".to_string()
     }
     pub fn pwa_theme_color() -> String {
         "#2563eb".to_string()
@@ -1161,7 +1161,7 @@ mod defaults {
         65_536
     }
     pub fn passkey_rp_name() -> String {
-        "RustSS".to_string()
+        "Rusty Feed".to_string()
     }
     pub fn youtube_duration_daily_budget() -> u32 {
         100
@@ -1170,7 +1170,7 @@ mod defaults {
         30
     }
     pub fn cache_namespace() -> String {
-        "rustss".to_string()
+        "rusty-feed".to_string()
     }
     pub fn reverse_proxy_auth_trusted_cidrs() -> String {
         "127.0.0.1/32,::1/128".to_string()
@@ -1194,7 +1194,7 @@ mod defaults {
         60
     }
     pub fn model_cache_dir() -> PathBuf {
-        PathBuf::from("/var/lib/rustss/models")
+        PathBuf::from("/var/lib/rusty-feed/models")
     }
     pub fn llm_model() -> String {
         "gpt-4o-mini".to_string()
@@ -1209,7 +1209,7 @@ mod defaults {
         3_000
     }
     pub fn outbound_user_agent() -> String {
-        "RustSS/0.1 (+https://github.com/madpin/rustss)".to_string()
+        "Rusty-Feed/0.1 (+https://github.com/madpin/rusty-feed)".to_string()
     }
     pub fn feed_refresh_schedule() -> String {
         "*/5 * * * *".to_string()
@@ -1311,7 +1311,7 @@ mod tests {
     fn loads_with_defaults() {
         let cfg = AppConfig::from_figment(base()).expect("should load");
         assert_eq!(cfg.bind_addr, "0.0.0.0:8080");
-        assert_eq!(cfg.pwa_name, "RustSS");
+        assert_eq!(cfg.pwa_name, "Rusty Feed");
         assert!(cfg.systemd_notify_enabled);
         assert_eq!(cfg.pwa_theme_color, "#2563eb");
         assert!(cfg.public_article_sharing_enabled);
@@ -1326,7 +1326,7 @@ mod tests {
         assert_eq!(cfg.feed_refresh_concurrency, 6);
         assert_eq!(cfg.interactive_job_concurrency, 2);
         assert!(cfg.cache_enabled);
-        assert_eq!(cfg.cache_namespace, "rustss");
+        assert_eq!(cfg.cache_namespace, "rusty-feed");
         assert_eq!(cfg.registration_mode, RegistrationMode::Open);
         assert_eq!(cfg.embedding_provider, EmbeddingProvider::Local);
         assert_eq!(cfg.base_url(), "http://0.0.0.0:8080");
@@ -1339,7 +1339,7 @@ mod tests {
         assert!(cfg.youtube_embeds_enabled);
         assert_eq!(
             cfg.outbound_user_agent,
-            "RustSS/0.1 (+https://github.com/madpin/rustss)"
+            "Rusty-Feed/0.1 (+https://github.com/madpin/rusty-feed)"
         );
         assert!(!cfg.outbound_http1_only);
         assert_eq!(cfg.youtube_policy().unwrap().source_host_count(), 3);
@@ -1485,7 +1485,7 @@ mod tests {
     fn validates_installable_app_branding() {
         for values in [
             serde_json::json!({ "pwa_name": "" }),
-            serde_json::json!({ "pwa_name": " RustSS " }),
+            serde_json::json!({ "pwa_name": " Rusty Feed " }),
             serde_json::json!({ "pwa_short_name": "x".repeat(33) }),
             serde_json::json!({ "pwa_theme_color": "blue" }),
             serde_json::json!({ "pwa_background_color": "#12345g" }),
@@ -1531,7 +1531,7 @@ mod tests {
             "https://reader.example/?tenant=one",
             "https://reader.example/#login",
             "https://user:secret@reader.example",
-            "file:///tmp/rustss",
+            "file:///tmp/rusty-feed",
         ] {
             assert!(
                 AppConfig::from_figment(base().merge(Serialized::defaults(serde_json::json!({
@@ -1598,23 +1598,26 @@ mod tests {
 
     #[test]
     fn explicit_missing_config_file_fails_clearly() {
-        let path =
-            std::env::temp_dir().join(format!("rustss-missing-config-{}.toml", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "rusty-feed-missing-config-{}.toml",
+            std::process::id()
+        ));
         let error = figment_for_sources(Some(&path)).unwrap_err();
-        assert!(error.to_string().contains("RUSTSS_CONFIG_FILE"));
+        assert!(error.to_string().contains("RUSTY_FEED_CONFIG_FILE"));
         assert!(error.to_string().contains(&path.display().to_string()));
     }
 
     #[test]
     fn loads_optional_toml_configuration() {
-        let path = std::env::temp_dir().join(format!("rustss-config-{}.toml", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rusty-feed-config-{}.toml", std::process::id()));
         std::fs::write(
             &path,
             r#"
-database_url = "postgres://from-file/rustss"
+database_url = "postgres://from-file/rusty_feed"
 session_secret = "file-session-secret-that-is-at-least-32-bytes"
 encryption_secret = "file-encryption-secret-that-is-at-least-32-bytes"
-pwa_name = "RustSS from TOML"
+pwa_name = "Rusty Feed from TOML"
 cache_enabled = false
 "#,
         )
@@ -1623,13 +1626,13 @@ cache_enabled = false
         let result = figment_for_sources(Some(&path)).and_then(AppConfig::from_figment);
         let _ = std::fs::remove_file(&path);
         let cfg = result.expect("TOML configuration should load");
-        assert_eq!(cfg.pwa_name, "RustSS from TOML");
+        assert_eq!(cfg.pwa_name, "Rusty Feed from TOML");
         assert!(!cfg.cache_enabled);
     }
 
     #[test]
     fn diagnostic_summary_never_contains_connection_or_secret_values() {
-        let database_url = "postgres://diagnostic-user:diagnostic-password@db/rustss";
+        let database_url = "postgres://diagnostic-user:diagnostic-password@db/rusty_feed";
         let redis_url = "redis://:diagnostic-redis-secret@cache:6379";
         let openai_key = "sk-diagnostic-openai-secret";
         let cfg = AppConfig::from_figment(base().merge(Serialized::defaults(serde_json::json!({

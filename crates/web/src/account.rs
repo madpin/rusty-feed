@@ -11,7 +11,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use serde_json::json;
 
-use rustss_db::{categories, feeds, saved_searches, users};
+use rusty_feed_db::{categories, feeds, saved_searches, users};
 
 use crate::auth::extractor::AuthUser;
 use crate::auth::{csrf, session};
@@ -35,7 +35,7 @@ struct AccountTemplate {
 
 async fn render(
     state: &AppState,
-    user: &rustss_db::User,
+    user: &rusty_feed_db::User,
     jar: CookieJar,
     notice: Option<String>,
     error: Option<String>,
@@ -95,7 +95,7 @@ pub async fn export(
         .map(|search| json!({ "name": search.name, "query": search.query }))
         .collect();
     // Reading state: the user's bookmarked articles (§9 full export).
-    let bookmarks: Vec<_> = rustss_db::bookmarks::list_for_export(pool, user.id, 100_000)
+    let bookmarks: Vec<_> = rusty_feed_db::bookmarks::list_for_export(pool, user.id, 100_000)
         .await?
         .into_iter()
         .map(|bookmark| {
@@ -128,7 +128,7 @@ pub async fn export(
             (header::CONTENT_TYPE, "application/json; charset=utf-8"),
             (
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"rustss-export.json\"",
+                "attachment; filename=\"rusty-feed-export.json\"",
             ),
         ],
         body,

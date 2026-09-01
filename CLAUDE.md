@@ -6,7 +6,7 @@ Guidance for Claude Code (and other AI assistants) working in this repository.
 
 ## What this is
 
-**RustSS** — a self-hosted, multi-user, AI-augmented RSS reader in Rust (Axum + Askama/HTMX, PostgreSQL/pgvector, Redis, background "AGENTS" workers). It is a ground-up Rust reimplementation of the original `neureed` (Next.js/TypeScript).
+**Rusty Feed** — a self-hosted, multi-user, AI-augmented RSS reader in Rust (Axum + Askama/HTMX, PostgreSQL/pgvector, Redis, background "AGENTS" workers). It is a ground-up Rust reimplementation of the original `neureed` (Next.js/TypeScript).
 
 ## The one rule you must never break
 
@@ -24,8 +24,8 @@ Guidance for Claude Code (and other AI assistants) working in this repository.
 ```bash
 cargo fmt --all && cargo clippy --all-targets --all-features -- -D warnings && cargo test
 docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
-cargo run -p rustss-cli -- migrate
-cargo run -p rustss-server
+cargo run -p rusty-feed-cli -- migrate
+cargo run -p rusty-feed-server
 ```
 
 ## Non-negotiables (see AGENTS.md §5 for the full list)

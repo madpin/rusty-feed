@@ -1,4 +1,4 @@
-//! # rustss-extract
+//! # rusty-feed-extract
 //!
 //! Full-text content extraction (M8): fetch an article page through the
 //! SSRF-safe client, respect per-domain politeness (base delay, robots.txt
@@ -21,9 +21,9 @@ use std::time::Duration as StdDuration;
 use futures_util::StreamExt;
 use time::OffsetDateTime;
 
-use rustss_core::tracking_pixel::TrackingPixelPolicy;
-use rustss_db::{domain_state, Db};
-use rustss_feeds::SafeFetchClient;
+use rusty_feed_core::tracking_pixel::TrackingPixelPolicy;
+use rusty_feed_db::{domain_state, Db};
+use rusty_feed_feeds::SafeFetchClient;
 
 use crate::chromium::{ChromiumConfig, ChromiumRenderer};
 use crate::robots::RobotsInfo;
@@ -44,7 +44,7 @@ impl Default for ExtractConfig {
             base_delay: StdDuration::from_secs(3),
             max_bytes: 5 * 1024 * 1024,
             robots_ttl: StdDuration::from_secs(24 * 3600),
-            user_agent: "RustSS/0.1".to_string(),
+            user_agent: "Rusty-Feed/0.1".to_string(),
             chromium: None,
         }
     }
@@ -458,7 +458,7 @@ impl ExtractionService {
         Ok(FetchResult::Html {
             // Decode using the page's declared charset (Content-Type → BOM →
             // <meta charset> → UTF-8) so non-UTF-8 pages don't corrupt (FND-193).
-            body: rustss_core::charset::decode_html_bytes(&bytes, content_type.as_deref()),
+            body: rusty_feed_core::charset::decode_html_bytes(&bytes, content_type.as_deref()),
             final_url,
             verified_html,
         })
@@ -481,7 +481,7 @@ impl ExtractionService {
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
         let bytes = read_capped(resp, 512 * 1024).await?;
-        Ok(Some(rustss_core::charset::decode_html_bytes(
+        Ok(Some(rusty_feed_core::charset::decode_html_bytes(
             &bytes,
             content_type.as_deref(),
         )))

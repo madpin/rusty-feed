@@ -3,7 +3,7 @@
 //! The SQL chooses between two migration-owned `tsvector` columns. Callers
 //! cannot provide arbitrary PostgreSQL configuration or column names.
 
-use rustss_core::config::SearchTextConfig;
+use rusty_feed_core::config::SearchTextConfig;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;

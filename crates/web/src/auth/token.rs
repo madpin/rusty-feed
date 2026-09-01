@@ -17,14 +17,14 @@ pub struct GeneratedToken {
 pub fn generate() -> GeneratedToken {
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
-    let raw = rustss_core::hash::hex_encode(&bytes);
-    let hash = rustss_core::hash::sha256_hex(raw.as_bytes());
+    let raw = rusty_feed_core::hash::hex_encode(&bytes);
+    let hash = rusty_feed_core::hash::sha256_hex(raw.as_bytes());
     GeneratedToken { raw, hash }
 }
 
 /// Hash a raw token the same way [`generate`] does (for lookups).
 pub fn hash(raw: &str) -> String {
-    rustss_core::hash::sha256_hex(raw.as_bytes())
+    rusty_feed_core::hash::sha256_hex(raw.as_bytes())
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@ use axum::http::request::Parts;
 use axum::http::HeaderName;
 use axum_extra::extract::cookie::CookieJar;
 
-use rustss_db::{users, User};
+use rusty_feed_db::{users, User};
 
 use crate::auth::session::SESSION_COOKIE;
 use crate::auth::token;
@@ -36,18 +36,18 @@ async fn load_session_user(state: &AppState, parts: &Parts) -> Option<User> {
     let raw = jar.get(SESSION_COOKIE)?.value().to_string();
     let hash = token::hash(&raw);
 
-    let session = rustss_db::sessions::find_valid(state.db.pool(), &hash)
+    let session = rusty_feed_db::sessions::find_valid(state.db.pool(), &hash)
         .await
         .ok()
         .flatten()?;
-    let user = rustss_db::users::find_by_id(state.db.pool(), session.user_id)
+    let user = rusty_feed_db::users::find_by_id(state.db.pool(), session.user_id)
         .await
         .ok()
         .flatten()?;
 
     // Best-effort: refresh last_used_at and the user's last-seen (throttled).
-    let _ = rustss_db::sessions::touch(state.db.pool(), session.id).await;
-    let _ = rustss_db::users::touch_last_seen(state.db.pool(), user.id).await;
+    let _ = rusty_feed_db::sessions::touch(state.db.pool(), session.id).await;
+    let _ = rusty_feed_db::users::touch_last_seen(state.db.pool(), user.id).await;
     Some(user)
 }
 

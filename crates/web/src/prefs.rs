@@ -11,7 +11,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
-use rustss_db::{user_preferences, Db, User};
+use rusty_feed_db::{user_preferences, Db, User};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -34,7 +34,7 @@ pub async fn reset_learning(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
-    rustss_search::personalize::reset_learning(&state.db, &state.cache, user.id).await?;
+    rusty_feed_search::personalize::reset_learning(&state.db, &state.cache, user.id).await?;
     Ok((jar, Redirect::to("/settings/preferences")).into_response())
 }
 
@@ -300,34 +300,34 @@ impl Default for Preferences {
 
 impl Preferences {
     pub fn text(&self, key: &str) -> &'static str {
-        let translated = rustss_core::i18n::message(&self.locale, key);
+        let translated = rusty_feed_core::i18n::message(&self.locale, key);
         if translated.is_empty() {
-            rustss_core::i18n::message(&self.fallback_locale, key)
+            rusty_feed_core::i18n::message(&self.fallback_locale, key)
         } else {
             translated
         }
     }
 
     pub fn format_date(&self, value: time::OffsetDateTime) -> String {
-        rustss_core::i18n::format_date(value, &self.timezone, &self.date_format)
+        rusty_feed_core::i18n::format_date(value, &self.timezone, &self.date_format)
     }
 
     pub fn format_number(&self, value: &i64) -> String {
-        rustss_core::i18n::format_number(*value, &self.number_format)
+        rusty_feed_core::i18n::format_number(*value, &self.number_format)
     }
 
     pub fn text_direction(&self) -> &'static str {
-        rustss_core::i18n::text_direction(&self.locale)
+        rusty_feed_core::i18n::text_direction(&self.locale)
     }
 
     fn sanitized(mut self) -> Self {
-        if !rustss_core::i18n::is_supported_locale(&self.locale) {
+        if !rusty_feed_core::i18n::is_supported_locale(&self.locale) {
             self.locale = "en".to_string();
         }
-        if !rustss_core::i18n::is_supported_locale(&self.fallback_locale) {
+        if !rusty_feed_core::i18n::is_supported_locale(&self.fallback_locale) {
             self.fallback_locale = "en".to_string();
         }
-        if !rustss_core::i18n::is_supported_timezone(&self.timezone) {
+        if !rusty_feed_core::i18n::is_supported_timezone(&self.timezone) {
             self.timezone = "UTC".to_string();
         }
         if !matches!(self.date_format.as_str(), "mdy" | "dmy" | "ymd") {
@@ -735,7 +735,7 @@ fn preferences_template(
         prefs_touch_gestures_enabled: prefs.touch_gestures_enabled,
         prefs_touch_gesture_sensitivity: prefs.touch_gesture_sensitivity.clone(),
         prefs_touch_gesture_direction: prefs.touch_gesture_direction.clone(),
-        locales: rustss_core::i18n::SUPPORTED_LOCALES
+        locales: rusty_feed_core::i18n::SUPPORTED_LOCALES
             .iter()
             .map(|(code, name)| LocaleOption {
                 code: (*code).to_string(),

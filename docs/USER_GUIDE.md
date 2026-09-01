@@ -1,6 +1,6 @@
-# RustSS user guide
+# Rusty Feed user guide
 
-RustSS is a multi-user reader with one simple ownership rule: downloaded feed
+Rusty Feed is a multi-user reader with one simple ownership rule: downloaded feed
 content is shared efficiently, while subscriptions, folders, tags, read state,
 bookmarks, feedback, saved searches, preferences, credentials, and public-share
 policies belong to you.
@@ -10,7 +10,7 @@ This guide covers the v1 web application. Administrators should also keep the
 
 ## 1. Sign in and orient yourself
 
-Open the RustSS address supplied by your administrator. You can sign in with a
+Open the Rusty Feed address supplied by your administrator. You can sign in with a
 local email/password or an enabled OAuth provider. On an open instance, the
 first registered account becomes the administrator; later accounts receive the
 instance's featured starter subscriptions. Invitation-only instances require a
@@ -27,7 +27,7 @@ The main navigation contains:
   passkeys, sessions, and API tokens;
 - **Administration** — visible only to administrators.
 
-Your account menu also shows unread notifications. RustSS updates the count in
+Your account menu also shows unread notifications. Rusty Feed updates the count in
 place and groups repeated feed-health changes so they do not overwhelm you.
 
 ## 2. Read from the Library
@@ -77,14 +77,14 @@ appear on a public link.
 Each subscription chooses its preferred reading source:
 
 - **RSS content** is always stored and remains the fallback.
-- **Public article page** asks RustSS to fetch and extract the publisher's public
+- **Public article page** asks Rusty Feed to fetch and extract the publisher's public
   page once for everyone who requests it. Choose a finite lifetime or **No
   expiration**. The longest subscriber request controls the one shared copy.
 
 If processed content is missing or expired, opening the article immediately
 queues a fast refresh and shows RSS content until it is ready.
 
-**Live View** is an explicit, sandboxed publisher view. RustSS obtains the
+**Live View** is an explicit, sandboxed publisher view. Rusty Feed obtains the
 publisher document through its SSRF-safe fetcher and rewrites required static
 resources through article-scoped tickets, avoiding the publisher iframe blocks
 that break ordinary embedding. The frame is not loaded until you ask for it,
@@ -109,7 +109,7 @@ For one source, choose **Organize** to set:
 The same source settings page has a personal **Entry filters** JSON editor. A
 rule has a name, target (`title`, `content`, `author`, or `url`), mode (`include`
 or `exclude`), bounded regular expression, optional case-insensitive flag, and
-enabled flag. Use **Preview rules** first: RustSS reports how many of the 20 most
+enabled flag. Use **Preview rules** first: Rusty Feed reports how many of the 20 most
 recent shared articles would disappear from your Library. The filter changes
 only your view; the shared article remains available to every other subscriber.
 
@@ -141,7 +141,7 @@ ignored. Gestures never perform destructive actions or silently change saved
 state; the same navigation remains available through article links and keyboard
 shortcuts.
 
-RustSS adapts the same workflows across desktop, tablet, portrait, and landscape
+Rusty Feed adapts the same workflows across desktop, tablet, portrait, and landscape
 screens. On smaller screens the three-column reader becomes a single list/page,
 the Library sidebar moves into a **Library navigation** disclosure, forms and
 media controls stack, and wide operational tables scroll inside their own
@@ -165,18 +165,18 @@ size, cadence, last post, and subscription state. Select several cards and
 subscribe once. **Preview** distinguishes RSS examples from the separate
 processed-content availability report.
 
-To add any public feed, use **Add your own feed URL**. RustSS validates and
+To add any public feed, use **Add your own feed URL**. Rusty Feed validates and
 normalizes the URL, prevents private-network access by default, and reuses an
 existing shared feed row when another user already follows it.
 
 ### Subscribe bookmarklet
 
-On **Feeds → Subscribe from any website**, drag **Subscribe with RustSS** to
+On **Feeds → Subscribe from any website**, drag **Subscribe with Rusty Feed** to
 your bookmarks bar, or copy the shown bookmarklet address into a new bookmark.
-Activate it while visiting a publisher. RustSS opens a separate confirmation
+Activate it while visiting a publisher. Rusty Feed opens a separate confirmation
 page and lists the RSS, Atom, or JSON feeds advertised by that page; choose one
 and confirm. It never subscribes on the publisher page itself. You must already
-be signed in to RustSS in that browser; if your session expired, sign in and run
+be signed in to Rusty Feed in that browser; if your session expired, sign in and run
 the bookmarklet again.
 
 Discovery is anonymous and bounded: it sends no site cookies, runs no publisher
@@ -209,7 +209,7 @@ Search supports three modes:
   an embedding is missing.
 
 Choose an instance-inherited default or personal mode, text stemming, and
-hybrid meaning weight under preferences. If embedding a query fails, RustSS
+hybrid meaning weight under preferences. If embedding a query fails, Rusty Feed
 continues with keyword results and explains the fallback.
 
 A saved search accepts boolean groups, phrases, `AND`, `OR`, and `NOT`. Set its
@@ -230,7 +230,7 @@ which provider/model was used.
 
 Under **Account → AI providers**, add prioritized personal OpenAI profiles. API
 keys are encrypted and never shown again. To rotate a key, delete and recreate
-the profile. When a provider fails, RustSS tries enabled profiles in this order:
+the profile. When a provider fails, Rusty Feed tries enabled profiles in this order:
 
 1. your personal profiles by priority;
 2. administrator-managed instance profiles;
@@ -242,7 +242,7 @@ and visible both beside the article and in the administrator queue/log view.
 
 ## 7. Privacy, media, and sharing
 
-RustSS strips common tracking parameters, removes configured pixel trackers,
+Rusty Feed strips common tracking parameters, removes configured pixel trackers,
 sets no-referrer policy, sanitizes publisher HTML, blocks external scripts from
 stored reader content, and adds opener isolation to external links. You can show
 the number of removed tracking images for each selected content source.
@@ -256,7 +256,7 @@ publisher link.
 
 The article's header image follows that same effective per-feed media-delivery
 choice. In **proxy** mode it is fetched through an authenticated, SSRF-safe
-RustSS URL with an 8 MiB ceiling and a passive raster-image MIME allow-list, so
+Rusty Feed URL with an 8 MiB ceiling and a passive raster-image MIME allow-list, so
 the browser never contacts the publisher. **Mixed content** proxies only HTTP
 images; **direct** mode may contact the publisher and still sends no referrer.
 
@@ -271,7 +271,7 @@ privacy player. Subscription settings may force the built-in player or links
 only.
 
 If disabled-by-default duration enrichment is enabled by the administrator,
-RustSS fetches a recognized video's public metadata once, within a whole-instance
+Rusty Feed fetches a recognized video's public metadata once, within a whole-instance
 daily budget, and shows the cached duration beside that shared video. Player
 consent remains separate: duration metadata does not load an iframe.
 
@@ -284,7 +284,7 @@ From an article's sharing controls, create a revocable bearer link with:
 - title/metadata/source-link controls;
 - optional external images, with a privacy warning.
 
-Creating or updating rotates the 256-bit token. RustSS stores a lookup hash and
+Creating or updating rotates the 256-bit token. Rusty Feed stores a lookup hash and
 encrypted token rather than plaintext, copies no article body, performs no
 visitor-triggered extraction, and serves the public page as no-store/noindex.
 Revoke the link to invalidate it immediately.
@@ -311,7 +311,7 @@ work through normal links and forms when JavaScript is unavailable.
 
 **Account → Sessions** lists active sign-ins and lets you revoke another device
 or all other sessions. **API tokens** are revocable app credentials; copy a new
-token immediately because RustSS stores only its hash.
+token immediately because Rusty Feed stores only its hash.
 
 ### Passkeys
 
@@ -324,7 +324,7 @@ the error is intentionally the same for an unknown account and an account with
 no passkey.
 
 Revocation also requires a session created in the last 15 minutes. Sign out and
-back in when asked. RustSS will not remove the last passkey from an account with
+back in when asked. Rusty Feed will not remove the last passkey from an account with
 no other recovery method. It stores only the public credential and counter
 state—never a fingerprint, face scan, or other biometric material.
 
@@ -339,10 +339,10 @@ under Reading & display. It is served as a same-origin external asset without
 weakening the no-inline CSP.
 
 If either customization makes the interface unusable, open `/safe-mode`
-directly on your RustSS origin. Safe Mode suppresses both assets before rendering
+directly on your Rusty Feed origin. Safe Mode suppresses both assets before rendering
 and provides a link to leave the mode after you reset or repair the version.
 
-RustSS can be installed from **Reading & display** when the browser exposes an
+Rusty Feed can be installed from **Reading & display** when the browser exposes an
 install prompt. Otherwise follow the shown browser-menu/Add to Home Screen
 instructions. The service worker caches only public CSS, JavaScript, and icons;
 it never caches authenticated pages, articles, APIs, media, or Live View.
@@ -354,12 +354,12 @@ New integrations should use the versioned native API documented in
 `Authorization: Bearer ...` over HTTPS.
 
 Existing RSS clients can use the implemented Google Reader-compatible subset.
-Set the server URL to the RustSS origin and authenticate with a local password
+Set the server URL to the Rusty Feed origin and authenticate with a local password
 or app API token. OAuth-only accounts use an app token. Subscription, folder,
 stream, read, star, and mark-all-read operations map to the same personal state
 as the web UI.
 
-Fever-compatible clients use the same RustSS origin and a named Fever credential
+Fever-compatible clients use the same Rusty Feed origin and a named Fever credential
 created under **Account → API tokens**. The adapter covers groups, feeds,
 favicons, items, unread/saved identifiers, and read/save changes. It does not
 implement historical Fever links, sparks, or kindlings; see [`API.md`](API.md)
@@ -381,7 +381,7 @@ needed; if none exists, the picker links to the larger Integrations setup flow.
 With JavaScript disabled, the same control opens an equivalent full page.
 Automatic events are available for bookmark, new feed entries, and summary
 ready. Signed webhooks include payload/event version headers and an
-`X-RustSS-Signature: sha256=…` over the exact request body. Failed destinations
+`X-Rusty-Feed-Signature: sha256=…` over the exact request body. Failed destinations
 retry durably and then become visible dead letters without affecting reading.
 Discord, Slack, Telegram, Ntfy, and signed webhooks have native payload shapes;
 other catalog entries should be treated as generic compatible endpoints until

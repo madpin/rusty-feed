@@ -1,6 +1,6 @@
-// RustSS caches only versioned public shell assets. Authenticated pages,
+// Rusty Feed caches only versioned public shell assets. Authenticated pages,
 // articles, API responses, and publisher content always stay network-only.
-var CACHE_NAME = "rustss-static-v1";
+var CACHE_NAME = "rusty-feed-static-v1";
 var STATIC_ASSETS = [
   "/static/app.css",
   "/static/app.js",
@@ -14,7 +14,7 @@ self.addEventListener("install", function (event) {
     caches.open(CACHE_NAME).then(function (cache) {
       return Promise.all(STATIC_ASSETS.map(function (path) {
         return fetch(path, { credentials: "omit", cache: "reload" }).then(function (response) {
-          if (!response.ok) throw new Error("Could not cache public RustSS asset");
+          if (!response.ok) throw new Error("Could not cache public Rusty Feed asset");
           return cache.put(path, response);
         });
       }));
@@ -28,7 +28,7 @@ self.addEventListener("activate", function (event) {
   event.waitUntil(
     caches.keys().then(function (keys) {
       return Promise.all(keys.filter(function (key) {
-        return key.indexOf("rustss-static-") === 0 && key !== CACHE_NAME;
+        return key.indexOf("rusty-feed-static-") === 0 && key !== CACHE_NAME;
       }).map(function (key) {
         return caches.delete(key);
       }));

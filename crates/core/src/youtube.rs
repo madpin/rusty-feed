@@ -94,7 +94,7 @@ impl Default for YouTubePolicy {
 }
 
 impl YouTubePolicy {
-    /// Build a bounded host policy. An empty host list uses RustSS's safe defaults.
+    /// Build a bounded host policy. An empty host list uses Rusty Feed's safe defaults.
     pub fn try_new(enabled: bool, source_hosts: &str) -> Result<Self, String> {
         Self::try_new_with_alternative(enabled, source_hosts, "", "")
     }

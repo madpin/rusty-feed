@@ -1,4 +1,4 @@
--- RustSS initial schema.
+-- Rusty Feed initial schema.
 --
 -- Design invariant: content is shared, state is personal (docs/ARCHITECTURE.md
 -- §6, §7). Shared tables (feeds, articles, article_embeddings, ...) hold one row

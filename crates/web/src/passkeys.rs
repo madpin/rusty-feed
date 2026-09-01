@@ -13,7 +13,7 @@ use webauthn_rs::prelude::{
     RegisterPublicKeyCredential,
 };
 
-use rustss_db::{passkeys, users, User};
+use rusty_feed_db::{passkeys, users, User};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -98,7 +98,8 @@ async fn has_recent_session(
     else {
         return Ok(false);
     };
-    let Some(current) = rustss_db::sessions::find_valid(state.db.pool(), &token::hash(raw)).await?
+    let Some(current) =
+        rusty_feed_db::sessions::find_valid(state.db.pool(), &token::hash(raw)).await?
     else {
         return Ok(false);
     };

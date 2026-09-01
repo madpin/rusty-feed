@@ -6,7 +6,7 @@ use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
-use rustss_core::crypto::Cryptor;
+use rusty_feed_core::crypto::Cryptor;
 use serde::Deserialize;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -51,9 +51,9 @@ pub async fn send_verification_email(state: &AppState, user_id: Uuid, email: &st
         return;
     };
     let link = verification_link(&state.settings.base_url, &token);
-    let subject = "Verify your RustSS email address";
+    let subject = "Verify your Rusty Feed email address";
     let body = format!(
-        "Welcome to RustSS!\n\nPlease confirm this email address by opening the link below \
+        "Welcome to Rusty Feed!\n\nPlease confirm this email address by opening the link below \
          (valid for 48 hours):\n\n{link}\n\nIf you did not create this account, you can ignore \
          this message."
     );
@@ -64,7 +64,7 @@ pub async fn send_verification_email(state: &AppState, user_id: Uuid, email: &st
 
 /// Whether `user` must verify their email before privileged actions. Only local
 /// (password) accounts are gated; provider-authenticated accounts are trusted.
-pub fn needs_verification(state: &AppState, user: &rustss_db::User) -> bool {
+pub fn needs_verification(state: &AppState, user: &rusty_feed_db::User) -> bool {
     state.settings.email_verification_required
         && user.email_verified_at.is_none()
         && user.password_hash.is_some()
@@ -72,7 +72,7 @@ pub fn needs_verification(state: &AppState, user: &rustss_db::User) -> bool {
 
 /// Reject an action that must not be available to sandboxed demo accounts:
 /// anything that spends money or has outbound/persistent side effects (§7.4).
-pub fn deny_demo(user: &rustss_db::User) -> Result<(), AppError> {
+pub fn deny_demo(user: &rusty_feed_db::User) -> Result<(), AppError> {
     if user.is_demo {
         return Err(AppError::Validation(
             "This action is disabled in the demo. Create a free account to use it.".to_string(),
@@ -82,7 +82,7 @@ pub fn deny_demo(user: &rustss_db::User) -> Result<(), AppError> {
 }
 
 /// Reject a privileged action for an unverified local account (FND-191).
-pub fn require_verified(state: &AppState, user: &rustss_db::User) -> Result<(), AppError> {
+pub fn require_verified(state: &AppState, user: &rusty_feed_db::User) -> Result<(), AppError> {
     if needs_verification(state, user) {
         return Err(AppError::Validation(
             "Please verify your email address first. Check your inbox, or resend the link from Settings."
@@ -106,7 +106,7 @@ pub async fn verify(
     let Some(user_id) = parse_token(&state.email_verification_tokens, query.token.trim()) else {
         return Ok(Redirect::to("/login?verify=invalid").into_response());
     };
-    rustss_db::users::mark_email_verified(state.db.pool(), user_id).await?;
+    rusty_feed_db::users::mark_email_verified(state.db.pool(), user_id).await?;
     Ok(Redirect::to("/login?verify=ok").into_response())
 }
 

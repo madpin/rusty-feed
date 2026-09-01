@@ -1,4 +1,4 @@
-# RustSS — Public Launch Plan (Open Registration)
+# Rusty Feed — Public Launch Plan (Open Registration)
 
 **Status:** Implemented — all phases P1–P8 shipped (see `docs/FINDINGS.md` FND-187…197).
 Minimum-viable launch (P1–P4) plus the recommended phases (P5–P8) are complete: AI
@@ -17,7 +17,7 @@ after setting the public-tier config in `docs/CONFIGURATION.md`.
 
 ## 0. Why this document exists
 
-RustSS v1 is a complete, release-candidate **self-hosted** reader. Its own PRD lists a
+Rusty Feed v1 is a complete, release-candidate **self-hosted** reader. Its own PRD lists a
 *"public multi-tenant SaaS with billing/quotas"* as an explicit **non-goal** (`docs/PRD.md` §2.2),
 and the whole design assumes **1–500 trusted users** on one node (`docs/PRD.md` §7.2).
 
@@ -33,7 +33,7 @@ This document also specifies the features you asked for:
 3. A **demo mode** (shared guest sandbox) that **resets every 24h**, incl. a **read-only admin** view — §7
 4. **Per-user LLM summaries with your own API key**, surfaced in preferences (already built — needs surfacing + a cost policy) — §8.1
 5. A **marketing landing page** ("what we do") with **screenshots** and highlighted features — §8.2
-6. A **RustSS vs Miniflux** comparison on the landing page — §8.3
+6. A **Rusty Feed vs Miniflux** comparison on the landing page — §8.3
 7. A **first-run setup wizard** so new users pick layout (side-by-side/…), theme & colors, and typography, **with a real-time preview** (screenshot fallback) — §8.4
 
 ### Decisions locked for this plan (your input)
@@ -225,7 +225,7 @@ CREATE TABLE feed_blocklist (
 -- Plus an audit table mirroring acquisition_profile_audit (0040).
 -- Add to feeds: blocked_at TIMESTAMPTZ, blocked_reason TEXT (dedicated, not overloading health_status='disabled').
 ```
-Ship the default list as `source='default'` INSERTs (idempotent `ON CONFLICT DO NOTHING`), updatable by future migrations or a `rustss-cli update-blocklist` command.
+Ship the default list as `source='default'` INSERTs (idempotent `ON CONFLICT DO NOTHING`), updatable by future migrations or a `rusty-feed-cli update-blocklist` command.
 
 ### 5.2 Matching logic (in `crates/core`)
 A pure `Blocklist` value compiled from rows with `is_blocked(normalized_url) -> Option<Reason>`: exact-URL set + domain suffix match (`host == d || host.ends_with(&format!(".{d}"))`, case-insensitive). Unit-testable; cached (moka) with invalidation on edit.
@@ -280,7 +280,7 @@ Dedup is exact `SHA-256(trim(content))` only (`crates/core/src/hash.rs:11`). Cro
 
 ## 7. Feature: Demo mode (shared guest sandbox, 24h reset)
 
-**Goal (your choice):** real accounts persist; additionally, visitors can try RustSS as **ephemeral demo users** on the *same* instance, and **all demo data is wiped and reseeded every 24h**. The reset must be surgically scoped so it can **never** touch real users or shared seed content.
+**Goal (your choice):** real accounts persist; additionally, visitors can try Rusty Feed as **ephemeral demo users** on the *same* instance, and **all demo data is wiped and reseeded every 24h**. The reset must be surgically scoped so it can **never** touch real users or shared seed content.
 
 ### 7.1 Model
 - Add `users.is_demo BOOLEAN NOT NULL DEFAULT false` (migration `0044`).
@@ -300,7 +300,7 @@ Dedup is exact `SHA-256(trim(content))` only (`crates/core/src/hash.rs:11`). Cro
 ### 7.3 Safety (this is a destructive job on a live multi-user DB)
 - Scope **strictly** by `is_demo = true`. Add an integration test that creates a real user + a demo user, runs the reset, and asserts the real user and their data **survive**.
 - Gate the whole feature behind `DEMO_MODE=true` (default false); when false, `DemoResetAgent` is a no-op and "Try the demo" is hidden.
-- Provide `rustss-cli demo-reset --confirm` (mirror the destructive `reindex --confirm` guard in `bins/cli/src/main.rs`) for manual runs — with the same `is_demo` scoping.
+- Provide `rusty-feed-cli demo-reset --confirm` (mirror the destructive `reindex --confirm` guard in `bins/cli/src/main.rs`) for manual runs — with the same `is_demo` scoping.
 - Never grant a demo user the full `admin` role or let one reach an admin **mutation**. The only admin surface a demo user may reach is the **read-only admin view** (§7.6), which is 403 on every write.
 
 ### 7.4 Demo guardrails (protect wallet, shared tables, and other users)
@@ -370,13 +370,13 @@ A public, open-registration site has to **sell itself in the first ten seconds**
 
 **DoD:** anonymous `/` renders a real landing page (hero, features, optimized screenshots, both CTAs); passes strict-CSP + the six-viewport matrix; first paint acceptable; the OG image renders in a link preview.
 
-### 8.3 "RustSS vs Miniflux" comparison on the landing page
+### 8.3 "Rusty Feed vs Miniflux" comparison on the landing page
 
 Miniflux is the reference point for self-hosted readers and your parity target (`docs/MINIFLUX_PARITY.md`, currently 65/67). A comparison converts visitors who already know Miniflux — **but it must be honest** (overclaiming erodes trust and invites rebuttals). Source it from the parity tracker and keep it dated.
 
 **Suggested framing — *"Everything you expect from Miniflux, plus it understands what you read"*:**
 
-| | RustSS | Miniflux |
+| | Rusty Feed | Miniflux |
 |---|:---:|:---:|
 | Feeds / OPML / categories, keyboard-driven reading | ✅ | ✅ |
 | GReader **&** Fever client APIs (Reeder, NetNewsWire, …) | ✅ | ✅ |
@@ -390,10 +390,10 @@ Miniflux is the reference point for self-hosted readers and your parity target (
 | Maturity, install base, minimal footprint | Newer; heavier (Postgres+pgvector, Redis, optional Chromium, embeddings) | ✅ Very mature, tiny footprint |
 | Language | Rust | Go |
 
-- **Be fair about trade-offs.** Miniflux is more mature, lighter, and simpler to run; RustSS adds AI/semantic capabilities at a higher resource floor. Saying so builds credibility.
+- **Be fair about trade-offs.** Miniflux is more mature, lighter, and simpler to run; Rusty Feed adds AI/semantic capabilities at a higher resource floor. Saying so builds credibility.
 - **Keep it accurate & dated.** Verify each Miniflux cell against current Miniflux docs before publishing (features change), label it *"compared as of &lt;date&gt;"*, and regenerate from `docs/MINIFLUX_PARITY.md`. Keep it a neutral factual comparison (no implied endorsement / trademark misuse).
 
-**DoD:** landing page shows a dated, sourced comparison; every RustSS ✅ maps to a shipped feature; the Miniflux column is verified against current docs; trade-offs are stated, not hidden.
+**DoD:** landing page shows a dated, sourced comparison; every Rusty Feed ✅ maps to a shipped feature; the Miniflux column is verified against current docs; trade-offs are stated, not hidden.
 
 ### 8.4 First-run setup wizard (choose layout, theme & typography — with live preview)
 
@@ -408,7 +408,7 @@ New users currently land straight in the reader with defaults (`register_submit`
 4. **(Optional) Topics & AI** — pick starter catalog categories (defaults already auto-subscribe to the featured set via `users::create_with_default_feeds`) and an optional bring-your-own-key AI nudge (§8.1).
 5. **Finish** — persist via the existing preferences path (`prefs::save` / a dedicated wizard submit) and set `onboarded_at`; land in the reader.
 
-**Real-time preview — and why it's CSP-safe (the important bit).** RustSS already applies every one of these settings through **data-attributes + classes on `<html>` that key static CSS**: `data-theme`, `data-font-family`, `data-density`, `data-reader-size`, `data-reader-leading`, the article list's `data-reading-mode`, and `sidebar-width-N`/`reader-panel-width-N` (`crates/web/templates/app_base.html:2`; `crates/web/static/app.css` `:root[data-theme="…"]`). So a **live preview needs no inline styles**: the embedded same-origin `app.js` (delegated listeners) just swaps those attributes on a mock reader pane as the user clicks, and the colors/typography/layout update instantly — fully compatible with the strict no-inline CSP (FND-161). This is the clean way to deliver the "real-time color change" you asked for without weakening the CSP.
+**Real-time preview — and why it's CSP-safe (the important bit).** Rusty Feed already applies every one of these settings through **data-attributes + classes on `<html>` that key static CSS**: `data-theme`, `data-font-family`, `data-density`, `data-reader-size`, `data-reader-leading`, the article list's `data-reading-mode`, and `sidebar-width-N`/`reader-panel-width-N` (`crates/web/templates/app_base.html:2`; `crates/web/static/app.css` `:root[data-theme="…"]`). So a **live preview needs no inline styles**: the embedded same-origin `app.js` (delegated listeners) just swaps those attributes on a mock reader pane as the user clicks, and the colors/typography/layout update instantly — fully compatible with the strict no-inline CSP (FND-161). This is the clean way to deliver the "real-time color change" you asked for without weakening the CSP.
 
 **No-JS / screenshot fallback (your "or screenshots" option).** Without JavaScript, each step is a plain form with radio options plus a small **representative screenshot/swatch per theme and per layout** (optimized assets reusing the `docs/screenshots/` pipeline, §8.2) so the choice stays visual. This also serves reduced-motion and keyboard users.
 

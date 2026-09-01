@@ -1,4 +1,4 @@
-use rustss_db::{
+use rusty_feed_db::{
     acquisition_profiles, articles, feeds, integrations, models::NewArticle, passkeys,
     rewrite_rules, ui_customizations, users, youtube_metadata, Db,
 };
@@ -105,7 +105,7 @@ async fn integration_profiles_encrypt_outside_repository_and_history_is_personal
         user.id,
         "Research archive",
         "webhook",
-        "https://hooks.example.test/rustss",
+        "https://hooks.example.test/rusty-feed",
         Some("ciphertext-not-plaintext"),
         "hmac",
         "{{title}} {{url}}",

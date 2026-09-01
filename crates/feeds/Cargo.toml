@@ -1,16 +1,16 @@
 [package]
-name = "rustss-feeds"
+name = "rusty-feed-feeds"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RustSS feeds: SafeFetchClient, feed-rs parsing, and ingest dedup."
+description = "Rusty Feed feeds: SafeFetchClient, feed-rs parsing, and ingest dedup."
 
 [dependencies]
-rustss-core = { workspace = true }
-rustss-db = { workspace = true }
+rusty-feed-core = { workspace = true }
+rusty-feed-db = { workspace = true }
 reqwest = { workspace = true }
 feed-rs = { workspace = true }
 scraper = { workspace = true }

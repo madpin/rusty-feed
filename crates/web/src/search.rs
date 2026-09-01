@@ -4,9 +4,9 @@ use askama::Template;
 use axum::extract::{Query, State};
 use axum::response::{Html, IntoResponse, Response};
 use axum_extra::extract::cookie::CookieJar;
-use rustss_core::ai_budget::AiBudget;
-use rustss_core::config::{SearchMode, SearchTextConfig};
-use rustss_db::{cost_ledger, embeddings, search as article_search};
+use rusty_feed_core::ai_budget::AiBudget;
+use rusty_feed_core::config::{SearchMode, SearchTextConfig};
+use rusty_feed_db::{cost_ledger, embeddings, search as article_search};
 use serde::Deserialize;
 use uuid::Uuid;
 

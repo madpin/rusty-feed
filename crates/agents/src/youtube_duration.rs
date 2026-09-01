@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use rustss_db::youtube_metadata;
+use rusty_feed_db::youtube_metadata;
 
 use crate::{Agent, AgentContext};
 
@@ -36,7 +36,7 @@ impl Agent for YouTubeDurationAgent {
         if !ctx.youtube_duration_enabled {
             return Ok(json!({"skipped": "duration enrichment disabled"}));
         }
-        if !rustss_core::youtube::valid_video_id(&video_id) {
+        if !rusty_feed_core::youtube::valid_video_id(&video_id) {
             anyhow::bail!("invalid YouTube video identifier");
         }
         if youtube_metadata::attempts_today(ctx.db.pool()).await?
@@ -55,7 +55,7 @@ impl Agent for YouTubeDurationAgent {
         };
         // Charset-correct decode (§6.1); YouTube is UTF-8 but honor any declared
         // charset rather than lossily assuming it.
-        let page = rustss_core::charset::decode_html_bytes(&body, None);
+        let page = rusty_feed_core::charset::decode_html_bytes(&body, None);
         let duration = duration_from_page(&page);
         let Some(duration) = duration else {
             youtube_metadata::mark_failed(ctx.db.pool(), &video_id, "duration unavailable").await?;

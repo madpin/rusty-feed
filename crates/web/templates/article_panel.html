@@ -18,7 +18,7 @@
     {% if let Some(image_url) = image_url %}<img class="article-hero" src="{{ image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" />{% endif %}
     <div class="reader-notices">
       {% if let Some(note) = content_notice %}<p class="content-notice">{{ note }}</p>{% endif %}
-      {% if let Some(count) = blocked_tracking_pixels %}<p class="content-notice privacy-notice">Tracking images removed by RustSS: {{ count }}.</p>{% endif %}
+      {% if let Some(count) = blocked_tracking_pixels %}<p class="content-notice privacy-notice">Tracking images removed by Rusty Feed: {{ count }}.</p>{% endif %}
     </div>
     <div class="reader-toolbar">
       <div class="reader-actions" aria-label="Article actions">
@@ -38,13 +38,13 @@
       <input type="hidden" name="next" value="/articles/{{ id }}" />
       <button type="submit">{% if is_read %}{{ ui.text("mark_unread") }}{% else %}{{ ui.text("mark_read") }}{% endif %}</button>
     </form>
-    <form method="post" class="js-action" data-target="#card-{{ id }}" data-feedback-value="up" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" action="/articles/{{ id }}/feedback" data-success-message="RustSS will show you more articles like this.">
+    <form method="post" class="js-action" data-target="#card-{{ id }}" data-feedback-value="up" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" action="/articles/{{ id }}/feedback" data-success-message="Rusty Feed will show you more articles like this.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="up" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
       <button type="submit" class="feedback-button" data-feedback-button="up" aria-label="More like this" title="More like this" aria-pressed="{% if is_liked %}true{% else %}false{% endif %}">👍</button>
     </form>
-    <form method="post" class="js-action" data-target="#card-{{ id }}" data-feedback-value="down" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" action="/articles/{{ id }}/feedback" data-success-message="RustSS will show you fewer articles like this.">
+    <form method="post" class="js-action" data-target="#card-{{ id }}" data-feedback-value="down" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" action="/articles/{{ id }}/feedback" data-success-message="Rusty Feed will show you fewer articles like this.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="down" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
@@ -90,7 +90,7 @@
     <div class="live-view-toolbar">
       <div>
         <strong>Live publisher view</strong>
-        <p id="live-view-note-{{ id }}">Fetched through RustSS so publisher frame restrictions do not block the page. Scripts run without RustSS cookies in an isolated sandbox.</p>
+        <p id="live-view-note-{{ id }}">Fetched through Rusty Feed so publisher frame restrictions do not block the page. Scripts run without Rusty Feed cookies in an isolated sandbox.</p>
       </div>
       <div class="live-view-actions">
         <a href="{{ url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ url_label }}</a>

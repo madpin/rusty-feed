@@ -14,20 +14,20 @@ use serde::Deserialize;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rustss_core::content_rules::{
+use rusty_feed_core::content_rules::{
     apply_rewrite_rules, entry_filters_from_json, entry_is_visible, validate_entry_filters,
     validate_rewrite_rules, EntryFilter, RewriteRule,
 };
-use rustss_core::feed_content::{
+use rusty_feed_core::feed_content::{
     ContentLifetime, FeedContentMode, FeedContentSettings, SubscriptionContentSettings,
     SubscriptionEnclosureDelivery, SubscriptionEnclosureLoad, SubscriptionEnclosureSettings,
 };
-use rustss_core::youtube::SubscriptionYouTubeMode;
-use rustss_db::{
+use rusty_feed_core::youtube::SubscriptionYouTubeMode;
+use rusty_feed_db::{
     articles, catalog, categories, feed_icons, feeds, jobs, rewrite_rules, subscriptions, DbError,
     Feed,
 };
-use rustss_feeds::{discover_feed_urls, enqueue_fetch_feed, normalize_url, DiscoveredFeed};
+use rusty_feed_feeds::{discover_feed_urls, enqueue_fetch_feed, normalize_url, DiscoveredFeed};
 
 use crate::auth::csrf;
 use crate::auth::extractor::AuthUser;
@@ -792,7 +792,9 @@ pub async fn bookmarklet_subscribe(
                 })
                 .collect(),
                 Err(fetch_error) => {
-                    error = Some(format!("RustSS could not inspect that page: {fetch_error}"));
+                    error = Some(format!(
+                        "Rusty Feed could not inspect that page: {fetch_error}"
+                    ));
                     Vec::new()
                 }
             },
@@ -846,7 +848,7 @@ pub async fn add(
     crate::quota::assert_within(
         &state,
         user.id,
-        rustss_core::quotas::QuotaKind::Subscriptions,
+        rusty_feed_core::quotas::QuotaKind::Subscriptions,
     )
     .await?;
     let is_admin = user.role == "admin";
@@ -931,8 +933,12 @@ pub async fn create_category(
     if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
-    crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::Categories)
-        .await?;
+    crate::quota::assert_within(
+        &state,
+        user.id,
+        rusty_feed_core::quotas::QuotaKind::Categories,
+    )
+    .await?;
     let name = form.name.trim();
     if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
         return render_page(
@@ -977,7 +983,7 @@ pub async fn create_category(
             )
             .await
         }
-        Err(rustss_db::DbError::NotFound) => {
+        Err(rusty_feed_db::DbError::NotFound) => {
             render_page(
                 &state,
                 user.id,
@@ -1035,9 +1041,11 @@ pub async fn update_organization(
             )
             .await
         }
-        Err(rustss_db::DbError::NotFound) => Err(AppError::NotFound),
-        Err(rustss_db::DbError::Validation(error)) if is_ajax => Err(AppError::Validation(error)),
-        Err(rustss_db::DbError::Validation(error)) => {
+        Err(rusty_feed_db::DbError::NotFound) => Err(AppError::NotFound),
+        Err(rusty_feed_db::DbError::Validation(error)) if is_ajax => {
+            Err(AppError::Validation(error))
+        }
+        Err(rusty_feed_db::DbError::Validation(error)) => {
             render_page(
                 &state,
                 user.id,
