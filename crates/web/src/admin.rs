@@ -108,21 +108,43 @@ struct WorkerRow {
 
 struct DashboardStats {
     users: i64,
+    subscriptions: i64,
     feeds: i64,
     articles: i64,
     catalog_entries: i64,
-    pending_jobs: i64,
+    feeds_healthy: i64,
+    feeds_warning: i64,
+    feeds_error: i64,
+    feeds_disabled: i64,
+    feeds_healthy_pct: u32,
+    feeds_warning_pct: u32,
+    feeds_error_pct: u32,
+    feeds_disabled_pct: u32,
+    pending_due: i64,
+    pending_scheduled: i64,
     running_jobs: i64,
+    finished_last_hour: i64,
     stalled_jobs: i64,
     dead_jobs: i64,
     workers_online: usize,
     worker_capacity: i64,
+    queue_health: String,
+    queue_health_tone: String,
     active_public_shares: i64,
+    ai_spend_30d: String,
     database_size: String,
     article_storage: String,
     embedding_storage: String,
     media_storage: String,
+    storage_other: String,
     process_memory: String,
+    storage_has_data: bool,
+    storage_articles_pct: u32,
+    storage_embeddings_pct: u32,
+    storage_media_pct: u32,
+    storage_other_pct: u32,
+    avg_article_size: String,
+    media_cache_note: String,
 }
 
 struct PublicShareEventRow {
@@ -249,8 +271,8 @@ struct DashboardTemplate {
     reverse_proxy_admin_mappings: usize,
     reverse_proxy_logout_configured: bool,
     media_proxy_enabled: bool,
-    media_proxy_max_bytes: usize,
-    media_proxy_cache_budget_bytes: usize,
+    media_proxy_max_bytes: String,
+    media_proxy_cache_budget_bytes: String,
     media_proxy_cache_ttl_hours: u64,
     media_proxy_extra_mime_types: usize,
     tracking_url_cleanup_enabled: bool,
@@ -440,6 +462,47 @@ pub struct CatalogUpdateForm {
 
 fn micro_to_usd(micro: i64) -> String {
     format!("${:.4}", micro as f64 / 1_000_000.0)
+}
+
+/// Percentage of `part` within `total`, rounded to the nearest 5 so it maps onto
+/// the fixed set of width utility classes used by the feed-health bar (keeps the
+/// bar CSP-safe: no inline styles). Capped at 100.
+fn health_pct(part: i64, total: i64) -> u32 {
+    if total <= 0 {
+        return 0;
+    }
+    let ratio = (part as f64 / total as f64) * 100.0;
+    ((ratio / 5.0).round() as u32 * 5).min(100)
+}
+
+/// A short, tone-tagged health label for the background queue, derived from the
+/// counters already fetched for the overview (no extra query).
+fn queue_health(
+    pending_due: i64,
+    running: i64,
+    stalled: i64,
+    dead: i64,
+    workers: usize,
+) -> &'static str {
+    if dead > 0 {
+        "Dead-letter jobs need review"
+    } else if stalled > 0 {
+        "Stalled jobs being reclaimed"
+    } else if pending_due > 0 && workers == 0 {
+        "Work waiting — no workers online"
+    } else if pending_due > 0 || running > 0 {
+        "Processing work"
+    } else {
+        "Idle — queue clear"
+    }
+}
+
+fn queue_health_tone(stalled: i64, dead: i64, pending_due: i64, workers: usize) -> &'static str {
+    if dead > 0 || stalled > 0 || (pending_due > 0 && workers == 0) {
+        "warn"
+    } else {
+        "ok"
+    }
 }
 
 /// Best-effort resident set size of the current process, in bytes. Reads
@@ -814,7 +877,7 @@ pub async fn dashboard(
 ) -> Result<Response, AppError> {
     let (
         user_count,
-        feed_count,
+        feed_summary,
         article_count,
         catalog_entries,
         queue,
@@ -823,9 +886,10 @@ pub async fn dashboard(
         public_share_events,
         api_audit_events,
         storage,
+        ai_spend_micro,
     ) = tokio::try_join!(
         users::count(state.db.pool()),
-        feeds::count(state.db.pool()),
+        feeds::admin_summary(state.db.pool()),
         articles::count(state.db.pool()),
         catalog::count(state.db.pool()),
         jobs::queue_totals(state.db.pool()),
@@ -834,11 +898,38 @@ pub async fn dashboard(
         public_shares::recent_events(state.db.pool(), 20),
         api_audit::recent(state.db.pool(), 20),
         operations::storage_stats(state.db.pool()),
+        cost_ledger::instance_spend_micro_usd_since(
+            state.db.pool(),
+            time::OffsetDateTime::now_utc() - time::Duration::days(30),
+        ),
     )?;
     let worker_capacity = workers
         .iter()
         .map(|worker| i64::from(worker.concurrency))
         .sum();
+    // Break the on-disk database size down into its biggest tables so an admin
+    // can see *what* is consuming storage, not just the grand total.
+    let other_bytes = (storage.database_bytes
+        - storage.articles_bytes
+        - storage.embeddings_bytes
+        - storage.media_cache_bytes)
+        .max(0);
+    let avg_article_size = if article_count > 0 {
+        format!(
+            "~{}/article",
+            bytes_label(storage.articles_bytes / article_count)
+        )
+    } else {
+        "no articles yet".to_string()
+    };
+    let cache_budget = state.settings.media_proxy_cache_budget_bytes as i64;
+    let media_cache_note = if cache_budget > 0 {
+        let used =
+            (i128::from(storage.media_cache_bytes) * 100 / i128::from(cache_budget)).min(100);
+        format!("{used}% of {} budget", bytes_label(cache_budget))
+    } else {
+        "no budget cap".to_string()
+    };
     let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     Ok((
@@ -877,8 +968,10 @@ pub async fn dashboard(
             reverse_proxy_admin_mappings: state.settings.reverse_proxy_auth.admin_emails.len(),
             reverse_proxy_logout_configured: state.settings.reverse_proxy_auth.logout_url.is_some(),
             media_proxy_enabled: state.settings.media_proxy_enabled,
-            media_proxy_max_bytes: state.settings.media_proxy_max_bytes,
-            media_proxy_cache_budget_bytes: state.settings.media_proxy_cache_budget_bytes,
+            media_proxy_max_bytes: bytes_label(state.settings.media_proxy_max_bytes as i64),
+            media_proxy_cache_budget_bytes: bytes_label(
+                state.settings.media_proxy_cache_budget_bytes as i64,
+            ),
             media_proxy_cache_ttl_hours: state.settings.media_proxy_cache_ttl.as_secs() / 3_600,
             media_proxy_extra_mime_types: state.settings.media_proxy_extra_inline_mime_types.len(),
             tracking_url_cleanup_enabled: state.settings.tracking_url_policy.enabled(),
@@ -931,23 +1024,61 @@ pub async fn dashboard(
                 .collect(),
             stats: DashboardStats {
                 users: user_count,
-                feeds: feed_count,
+                subscriptions: feed_summary.subscribers,
+                feeds: feed_summary.total,
                 articles: article_count,
                 catalog_entries,
-                pending_jobs: queue.pending_due + queue.pending_scheduled,
+                feeds_healthy: feed_summary.healthy,
+                feeds_warning: feed_summary.warning,
+                feeds_error: feed_summary.error,
+                feeds_disabled: feed_summary.disabled,
+                feeds_healthy_pct: health_pct(feed_summary.healthy, feed_summary.total),
+                feeds_warning_pct: health_pct(feed_summary.warning, feed_summary.total),
+                feeds_error_pct: health_pct(feed_summary.error, feed_summary.total),
+                feeds_disabled_pct: health_pct(feed_summary.disabled, feed_summary.total),
+                pending_due: queue.pending_due,
+                pending_scheduled: queue.pending_scheduled,
                 running_jobs: queue.running,
+                finished_last_hour: queue.finished_last_hour,
                 stalled_jobs: queue.stalled,
                 dead_jobs: queue.dead,
                 workers_online: workers.len(),
                 worker_capacity,
+                queue_health: queue_health(
+                    queue.pending_due,
+                    queue.running,
+                    queue.stalled,
+                    queue.dead,
+                    workers.len(),
+                )
+                .to_string(),
+                queue_health_tone: queue_health_tone(
+                    queue.stalled,
+                    queue.dead,
+                    queue.pending_due,
+                    workers.len(),
+                )
+                .to_string(),
                 active_public_shares,
+                ai_spend_30d: micro_to_usd(ai_spend_micro),
                 database_size: bytes_label(storage.database_bytes),
                 article_storage: bytes_label(storage.articles_bytes),
                 embedding_storage: bytes_label(storage.embeddings_bytes),
                 media_storage: bytes_label(storage.media_cache_bytes),
+                storage_other: bytes_label(other_bytes),
                 process_memory: process_rss_bytes()
                     .map(bytes_label)
                     .unwrap_or_else(|| "Unavailable on this platform".to_string()),
+                storage_has_data: storage.database_bytes > 0,
+                storage_articles_pct: health_pct(storage.articles_bytes, storage.database_bytes),
+                storage_embeddings_pct: health_pct(
+                    storage.embeddings_bytes,
+                    storage.database_bytes,
+                ),
+                storage_media_pct: health_pct(storage.media_cache_bytes, storage.database_bytes),
+                storage_other_pct: health_pct(other_bytes, storage.database_bytes),
+                avg_article_size,
+                media_cache_note,
             },
         })?,
     )
@@ -1638,4 +1769,35 @@ pub async fn activity(
         })?,
     )
         .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_pct_rounds_to_nearest_five_and_caps() {
+        assert_eq!(health_pct(0, 0), 0); // no feeds → empty bar, no divide-by-zero
+        assert_eq!(health_pct(5, 0), 0);
+        assert_eq!(health_pct(10, 10), 100);
+        assert_eq!(health_pct(1, 8), 15); // 12.5% → nearest 5
+        assert_eq!(health_pct(1, 3), 35); // 33.3% → nearest 5
+        assert_eq!(health_pct(7, 7), 100);
+    }
+
+    #[test]
+    fn queue_health_prioritizes_the_most_serious_signal() {
+        // dead-letter dominates everything else.
+        assert_eq!(queue_health_tone(2, 3, 5, 4), "warn");
+        assert!(queue_health(5, 1, 2, 3, 4).contains("Dead-letter"));
+        // stalled without dead.
+        assert!(queue_health(0, 0, 4, 0, 2).contains("Stalled"));
+        // work waiting but no workers online.
+        assert_eq!(queue_health_tone(0, 0, 6, 0), "warn");
+        assert!(queue_health(6, 0, 0, 0, 0).contains("no workers"));
+        // healthy: processing or idle.
+        assert_eq!(queue_health_tone(0, 0, 3, 2), "ok");
+        assert_eq!(queue_health(0, 1, 0, 0, 2), "Processing work");
+        assert_eq!(queue_health(0, 0, 0, 0, 2), "Idle — queue clear");
+    }
 }

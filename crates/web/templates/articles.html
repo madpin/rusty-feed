@@ -35,6 +35,12 @@
     </details>
 
     {% if filtered_count > 0 %}<p class="notice" role="status">{{ filtered_count }} article(s) in this window were hidden by your subscription filters.</p>{% endif %}
+    {% if show_ai_key_cue && !articles.is_empty() %}
+    <aside class="notice ai-cue-notice" data-ai-cue role="note">
+      <span>Want AI summaries? <a href="/settings/ai">Add your own OpenAI key</a> — it's encrypted and used only for your summaries.</span>
+      <button type="button" class="button-quiet" data-ai-cue-dismiss aria-label="Dismiss this notice">Dismiss</button>
+    </aside>
+    {% endif %}
 
     {% if articles.is_empty() %}
     <div class="empty-state">
@@ -102,6 +108,24 @@
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if a.is_disliked %}true{% else %}false{% endif %}">👎</button>
           </form>
+          <details class="report-control card-report">
+            <summary class="card-report-icon" aria-label="Report this article" title="Report this article">⚑</summary>
+            <div class="report-control-body">
+              <p class="report-control-heading">Report this article</p>
+              <form method="post" action="/articles/{{ a.id }}/report" class="stack">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                <label>Reason
+                  <select name="reason">
+                    <option value="spam or advertising">Spam or advertising</option>
+                    <option value="malware or phishing">Malware or phishing</option>
+                    <option value="illegal content">Illegal content</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <button type="submit" class="danger">Report to admins</button>
+              </form>
+            </div>
+          </details>
         </div>
       </li>
       {% endfor %}

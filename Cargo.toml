@@ -116,6 +116,10 @@ metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
 sd-notify = "0.5"
 
+[profile.dev]
+# Keep source locations for backtraces without retaining full debug information.
+debug = "line-tables-only"
+
 [profile.release]
 # Optimize for the low-footprint, self-hosted target.
 opt-level = 3

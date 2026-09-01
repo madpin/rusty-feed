@@ -55,9 +55,9 @@ use std::time::Instant;
 
 use axum::extract::{DefaultBodyLimit, MatchedPath, Request};
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderName, HeaderValue, StatusCode};
+use axum::http::{header, HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use rust_embed::RustEmbed;
@@ -394,6 +394,10 @@ pub fn router(state: AppState) -> Router {
         ))
         .layer(middleware::from_fn(observe_request))
         .layer(TraceLayer::new_for_http())
+        // Upgrade error responses to friendly HTML for browser navigations. Runs
+        // outside `observe_request` (so metrics record the true handler status)
+        // and inside the security-headers layer (so the HTML still gets a CSP).
+        .layer(middleware::from_fn(render_browser_errors))
         .layer(middleware::map_response(move |response| {
             let content_security_policy = content_security_policy.clone();
             async move { enforce_security_headers(response, content_security_policy).await }
@@ -447,6 +451,93 @@ async fn observe_request(request: Request, next: Next) -> Response {
     .record(started.elapsed().as_secs_f64());
 
     response
+}
+
+/// Path prefixes whose responses are always machine-facing (JSON/plain text)
+/// and must never be rewritten into an HTML page, even when a browser's `Accept`
+/// header would otherwise qualify.
+fn is_machine_facing_path(path: &str) -> bool {
+    path.starts_with("/api/")
+        || path.starts_with("/reader/api/")
+        || path.starts_with("/fever/")
+        || path == "/accounts/ClientLogin"
+        || path == "/metrics"
+}
+
+/// Whether a failed request should be answered with a friendly HTML page rather
+/// than the JSON error envelope. Genuine top-level browser navigations send
+/// `Accept: text/html` and never carry our AJAX marker (`X-Requested-With`),
+/// which the front-end sets on every `fetch` call.
+fn wants_html_error_page(request: &Request) -> bool {
+    if is_machine_facing_path(request.uri().path()) {
+        return false;
+    }
+    let headers = request.headers();
+    let is_ajax = headers
+        .get("x-requested-with")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("fetch"));
+    if is_ajax {
+        return false;
+    }
+    headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("text/html"))
+}
+
+/// Build the sign-in redirect target for an unauthenticated browser navigation,
+/// preserving a safe same-origin return path for GET requests only (never a
+/// POST or a cross-origin target).
+fn login_location(is_get: bool, return_to: Option<&str>) -> String {
+    let next = return_to.filter(|path| {
+        is_get && path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/login")
+    });
+    match next {
+        Some(path) => {
+            let mut query = url::form_urlencoded::Serializer::new(String::new());
+            query.append_pair("next", path);
+            format!("/login?{}", query.finish())
+        }
+        None => "/login".to_string(),
+    }
+}
+
+/// Upgrade error responses to human-friendly pages for browser navigations.
+///
+/// The API keeps returning the canonical JSON envelope; only genuine document
+/// requests are rewritten (see [`wants_html_error_page`]). Unauthenticated
+/// navigations are redirected to the sign-in page with a same-origin return path
+/// so users land back where they started after logging in, instead of seeing a
+/// raw `{"error":"authentication required"}` body.
+async fn render_browser_errors(request: Request, next: Next) -> Response {
+    let wants_html = wants_html_error_page(&request);
+    let is_get = request.method() == Method::GET;
+    let return_to = request
+        .uri()
+        .path_and_query()
+        .map(|path_and_query| path_and_query.as_str().to_string());
+
+    let response = next.run(request).await;
+    let status = response.status();
+    if !wants_html || !(status.is_client_error() || status.is_server_error()) {
+        return response;
+    }
+
+    // Never clobber a response a handler intentionally rendered as HTML.
+    let already_html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("text/html"));
+    if already_html {
+        return response;
+    }
+
+    if status == StatusCode::UNAUTHORIZED {
+        return Redirect::to(&login_location(is_get, return_to.as_deref())).into_response();
+    }
+    error::browser_error_page(status)
 }
 
 /// Keep the reader's current URL private from every downstream navigation or
@@ -915,5 +1006,159 @@ mod tests {
             assert!(template.contains("rel=\"icon\" href=\"/static/icon.svg\""));
             assert!(template.contains("rel=\"apple-touch-icon\" href=\"/static/icon-192.png\""));
         }
+    }
+
+    #[test]
+    fn machine_facing_paths_are_never_html_ified() {
+        assert!(is_machine_facing_path("/api/v1/articles"));
+        assert!(is_machine_facing_path("/reader/api/0/user-info"));
+        assert!(is_machine_facing_path("/fever/"));
+        assert!(is_machine_facing_path("/accounts/ClientLogin"));
+        assert!(is_machine_facing_path("/metrics"));
+        assert!(!is_machine_facing_path("/articles"));
+        assert!(!is_machine_facing_path("/"));
+    }
+
+    #[test]
+    fn login_location_preserves_only_safe_get_return_paths() {
+        assert_eq!(
+            login_location(true, Some("/articles?unread=1")),
+            "/login?next=%2Farticles%3Funread%3D1"
+        );
+        // Non-GET requests never carry a return path.
+        assert_eq!(login_location(false, Some("/articles")), "/login");
+        // Protocol-relative and off-site targets are rejected (open redirects).
+        assert_eq!(login_location(true, Some("//evil.example")), "/login");
+        assert_eq!(login_location(true, Some("https://evil.example")), "/login");
+        // The login page itself is never a return target (avoids loops).
+        assert_eq!(login_location(true, Some("/login?next=%2Fx")), "/login");
+        assert_eq!(login_location(true, None), "/login");
+    }
+
+    #[tokio::test]
+    async fn browser_navigation_to_protected_page_redirects_to_login() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let app = router(test_state().await);
+        let response = app
+            .oneshot(
+                Request::get("/articles")
+                    .header(header::ACCEPT, "text/html,application/xhtml+xml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            "/login?next=%2Farticles"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_client_still_gets_json_on_auth_failure() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let app = router(test_state().await);
+        let response = app
+            .oneshot(
+                Request::get("/articles")
+                    .header(header::ACCEPT, "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["error"], "authentication required");
+    }
+
+    #[tokio::test]
+    async fn ajax_navigation_is_not_redirected() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        // The front-end tags every fetch with `X-Requested-With: fetch`; those
+        // must keep the JSON 401 so the client can fall back to a full reload.
+        let app = router(test_state().await);
+        let response = app
+            .oneshot(
+                Request::get("/articles")
+                    .header(header::ACCEPT, "text/html")
+                    .header("x-requested-with", "fetch")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn unknown_route_renders_friendly_html_for_browsers() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let app = router(test_state().await);
+        let response = app
+            .oneshot(
+                Request::get("/no-such-page")
+                    .header(header::ACCEPT, "text/html")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(response.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .contains("text/html"));
+        // Security headers still wrap the generated page.
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("Page not found"));
+        assert!(html.contains("Error 404"));
+    }
+
+    #[tokio::test]
+    async fn api_path_auth_failure_stays_json_even_for_browser_accept() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let app = router(test_state().await);
+        let response = app
+            .oneshot(
+                Request::get("/api/v1/user")
+                    .header(header::ACCEPT, "text/html")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert!(content_type.contains("application/json"));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["error"], "authentication required");
     }
 }

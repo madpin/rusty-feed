@@ -139,8 +139,16 @@
     var button = form.querySelector("button");
     var altLabel = form.getAttribute("data-alt-label");
     if (button && altLabel) {
-      form.setAttribute("data-alt-label", button.textContent.trim());
-      button.textContent = altLabel;
+      if (button.hasAttribute("data-icon-button")) {
+        // Icon buttons keep their glyph; the label lives on aria-label (which
+        // also drives the hover/focus tooltip), so swap that instead of wiping
+        // the button's contents.
+        form.setAttribute("data-alt-label", (button.getAttribute("aria-label") || "").trim());
+        button.setAttribute("aria-label", altLabel);
+      } else {
+        form.setAttribute("data-alt-label", button.textContent.trim());
+        button.textContent = altLabel;
+      }
     }
   }
 
@@ -160,7 +168,10 @@
     form.setAttribute("data-alt-action", alternative);
     form.setAttribute("data-alt-label", alternativeLabel);
     var button = form.querySelector("button");
-    if (button) button.textContent = label;
+    if (button) {
+      if (button.hasAttribute("data-icon-button")) button.setAttribute("aria-label", label);
+      else button.textContent = label;
+    }
   }
 
   function syncCardState(card, panelArticle) {
@@ -2170,4 +2181,61 @@
       if (target) target.setAttribute(attr, input.value);
     });
   });
+})();
+
+// First-run wizard interest filter (P8 §8.4): checking topic chips narrows the
+// curated feed suggestions to matching categories. CSP-safe (no inline JS).
+(function () {
+  var grid = document.querySelector("[data-wizard-suggestions]");
+  if (!grid) return;
+  var interests = Array.prototype.slice.call(
+    document.querySelectorAll("[data-wizard-interest]"),
+  );
+  if (!interests.length) return;
+  var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-wizard-feed]"));
+  var empty = grid.querySelector("[data-wizard-suggestions-empty]");
+  function apply() {
+    var selected = Object.create(null);
+    var any = false;
+    interests.forEach(function (input) {
+      if (input.checked) {
+        selected[input.value] = true;
+        any = true;
+      }
+    });
+    var visible = 0;
+    cards.forEach(function (card) {
+      var show = !any || selected[card.getAttribute("data-category")] === true;
+      card.hidden = !show;
+      if (show) visible += 1;
+    });
+    if (empty) empty.hidden = visible !== 0;
+  }
+  interests.forEach(function (input) {
+    input.addEventListener("change", apply);
+  });
+  apply();
+})();
+
+// Dismissible "bring your own AI key" nudge in the article list: hide it once the
+// reader dismisses it, remembered locally so it does not nag on every visit.
+(function () {
+  var cue = document.querySelector("[data-ai-cue]");
+  if (!cue) return;
+  var KEY = "rf-ai-cue-dismissed";
+  try {
+    if (window.localStorage && localStorage.getItem(KEY) === "1") {
+      cue.hidden = true;
+      return;
+    }
+  } catch (e) {}
+  var dismiss = cue.querySelector("[data-ai-cue-dismiss]");
+  if (dismiss) {
+    dismiss.addEventListener("click", function () {
+      cue.hidden = true;
+      try {
+        if (window.localStorage) localStorage.setItem(KEY, "1");
+      } catch (e) {}
+    });
+  }
 })();

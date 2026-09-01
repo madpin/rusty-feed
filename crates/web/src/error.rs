@@ -5,8 +5,9 @@
 //! with the right status code and no leakage of internal details
 //! (`docs/ARCHITECTURE.md` §19).
 
+use askama::Template;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 
@@ -90,6 +91,65 @@ impl IntoResponse for AppError {
     }
 }
 
+/// A human-friendly HTML error page for browser navigations.
+#[derive(Template)]
+#[template(path = "error.html")]
+struct ErrorPageTemplate {
+    status: u16,
+    title: &'static str,
+    message: &'static str,
+}
+
+/// Render a friendly HTML page for a failed browser navigation.
+///
+/// API and AJAX clients keep receiving the canonical JSON envelope from
+/// [`AppError::into_response`]. The router's `render_browser_errors` middleware
+/// calls this only for genuine document requests (those sending
+/// `Accept: text/html`), so the JSON contract stays the single source of truth
+/// and the HTML is layered on top for presentation (`docs/ARCHITECTURE.md` §19).
+pub(crate) fn browser_error_page(status: StatusCode) -> Response {
+    let (title, message): (&str, &str) = match status {
+        StatusCode::BAD_REQUEST => ("Bad request", "We couldn't process that request."),
+        StatusCode::FORBIDDEN => (
+            "Access denied",
+            "You don't have permission to view this page.",
+        ),
+        StatusCode::NOT_FOUND => (
+            "Page not found",
+            "We couldn't find the page you were looking for.",
+        ),
+        StatusCode::CONFLICT => (
+            "Conflict",
+            "That request conflicts with the current state. Please refresh and try again.",
+        ),
+        StatusCode::TOO_MANY_REQUESTS => (
+            "Slow down",
+            "You've made too many requests. Please wait a moment and try again.",
+        ),
+        status if status.is_server_error() => (
+            "Something went wrong",
+            "An unexpected error occurred on our end. Please try again shortly.",
+        ),
+        _ => (
+            "Something went wrong",
+            "The request could not be completed.",
+        ),
+    };
+    let page = ErrorPageTemplate {
+        status: status.as_u16(),
+        title,
+        message,
+    };
+    match page.render() {
+        Ok(html) => (status, Html(html)).into_response(),
+        // Fall back to the JSON envelope if the page itself fails to render.
+        Err(error) => {
+            tracing::error!(?error, "error page render failed");
+            (status, Json(json!({ "error": "internal server error" }))).into_response()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +185,33 @@ mod tests {
     fn internal_message_is_not_leaked() {
         let e = AppError::Internal(anyhow::anyhow!("secret db url in error"));
         assert_eq!(e.client_message(), "internal server error");
+    }
+
+    #[test]
+    fn browser_error_page_is_html_with_the_right_status() {
+        let response = browser_error_page(StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert!(content_type.contains("text/html"));
+    }
+
+    #[test]
+    fn browser_error_page_copy_is_friendly_and_status_specific() {
+        // Render the template directly to assert on the human-facing copy.
+        let not_found = ErrorPageTemplate {
+            status: 404,
+            title: "Page not found",
+            message: "We couldn't find the page you were looking for.",
+        }
+        .render()
+        .unwrap();
+        assert!(not_found.contains("Page not found"));
+        assert!(not_found.contains("Error 404"));
+        // No raw JSON envelope leaks into the browser page.
+        assert!(!not_found.contains("\"error\""));
     }
 }

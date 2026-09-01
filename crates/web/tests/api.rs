@@ -5,7 +5,9 @@ use tower::ServiceExt;
 
 use rusty_feed_cache::Cache;
 use rusty_feed_db::models::NewArticle;
-use rusty_feed_db::{api_tokens, articles, feeds, subscriptions, users, Db};
+use rusty_feed_db::{
+    api_tokens, articles, catalog, feeds, subscriptions, user_preferences, users, Db,
+};
 use rusty_feed_web::{router, AppSettings, AppState};
 
 async fn state() -> Option<AppState> {
@@ -302,6 +304,126 @@ async fn first_run_wizard_routes_and_persists() {
     assert!(
         refreshed.onboarded_at.is_some(),
         "finishing the wizard stamps onboarded_at"
+    );
+}
+
+#[tokio::test]
+async fn wizard_suggests_and_subscribes_curated_feeds() {
+    let Some(state) = state().await else { return };
+    // A featured, published catalog source under a unique topic, so it is always
+    // among the wizard suggestions regardless of any other seeded catalog data.
+    let category = format!("WizardTopic-{}", uuid::Uuid::now_v7());
+    let (feed, _) = feeds::upsert_by_url(
+        state.db.pool(),
+        &format!("https://wizard.example/{}/feed.xml", uuid::Uuid::now_v7()),
+        "Wizard Curated Source",
+        None,
+    )
+    .await
+    .unwrap();
+    catalog::upsert(
+        state.db.pool(),
+        feed.id,
+        catalog::CatalogDraft {
+            title: "Wizard Curated Source",
+            description: Some("A hand-picked source offered during onboarding."),
+            category: &category,
+            country: "Global",
+            language: "en",
+            featured: true,
+            sort_order: 0,
+            published: true,
+        },
+    )
+    .await
+    .unwrap();
+
+    let user = users::create(
+        state.db.pool(),
+        &format!("wizard-sub-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let cookie = session_cookie(&state, user.id).await;
+    let app = router(state.clone());
+
+    // The wizard offers our curated source and exposes its topic as an interest.
+    let welcome = app
+        .clone()
+        .oneshot(
+            Request::get("/welcome")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(welcome.status(), StatusCode::OK);
+    let csrf = set_cookies_value(&welcome, "rusty_feed_csrf").unwrap_or_else(|| "x".to_string());
+    let welcome_cookie = format!("{cookie}; rusty_feed_csrf={csrf}");
+    let page = String::from_utf8_lossy(&welcome.into_body().collect().await.unwrap().to_bytes())
+        .to_string();
+    assert!(
+        page.contains("Wizard Curated Source"),
+        "curated suggestion is offered"
+    );
+    assert!(
+        page.contains(&category),
+        "topic appears as an interest chip"
+    );
+    assert!(
+        page.contains(&format!("value=\"{}\"", feed.id)),
+        "the suggested feed is selectable"
+    );
+
+    // Finishing with a picked feed + interest subscribes and records the interest.
+    let finish = app
+        .oneshot(
+            Request::post("/welcome")
+                .header("cookie", &welcome_cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&theme=ocean&reading_mode=inline&font_family=serif&article_density=compact&interest={category}&feed_id={}",
+                    feed.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(finish.status(), StatusCode::SEE_OTHER);
+
+    assert!(
+        subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap(),
+        "wizard subscribes to the selected curated feed"
+    );
+    let refreshed = users::find_by_id(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        refreshed.onboarded_at.is_some(),
+        "wizard stamps onboarded_at"
+    );
+    let prefs = user_preferences::get(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let interests = prefs
+        .get("interests")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        interests
+            .iter()
+            .any(|value| value.as_str() == Some(category.as_str())),
+        "wizard records the selected interest"
     );
 }
 

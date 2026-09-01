@@ -5,6 +5,7 @@
 {% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
 <form method="post" action="/login">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  {% if !next.is_empty() %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
   <label>Email
     <input type="email" name="email" autocomplete="email" required />
   </label>

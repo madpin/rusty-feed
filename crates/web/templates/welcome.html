@@ -51,6 +51,39 @@
     </div>
   </div>
 
+  {% if !categories.is_empty() %}
+  <fieldset class="panel">
+    <legend>4. What are you interested in?</legend>
+    <p class="muted">Pick a few topics to narrow the suggested feeds below. Optional — you can change it anytime in Preferences.</p>
+    <div class="wizard-interests">
+      {% for category in categories %}
+      <label class="wizard-interest-chip"><input type="checkbox" name="interest" value="{{ category }}" data-wizard-interest{% if ui.has_interest(category) %} checked{% endif %}> <span>{{ category }}</span></label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endif %}
+
+  {% if !suggestions.is_empty() %}
+  <fieldset class="panel" data-wizard-suggestions>
+    <legend>{% if !categories.is_empty() %}5{% else %}4{% endif %}. Subscribe to a few feeds</legend>
+    <p class="muted">Hand-picked, trusted sources. Select any that look good — or skip and add your own later. You can browse the full <a href="/catalog">feed catalog</a> anytime.</p>
+    <div class="wizard-suggestion-grid">
+      {% for feed in suggestions %}
+      <label class="wizard-suggestion{% if feed.featured %} featured{% endif %}" data-wizard-feed data-category="{{ feed.category }}">
+        <input type="checkbox" name="feed_id" value="{{ feed.feed_id }}" />
+        <span class="feed-icon wizard-suggestion-icon" aria-hidden="true"><span class="feed-icon-fallback">{{ feed.initial }}</span>{% if feed.has_icon %}<img src="/feeds/{{ feed.feed_id }}/icon" alt="" loading="lazy" />{% endif %}</span>
+        <span class="wizard-suggestion-body">
+          <span class="wizard-suggestion-title">{{ feed.title }}{% if feed.featured %} <span class="badge">Featured</span>{% endif %}</span>
+          <span class="wizard-suggestion-category">{{ feed.category }}</span>
+          {% if let Some(description) = feed.description %}<span class="wizard-suggestion-desc">{{ description }}</span>{% endif %}
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+    <p class="muted wizard-suggestions-empty" data-wizard-suggestions-empty hidden>No suggestions match those topics — clear a topic to see more.</p>
+  </fieldset>
+  {% endif %}
+
   <div class="form-actions">
     <button type="submit" class="primary">Finish</button>
     <button type="submit" name="skip" value="1" class="button-quiet">Skip for now</button>

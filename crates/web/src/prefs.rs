@@ -247,6 +247,9 @@ pub struct Preferences {
     pub touch_gesture_sensitivity: String,
     /// `natural` or `reversed` article-navigation direction.
     pub touch_gesture_direction: String,
+    /// Content interests (catalog categories) chosen in the setup wizard; used to
+    /// pre-filter feed suggestions and remembered so the wizard can be re-run.
+    pub interests: Vec<String>,
     pub shortcuts: KeyboardShortcuts,
 }
 
@@ -293,6 +296,7 @@ impl Default for Preferences {
             touch_gestures_enabled: false,
             touch_gesture_sensitivity: "medium".to_string(),
             touch_gesture_direction: "natural".to_string(),
+            interests: Vec::new(),
             shortcuts: KeyboardShortcuts::default(),
         }
     }
@@ -318,6 +322,12 @@ impl Preferences {
 
     pub fn text_direction(&self) -> &'static str {
         rusty_feed_core::i18n::text_direction(&self.locale)
+    }
+
+    /// Whether the user selected `value` as a content interest (used by the
+    /// setup wizard to pre-check interest chips on re-run).
+    pub fn has_interest(&self, value: &str) -> bool {
+        self.interests.iter().any(|interest| interest == value)
     }
 
     fn sanitized(mut self) -> Self {
@@ -430,6 +440,16 @@ impl Preferences {
         self.articles_per_page = self.articles_per_page.clamp(5, 100);
         self.sidebar_width = self.sidebar_width.clamp(13, 24);
         self.reader_panel_width = self.reader_panel_width.clamp(38, 68);
+        let mut seen = std::collections::HashSet::new();
+        self.interests = std::mem::take(&mut self.interests)
+            .into_iter()
+            .filter_map(|interest| {
+                let trimmed = interest.trim();
+                (!trimmed.is_empty() && seen.insert(trimmed.to_string()))
+                    .then(|| trimmed.to_string())
+            })
+            .take(40)
+            .collect();
         self.shortcuts = self.shortcuts.sanitized();
         self
     }
@@ -934,6 +954,7 @@ pub async fn save(
         touch_gesture_direction: form
             .touch_gesture_direction
             .unwrap_or(current.touch_gesture_direction),
+        interests: current.interests,
         shortcuts,
     }
     .sanitized();

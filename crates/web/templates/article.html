@@ -35,7 +35,7 @@
           data-success-message="Saved state updated.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit">{% if is_bookmarked %}{{ ui.text("saved") }}{% else %}{{ ui.text("save") }}{% endif %}</button>
+      <button type="submit" class="reader-action-button ra-save" data-icon-button aria-label="{% if is_bookmarked %}{{ ui.text("saved") }}{% else %}{{ ui.text("save") }}{% endif %}"><span class="ra-icon" aria-hidden="true">🔖</span></button>
     </form>
     <form method="post" class="js-action" data-action="read-toggle"
           action="/articles/{{ id }}/{% if is_read %}unread{% else %}read{% endif %}"
@@ -45,48 +45,48 @@
           data-success-message="Reading status updated.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit">{% if is_read %}{{ ui.text("mark_unread") }}{% else %}{{ ui.text("mark_read") }}{% endif %}</button>
+      <button type="submit" class="reader-action-button ra-read" data-icon-button aria-label="{% if is_read %}{{ ui.text("mark_unread") }}{% else %}{{ ui.text("mark_read") }}{% endif %}"><span class="ra-icon" aria-hidden="true">✓</span></button>
     </form>
     <form method="post" class="js-action" action="/articles/{{ id }}/feedback"
           data-target="#article-{{ id }}" data-feedback-value="up" data-success-message="Rusty Feed will show you more articles like this.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="up" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" class="feedback-button" data-feedback-button="up" aria-label="More like this" title="More like this" aria-pressed="{% if is_liked %}true{% else %}false{% endif %}">👍</button>
+      <button type="submit" class="reader-action-button feedback-button" data-feedback-button="up" aria-label="More like this" aria-pressed="{% if is_liked %}true{% else %}false{% endif %}"><span class="ra-icon" aria-hidden="true">👍</span></button>
     </form>
     <form method="post" class="js-action" action="/articles/{{ id }}/feedback"
           data-target="#article-{{ id }}" data-feedback-value="down" data-success-message="Rusty Feed will show you fewer articles like this.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <input type="hidden" name="value" value="down" />
       <input type="hidden" name="next" value="/articles/{{ id }}" />
-      <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}">👎</button>
+      <button type="submit" class="reader-action-button feedback-button" data-feedback-button="down" aria-label="Less like this" aria-pressed="{% if is_disliked %}true{% else %}false{% endif %}"><span class="ra-icon" aria-hidden="true">👎</span></button>
     </form>
-        <a class="btn" href="/articles/{{ id }}/send" data-article-send-trigger data-modal-url="/articles/{{ id }}/send/modal" aria-haspopup="dialog">{{ ui.text("send_to") }}</a>
+        <a class="reader-action-button ra-send" href="/articles/{{ id }}/send" data-article-send-trigger data-modal-url="/articles/{{ id }}/send/modal" aria-haspopup="dialog" aria-label="{{ ui.text("send_to") }}"><span class="ra-icon" aria-hidden="true">📤</span></a>
         {% if summary.is_none() && can_summarize %}
         <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-summary-status-url="/articles/{{ id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <input type="hidden" name="next" value="/articles/{{ id }}" />
-          <button type="submit" class="summary-button">{{ ui.text("generate_summary") }}</button>
+          <button type="submit" class="reader-action-button summary-button" aria-label="{{ ui.text("generate_summary") }}"><span class="ra-icon" aria-hidden="true">✨</span></button>
           <span data-summary-progress role="status"></span>
         </form>
         {% endif %}
-        {% if show_ai_key_cue %}
-        <p class="muted ai-key-cue">Want AI summaries? <a href="/settings/ai">Add your own OpenAI key</a> — it's encrypted and used only for your summaries.</p>
-        {% endif %}
-        <details class="report-control">
-          <summary class="btn">Report</summary>
-          <form method="post" action="/articles/{{ id }}/report" class="stack">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-            <label>Reason
-              <select name="reason">
-                <option value="spam or advertising">Spam or advertising</option>
-                <option value="malware or phishing">Malware or phishing</option>
-                <option value="illegal content">Illegal content</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <button type="submit" class="danger">Report to admins</button>
-          </form>
+        <details class="report-control reader-report">
+          <summary class="reader-action-button ra-report" aria-label="Report this article"><span class="ra-icon" aria-hidden="true">⚑</span></summary>
+          <div class="report-control-body">
+            <p class="report-control-heading">Report this article</p>
+            <form method="post" action="/articles/{{ id }}/report" class="stack">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <label>Reason
+                <select name="reason">
+                  <option value="spam or advertising">Spam or advertising</option>
+                  <option value="malware or phishing">Malware or phishing</option>
+                  <option value="illegal content">Illegal content</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <button type="submit" class="danger">Report to admins</button>
+            </form>
+          </div>
         </details>
       </div>
       {% include "article_share_controls.html" %}

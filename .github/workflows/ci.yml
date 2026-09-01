@@ -82,7 +82,7 @@ jobs:
 
       - name: Create isolated browser test database
         env:
-          PGPASSWORD: rusty-feed
+          PGPASSWORD: rusty_feed
         run: createdb --host localhost --port 5432 --username rusty_feed rusty_feed_e2e
 
       - name: Browser E2E

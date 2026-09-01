@@ -135,6 +135,43 @@ async fn reverse_proxy_auth_requires_a_trusted_immediate_peer() {
 }
 
 #[tokio::test]
+async fn browser_navigation_redirects_to_login_but_api_keeps_json() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state);
+
+    // A genuine document navigation (Accept: text/html) to a protected page is
+    // redirected to sign-in with a same-origin return path, not shown raw JSON.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/articles")
+                .header("accept", "text/html,application/xhtml+xml")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert_eq!(resp.headers()["location"], "/login?next=%2Farticles");
+
+    // An API-style client on the same URL still receives the JSON envelope.
+    let resp = app
+        .oneshot(
+            Request::get("/articles")
+                .header("accept", "application/json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert!(body_string(resp).await.contains("authentication required"));
+}
+
+#[tokio::test]
 async fn register_login_logout_flow() {
     let Some(state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");

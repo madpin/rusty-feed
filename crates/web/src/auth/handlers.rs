@@ -57,6 +57,8 @@ struct LoginTemplate {
     csrf_token: String,
     providers: Vec<ProviderButton>,
     passkeys_enabled: bool,
+    /// Same-origin return path to resume after signing in (empty if none).
+    next: String,
 }
 
 #[derive(Template)]
@@ -78,6 +80,14 @@ pub struct LoginForm {
     email: String,
     password: String,
     csrf_token: String,
+    #[serde(default)]
+    next: String,
+}
+
+#[derive(Default, Deserialize)]
+pub struct LoginQuery {
+    #[serde(default)]
+    next: String,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +125,13 @@ fn render<T: Template>(tpl: &T) -> Result<Html<String>, AppError> {
     tpl.render()
         .map(Html)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("template render failed: {e}")))
+}
+
+/// Only accept same-origin, relative return paths (guards against open
+/// redirects). Returns the sanitized path, or `None` if it is not safe.
+fn safe_next(next: &str) -> Option<String> {
+    let next = next.trim();
+    (next.starts_with('/') && !next.starts_with("//")).then(|| next.to_string())
 }
 
 /// `GET /` — landing page for anonymous visitors; signed-in users go to the
@@ -199,11 +216,13 @@ pub async fn demo_start(
 /// `GET /login` — show the sign-in form (redirects home if already signed in).
 pub async fn login_page(
     State(state): State<AppState>,
+    Query(query): Query<LoginQuery>,
     jar: CookieJar,
     MaybeUser(user): MaybeUser,
 ) -> Result<Response, AppError> {
+    let next = safe_next(&query.next);
     if user.is_some() {
-        return Ok((jar, Redirect::to("/")).into_response());
+        return Ok((jar, Redirect::to(next.as_deref().unwrap_or("/"))).into_response());
     }
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = render(&LoginTemplate {
@@ -211,6 +230,7 @@ pub async fn login_page(
         csrf_token,
         providers: provider_buttons(&state),
         passkeys_enabled: state.webauthn.is_some(),
+        next: next.unwrap_or_default(),
     })?;
     Ok((jar, body).into_response())
 }
@@ -231,8 +251,10 @@ pub async fn login_submit(
     let secure = state.settings.cookie_secure;
     let max_failures = state.settings.login_max_failures as i32;
     let lockout_seconds = state.settings.login_lockout_seconds as i64;
+    let next = safe_next(&form.next);
 
-    // Re-render the sign-in form with an error message.
+    // Re-render the sign-in form with an error message, preserving the return
+    // path so a failed attempt still resumes the original destination.
     let reshow = |state: &AppState, jar: CookieJar, message: &str| -> Result<Response, AppError> {
         let (csrf_token, jar) = csrf::issue(jar, secure);
         let body = render(&LoginTemplate {
@@ -240,6 +262,7 @@ pub async fn login_submit(
             csrf_token,
             providers: provider_buttons(state),
             passkeys_enabled: state.webauthn.is_some(),
+            next: next.clone().unwrap_or_default(),
         })?;
         Ok((jar, body).into_response())
     };
@@ -259,10 +282,11 @@ pub async fn login_submit(
         if let Some(ref hash) = user.password_hash {
             if verify_password(&form.password, hash) {
                 let _ = users::clear_failed_logins(state.db.pool(), user.id).await;
+                // Onboarding takes precedence; otherwise resume the return path.
                 let destination = if user.onboarded_at.is_none() {
                     "/welcome"
                 } else {
-                    "/"
+                    next.as_deref().unwrap_or("/")
                 };
                 let jar = session::login(jar, &state.db, user.id, secure).await?;
                 return Ok((jar, Redirect::to(destination)).into_response());
