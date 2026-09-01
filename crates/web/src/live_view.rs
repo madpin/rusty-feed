@@ -323,7 +323,9 @@ async fn fetch_page(
     let final_url = response.url().to_string();
     let body = read_capped(response, MAX_PAGE_BYTES).await?;
     Ok(FetchedPage {
-        html: String::from_utf8_lossy(&body).into_owned(),
+        // Decode using the page's declared charset so non-UTF-8 publisher pages
+        // don't render as mojibake in Live View (FND-193, §6.1).
+        html: rustss_core::charset::decode_html_bytes(&body, Some(&content_type)),
         final_url,
     })
 }

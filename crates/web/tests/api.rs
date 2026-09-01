@@ -347,6 +347,144 @@ async fn robots_and_sitemap_are_served() {
 }
 
 #[tokio::test]
+async fn demo_users_cannot_import_opml() {
+    let Some(state) = state().await else { return };
+    let demo = users::create_demo(
+        state.db.pool(),
+        &format!("demo-opml-{}@demo.invalid", uuid::Uuid::now_v7()),
+        "Demo user",
+        "user",
+    )
+    .await
+    .unwrap();
+    let cookie = session_cookie(&state, demo.id).await;
+    let response = router(state.clone())
+        .oneshot(
+            Request::post("/feeds/opml/import")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from("csrf_token=x"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // `deny_demo` fires before body parsing → 400. (In the shared test DB the
+    // concurrent demo-reset test may delete this demo user first → 401.) Either
+    // way the import is refused; a regression that dropped `deny_demo` would
+    // instead reach the CSRF check (403) or succeed (2xx/3xx).
+    assert!(
+        matches!(
+            response.status(),
+            StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED
+        ),
+        "demo OPML import must be refused, got {}",
+        response.status()
+    );
+}
+
+#[tokio::test]
+async fn users_can_report_a_feed() {
+    let Some(state) = state().await else { return };
+    let user = users::create(
+        state.db.pool(),
+        &format!("reporter-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let (feed, _) = rustss_db::feeds::upsert_by_url(
+        state.db.pool(),
+        &format!("https://example.test/feed-{}.xml", uuid::Uuid::now_v7()),
+        "Reportable feed",
+        None,
+    )
+    .await
+    .unwrap();
+    let cookie = session_cookie(&state, user.id).await;
+    let app = router(state.clone());
+    // Grab a CSRF token from a page that issues one.
+    let page = app
+        .clone()
+        .oneshot(
+            Request::get("/feeds")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = set_cookies_value(&page, "rustss_csrf").unwrap_or_else(|| "x".to_string());
+    let before = rustss_db::abuse_reports::count_open(state.db.pool())
+        .await
+        .unwrap();
+    let response = app
+        .oneshot(
+            Request::post(format!("/feeds/{}/report", feed.id))
+                .header("cookie", format!("{cookie}; rustss_csrf={csrf}"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("csrf_token={csrf}&reason=spam")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER, "report redirects");
+    let after = rustss_db::abuse_reports::count_open(state.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(after, before + 1, "a feed report row was created");
+}
+
+#[tokio::test]
+async fn data_export_includes_bookmarks() {
+    let Some(state) = state().await else { return };
+    let user = users::create(
+        state.db.pool(),
+        &format!("export-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let cookie = session_cookie(&state, user.id).await;
+    let app = router(state.clone());
+    let page = app
+        .clone()
+        .oneshot(
+            Request::get("/settings/account")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf = set_cookies_value(&page, "rustss_csrf").unwrap_or_else(|| "x".to_string());
+    let response = app
+        .oneshot(
+            Request::post("/settings/account/export")
+                .header("cookie", format!("{cookie}; rustss_csrf={csrf}"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8_lossy(&body);
+    assert!(
+        body.contains("\"bookmarks\""),
+        "export includes reading state"
+    );
+    assert!(body.contains("\"subscriptions\""));
+}
+
+#[tokio::test]
 async fn legal_pages_are_public() {
     let Some(state) = state().await else { return };
     let app = router(state.clone());

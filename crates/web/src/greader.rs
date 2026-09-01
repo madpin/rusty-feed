@@ -192,6 +192,16 @@ pub async fn client_login(
     let raw_token = if accepted_app_token {
         secret.to_string()
     } else {
+        // Password ClientLogin mints a fresh token each call; bound accumulation
+        // with the same per-user API-token quota as the settings UI (FND-188).
+        let quotas = &state.settings.quotas;
+        let kind = rustss_core::quotas::QuotaKind::ApiTokens;
+        if quotas.limit(kind) > 0 {
+            let count = api_tokens::count_for_user(state.db.pool(), user.id).await?;
+            if !quotas.allows(kind, count) {
+                return Err(GReaderError::BadRequest(quotas.exceeded_message(kind)));
+            }
+        }
         let generated = token::generate();
         api_tokens::create(
             state.db.pool(),
@@ -308,6 +318,15 @@ async fn category_for_label(state: &AppState, user_id: Uuid, stream: &str) -> Re
     if let Some(category) = categories::find_by_name(state.db.pool(), user_id, name).await? {
         return Ok(category.id);
     }
+    // Creating a new label is a new category row — subject to the quota (FND-188).
+    let quotas = &state.settings.quotas;
+    let kind = rustss_core::quotas::QuotaKind::Categories;
+    if quotas.limit(kind) > 0 {
+        let count = categories::count_for_user(state.db.pool(), user_id).await?;
+        if !quotas.allows(kind, count) {
+            return Err(GReaderError::BadRequest(quotas.exceeded_message(kind)));
+        }
+    }
     Ok(categories::create(state.db.pool(), user_id, name, None)
         .await?
         .id)
@@ -328,6 +347,10 @@ pub async fn subscription_edit(
         .ok_or_else(|| GReaderError::BadRequest("missing subscription stream".to_string()))?;
     match action {
         "subscribe" => {
+            // Same gate as every other feed-add path: unverified local accounts
+            // cannot add feeds via the GReader API either (FND-191).
+            crate::verify::require_verified(&state, &user)
+                .map_err(|error| GReaderError::BadRequest(error.to_string()))?;
             // Per-user subscription quota (FND-188).
             let quotas = &state.settings.quotas;
             let kind = rustss_core::quotas::QuotaKind::Subscriptions;
@@ -346,10 +369,12 @@ pub async fn subscription_edit(
                 .fetch
                 .validate_url(&normalized)
                 .map_err(|error| GReaderError::BadRequest(format!("unsafe feed URL: {error}")))?;
-            if let Some(reason) = rustss_db::feed_blocklist::compiled(state.db.pool())
-                .await?
-                .blocked_reason(&normalized)
-            {
+            // Use the shared cached blocklist (same source as assert_feed_allowed).
+            let blocklist = state
+                .blocklist()
+                .await
+                .map_err(|error| GReaderError::Internal(anyhow::anyhow!(error.to_string())))?;
+            if let Some(reason) = blocklist.blocked_reason(&normalized) {
                 return Err(GReaderError::BadRequest(format!(
                     "feed is blocked: {reason}"
                 )));

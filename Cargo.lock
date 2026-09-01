@@ -3881,6 +3881,7 @@ dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
  "dotenvy",
+ "encoding_rs",
  "figment",
  "hkdf",
  "htmd",
@@ -3940,7 +3941,6 @@ version = "0.1.0"
 dependencies = [
  "chromiumoxide",
  "dom_smoothie",
- "encoding_rs",
  "futures-util",
  "html-escape",
  "lol_html",

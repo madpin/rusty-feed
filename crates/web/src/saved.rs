@@ -177,6 +177,15 @@ pub async fn create(
         rustss_core::quotas::QuotaKind::SavedSearches,
     )
     .await?;
+    // Demo accounts get a much tighter saved-search cap (§7.4).
+    if user.is_demo {
+        let count = rustss_db::saved_searches::count_for_user(state.db.pool(), user.id).await?;
+        if count >= 3 {
+            return Err(AppError::QuotaExceeded(
+                "Demo accounts are limited to 3 saved searches.".to_string(),
+            ));
+        }
+    }
     let is_admin = user.role == "admin";
     let name = form.name.trim();
     let query = form.query.trim();

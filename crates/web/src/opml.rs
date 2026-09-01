@@ -147,6 +147,15 @@ impl CategoryCache {
                 parent_id = Some(*category_id);
                 continue;
             }
+            // OPML folders create category rows — subject to the quota (FND-188).
+            let quotas = &state.settings.quotas;
+            let kind = rustss_core::quotas::QuotaKind::Categories;
+            if quotas.limit(kind) > 0 {
+                let count = categories::count_for_user(state.db.pool(), user_id).await?;
+                if !quotas.allows(kind, count) {
+                    return Err(AppError::QuotaExceeded(quotas.exceeded_message(kind)));
+                }
+            }
             let category = categories::create(state.db.pool(), user_id, name, parent_id).await?;
             self.by_path_segment.insert(key, category.id);
             parent_id = Some(category.id);
@@ -166,6 +175,7 @@ pub async fn preview(
     if !state.opml_limiter.check(&user.id.to_string()).await {
         return Err(AppError::RateLimited);
     }
+    crate::verify::deny_demo(&user)?;
     let mut csrf_token = None;
     let mut opml_url = None;
     let mut file = None;
@@ -360,6 +370,10 @@ pub async fn import(
     if !state.opml_limiter.check(&user.id.to_string()).await {
         return Err(AppError::RateLimited);
     }
+    // Demo accounts add feeds only from the curated catalog, not via OPML — this
+    // keeps arbitrary feeds out of the shared tables and respects the demo cap
+    // (§7.4). Blocked here, not just at the per-entry level.
+    crate::verify::deny_demo(&user)?;
     crate::verify::require_verified(&state, &user)?;
     crate::quota::assert_within(
         &state,

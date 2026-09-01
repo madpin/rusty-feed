@@ -249,6 +249,7 @@ pub async fn create(
         return Err(AppError::Forbidden);
     }
     crate::verify::deny_demo(&user)?;
+    crate::verify::require_verified(&state, &user)?;
     crate::quota::assert_within(
         &state,
         user.id,

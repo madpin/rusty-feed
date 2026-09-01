@@ -94,6 +94,18 @@ pub async fn export(
         .into_iter()
         .map(|search| json!({ "name": search.name, "query": search.query }))
         .collect();
+    // Reading state: the user's bookmarked articles (§9 full export).
+    let bookmarks: Vec<_> = rustss_db::bookmarks::list_for_export(pool, user.id, 100_000)
+        .await?
+        .into_iter()
+        .map(|bookmark| {
+            json!({
+                "url": bookmark.url,
+                "title": bookmark.title,
+                "bookmarked_at": bookmark.bookmarked_at.to_string(),
+            })
+        })
+        .collect();
     let export = json!({
         "exported_at": time::OffsetDateTime::now_utc().to_string(),
         "account": {
@@ -106,6 +118,7 @@ pub async fn export(
         "subscriptions": subscriptions,
         "categories": categories,
         "saved_searches": searches,
+        "bookmarks": bookmarks,
         "note": "Full OPML of your feeds is also available at /feeds/opml/export.",
     });
     let body = serde_json::to_vec_pretty(&export)

@@ -37,3 +37,4 @@ time-tz = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
 metrics-exporter-prometheus = { workspace = true, optional = true }
+encoding_rs = "0.8.35"

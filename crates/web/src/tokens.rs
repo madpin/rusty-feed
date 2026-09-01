@@ -127,6 +127,7 @@ pub async fn create(
         return Err(AppError::Forbidden);
     }
     crate::verify::deny_demo(&user)?;
+    crate::verify::require_verified(&state, &user)?;
     crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::ApiTokens).await?;
     let name = form.name.trim();
     if name.is_empty() {
@@ -168,6 +169,7 @@ pub async fn create_fever(
         return Err(AppError::NotFound);
     }
     crate::verify::deny_demo(&user)?;
+    crate::verify::require_verified(&state, &user)?;
     crate::quota::assert_within(&state, user.id, rustss_core::quotas::QuotaKind::ApiTokens).await?;
     let name = form.name.trim();
     let username = form.username.trim();

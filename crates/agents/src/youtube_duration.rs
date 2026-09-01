@@ -53,7 +53,9 @@ impl Agent for YouTubeDurationAgent {
                 return Err(error.into());
             }
         };
-        let page = String::from_utf8_lossy(&body);
+        // Charset-correct decode (§6.1); YouTube is UTF-8 but honor any declared
+        // charset rather than lossily assuming it.
+        let page = rustss_core::charset::decode_html_bytes(&body, None);
         let duration = duration_from_page(&page);
         let Some(duration) = duration else {
             youtube_metadata::mark_failed(ctx.db.pool(), &video_id, "duration unavailable").await?;
