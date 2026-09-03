@@ -259,3 +259,108 @@ async fn search_returns_matching_article() {
     assert_eq!(stored["search_text_config"], "instance");
     assert!(stored["search_semantic_weight_percent"].is_null());
 }
+
+/// `EMBEDDINGS_ENABLED=false` must be authoritative: neither an explicit
+/// `?mode=semantic` request nor a personal preference saved before the
+/// instance disabled embeddings should ever produce a semantic score, even
+/// though the article is fully embedded and would otherwise match.
+#[tokio::test]
+async fn embeddings_disabled_forces_keyword_search_regardless_of_request_or_preference() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db.clone(),
+        Cache::in_memory().await,
+        AppSettings {
+            embeddings_enabled: false,
+            ..AppSettings::default()
+        },
+        String::new,
+    );
+    let app = router(state);
+    let (sid, email) = register(&app).await;
+
+    let user = users::find_by_email(db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    // A stale personal preference from before the instance disabled
+    // embeddings — must not resurrect semantic search.
+    user_preferences::upsert(
+        db.pool(),
+        user.id,
+        &serde_json::json!({ "search_mode": "semantic" }),
+    )
+    .await
+    .unwrap();
+
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "F",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+    let (article, _) = articles::upsert(
+        db.pool(),
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: "Async Rust Concurrency".into(),
+            author: None,
+            content: "a deep dive into async await and concurrency in the rust language".into(),
+            excerpt: Some("async rust".into()),
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    // Fully embedded: if the disabled flag were ignored, this would still be
+    // findable (and scored) via semantic similarity.
+    let embedder = HashEmbedder::default();
+    let v = embedder
+        .embed_one("a deep dive into async await and concurrency in the rust language")
+        .await
+        .unwrap();
+    embeddings::upsert(
+        db.pool(),
+        article.id,
+        &v,
+        embedder.model(),
+        article.content_revision,
+    )
+    .await
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::get("/search?q=async%20rust%20concurrency&mode=semantic")
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains("Async Rust Concurrency"),
+        "keyword search should still find the article"
+    );
+    assert!(body.contains("Current settings: keyword"));
+    assert!(body.contains("% words"));
+    assert!(!body.contains("% meaning"));
+    assert!(body.contains("disabled by the instance administrator"));
+}

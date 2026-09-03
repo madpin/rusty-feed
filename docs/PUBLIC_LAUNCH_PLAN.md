@@ -284,7 +284,7 @@ Dedup is exact `SHA-256(trim(content))` only (`crates/core/src/hash.rs:11`). Cro
 
 ### 7.1 Model
 - Add `users.is_demo BOOLEAN NOT NULL DEFAULT false` (migration `0044`).
-- **"Try the demo"** on the landing page provisions an **ephemeral demo user** (no email/password; random handle), flags it `is_demo=true`, seeds it with the featured catalog via the existing `create_with_default_feeds` path (`crates/db/src/users.rs:40`), and mints a session. (Per-visitor accounts avoid the read/seen state collisions a single shared account would cause; a single shared guest account is a simpler fallback if you prefer.)
+- **"Try the demo"** on the landing page provisions an **ephemeral demo user** (no email/password; random handle), flags it `is_demo=true`, seeds it with the featured catalog, organizes those showcase subscriptions into personal folders/tags by catalog category, and mints a session. Featured feeds are demo-only defaults: regular local/OAuth/invited accounts start empty and choose their own sources in the wizard/catalog. (Per-visitor accounts avoid read/seen-state collisions between visitors.)
 - Demo sessions are normal sessions (`sessions` cascade on user delete), so the reset logs them out cleanly.
 
 ### 7.2 Reset mechanism — an Agent, not an ad-hoc loop (required by `AGENTS.md` §5)
@@ -356,13 +356,13 @@ A public, open-registration site has to **sell itself in the first ten seconds**
 
 **DoD:** Preferences links to the AI key manager with clear copy; a user with an enabled personal key can summarize and is **not** charged against the instance budget; the official-endpoint restriction is intact and tested; demo users cannot add keys.
 
-### 8.2 Marketing landing page — "what we do", with screenshots & features
+### 8.2 Marketing landing page — "what we do", with screenshots & features ✅ shipped
 
-**Today the landing page is a stub** — `crates/web/templates/home.html` renders one line and two links; the signed-in branch literally says *"The reading experience is under construction."* Not launch-ready for strangers.
+**The landing page used to be a stub** — the old `crates/web/templates/home.html` rendered one line and two links; the signed-in branch literally said *"The reading experience is under construction."* Not launch-ready for strangers. It has been replaced by `crates/web/templates/landing.html` (below) and the stub deleted.
 
 **Build a real anonymous landing page** (server-rendered Askama, consistent with the no-SPA/strict-CSP stack — no inline styles/scripts, FND-161):
 - **Hero:** the product one-liner (`docs/PRD.md` §1.1: *"Your RSS reader, but it actually understands what you read"*), a primary **"Create free account"** CTA, a secondary **"Try the live demo"** CTA (wired to §7), and "Sign in".
-- **Feature highlights** (truthful, all shipped): semantic/vector search, per-user relevance ranking that *learns* from your reading, optional LLM summaries (bring your own key — §8.1), saved semantic searches with alerts & "more like this", three reading modes + 14 themes, OPML import/export, GReader **&** Fever client APIs, PWA install, and self-hostable single binary.
+- **Feature highlights** (truthful, all shipped): semantic/vector search, per-user relevance ranking that *learns* from your reading, optional LLM summaries (bring your own key — §8.1), saved semantic searches with alerts & "more like this", three reading modes + 8 shipped themes, OPML import/export, GReader **&** Fever client APIs, PWA install, and self-hostable single binary.
 - **Screenshots:** you already have 9 captures in `docs/screenshots/` (`library.png`, `discover.png`, `article.png`, `feeds.png`, `ai-providers.png`, `admin-overview.png`, …) produced by `scripts/capture-screenshots.mjs`. Serve **web-optimized** copies (resize/compress, prefer WebP) as embedded static assets via rust-embed (`crates/web/static/`), and lazy-load them. *Size trade-off:* the raw PNGs total ~2.6 MB — optimize before embedding to protect the <150 MB image target and first paint; extend the capture script to emit optimized landing variants.
 - **Footer:** Terms/Privacy/Abuse (§9), source repo, status.
 - **Accessibility & responsiveness:** reuse the existing responsive/reduced-motion/contrast work (FND-173/183); the landing page must pass the same no-inline-CSP and six-viewport matrix.
@@ -386,7 +386,7 @@ Miniflux is the reference point for self-hosted readers and your parity target (
 | **Personalized ranking that learns from your reading** | ✅ | ❌ |
 | **LLM article summaries (bring your own key)** | ✅ | ❌ |
 | **Saved semantic searches + "more like this" alerts** | ✅ | ❌ |
-| Reading modes (side-panel / inline / standalone) + 14 themes | ✅ | Single clean reader |
+| Reading modes (side-panel / inline / standalone) + 8 shipped themes | ✅ | Single clean reader |
 | Maturity, install base, minimal footprint | Newer; heavier (Postgres+pgvector, Redis, optional Chromium, embeddings) | ✅ Very mature, tiny footprint |
 | Language | Rust | Go |
 
@@ -405,7 +405,7 @@ New users currently land straight in the reader with defaults (`register_submit`
 1. **Reading layout** — side-panel (list + reader **side-by-side**), inline (accordion), or standalone (full page). Maps to `reading_mode` (`crates/web/src/prefs.rs:202`, values `side-panel|standalone|inline`, default `side-panel`).
 2. **Theme & colors** — pick from the shipped themes (light / dark / ocean / forest / plum / sunset / system + the rest; 14 total). Maps to `theme` (`prefs.rs:199`).
 3. **Typography & density** — font family (sans/serif), reader size, line height, list density. Maps to `font_family` / `reader_font_size` / `reader_line_height` / `article_density`.
-4. **Topics & feeds** *(implemented)* — pick content interests (catalog categories) that **live-filter** a curated, selectable grid of feed suggestions (`app.js` `data-wizard-interest` toggles matching `data-wizard-feed` cards; CSP-safe). Suggestions are the non-subscribed published catalog entries (`catalog::list_published_for_user`), spread round-robin across topics so one popular category cannot crowd out the rest (`welcome::load_suggestions`). Interests persist to `preferences.interests`; ticked feeds are subscribed on finish (best-effort behind the same verification/quota/demo guards as `/catalog`, never aborting onboarding). Defaults still auto-subscribe to the featured set via `users::create_with_default_feeds`, so those are omitted from the suggestions.
+4. **Topics & feeds** *(implemented)* — pick content interests (catalog categories) that **live-filter** a curated, selectable grid of feed suggestions (`app.js` `data-wizard-interest` toggles matching `data-wizard-feed` cards and reports the exact visible count/topic names; CSP-safe). Suggestions are non-subscribed published catalog entries (`catalog::list_published_for_user`), spread round-robin across topics so one popular category cannot crowd out the rest (`welcome::load_suggestions`). Interests persist to `preferences.interests`; ticked feeds are subscribed and organized by category on finish (best-effort behind the same verification/quota/demo guards as `/catalog`, never aborting onboarding). Regular accounts start empty; only ephemeral demos are automatically seeded with the featured showcase set.
 5. **Finish** — persist via the wizard submit (`welcome::submit`, merged into preferences) and set `onboarded_at`; land in the reader.
 
 **Real-time preview — and why it's CSP-safe (the important bit).** Rusty Feed already applies every one of these settings through **data-attributes + classes on `<html>` that key static CSS**: `data-theme`, `data-font-family`, `data-density`, `data-reader-size`, `data-reader-leading`, the article list's `data-reading-mode`, and `sidebar-width-N`/`reader-panel-width-N` (`crates/web/templates/app_base.html:2`; `crates/web/static/app.css` `:root[data-theme="…"]`). So a **live preview needs no inline styles**: the embedded same-origin `app.js` (delegated listeners) just swaps those attributes on a mock reader pane as the user clicks, and the colors/typography/layout update instantly — fully compatible with the strict no-inline CSP (FND-161). This is the clean way to deliver the "real-time color change" you asked for without weakening the CSP.

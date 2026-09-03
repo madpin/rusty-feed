@@ -127,6 +127,7 @@ struct FolderNavContext<'a> {
     tag: Option<&'a str>,
     unread: bool,
     sort: &'a str,
+    summary_only: bool,
     feeds_by_folder: &'a mut HashMap<Uuid, Vec<FeedNav>>,
 }
 
@@ -145,12 +146,14 @@ struct ArticlesTemplate {
     recent_url: String,
     unread_url: String,
     relevance_url: String,
+    summary_url: String,
     scope_label: String,
     feed_filter: Option<String>,
     category_filter: Option<String>,
     tag_filter: Option<String>,
     unfiled_url: String,
     unread_only: bool,
+    summary_only: bool,
     unfiled_only: bool,
     reading_mode: String,
     side_panel: bool,
@@ -405,6 +408,9 @@ pub struct ArticlesQuery {
     /// `recent` (default) or `relevance`.
     #[serde(default)]
     sort: Option<String>,
+    /// `1` shows only articles with a ready AI summary (implies unread).
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -497,6 +503,7 @@ fn normalized_tag(value: Option<String>) -> Result<Option<String>, String> {
     Ok(Some(tag))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn articles_url(
     feed_id: Option<Uuid>,
     category_id: Option<Uuid>,
@@ -505,6 +512,7 @@ fn articles_url(
     unread: bool,
     sort: &str,
     offset: Option<i64>,
+    summary_only: bool,
 ) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     if unread {
@@ -527,6 +535,9 @@ fn articles_url(
     }
     if let Some(offset) = offset.filter(|offset| *offset > 0) {
         query.append_pair("offset", &offset.to_string());
+    }
+    if summary_only {
+        query.append_pair("summary", "1");
     }
     let query = query.finish();
     if query.is_empty() {
@@ -567,6 +578,7 @@ fn append_folder_nav(
                 context.unread,
                 context.sort,
                 None,
+                context.summary_only,
             ),
             feeds: context
                 .feeds_by_folder
@@ -584,12 +596,14 @@ fn append_folder_nav(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn folder_nav(
     categories: Vec<categories::CategoryWithFeedCount>,
     selected: Option<Uuid>,
     tag: Option<&str>,
     unread: bool,
     sort: &str,
+    summary_only: bool,
     feeds_by_folder: &mut HashMap<Uuid, Vec<FeedNav>>,
 ) -> Vec<FolderNav> {
     let mut children = BTreeMap::<Option<Uuid>, Vec<_>>::new();
@@ -604,6 +618,7 @@ fn folder_nav(
         tag,
         unread,
         sort,
+        summary_only,
         feeds_by_folder,
     };
     let mut output = Vec::new();
@@ -627,6 +642,7 @@ fn folder_nav(
                     context.unread,
                     context.sort,
                     None,
+                    context.summary_only,
                 ),
                 feeds: context
                     .feeds_by_folder
@@ -649,7 +665,12 @@ pub async fn list(
     let is_admin = user.role == "admin";
     let per_page = prefs.articles_per_page.clamp(5, 100) as i64;
     let unread_param = q.unread.as_deref() == Some("1");
-    let unread_only = unread_param || !prefs.show_read_articles;
+    // "Unread AI summaries" is one atomic filter — show only summaries the
+    // reader hasn't seen yet — so it forces the unread scope regardless of the
+    // "show read articles" preference, the same way the plain "Unread only"
+    // link already overrides it.
+    let summary_only = q.summary.as_deref() == Some("1");
+    let unread_only = unread_param || !prefs.show_read_articles || summary_only;
     let offset = q.offset.unwrap_or(0).max(0);
     let feed_id = q.feed;
     let unfiled = q.unfiled.as_deref() == Some("1");
@@ -679,6 +700,7 @@ pub async fn list(
             user.id,
             filter,
             unread_only,
+            summary_only,
             per_page,
             offset,
         )
@@ -690,6 +712,7 @@ pub async fn list(
             user.id,
             filter,
             unread_only,
+            summary_only,
             per_page,
             offset,
         )
@@ -717,6 +740,7 @@ pub async fn list(
             (Some(category), Some(tag)) => format!("{category} · #{tag}"),
             (Some(category), None) => format!("Folder: {category}"),
             (None, Some(tag)) => format!("Tag: #{tag}"),
+            (None, None) if summary_only => "Unread AI summaries".to_string(),
             (None, None) if unread_only => "Unread only".to_string(),
             (None, None) if sort == "relevance" => "Personalized".to_string(),
             (None, None) => "Most recent".to_string(),
@@ -748,7 +772,16 @@ pub async fn list(
             initial: feed_initial(&display_name),
             has_icon: icon_ids.contains(&id),
             active: Some(id) == feed_id,
-            href: articles_url(Some(id), None, false, None, unread_param, sort, None),
+            href: articles_url(
+                Some(id),
+                None,
+                false,
+                None,
+                unread_param,
+                sort,
+                None,
+                summary_only,
+            ),
             folder_id: organization
                 .and_then(|organization| organization.category_id)
                 .map(|folder_id| folder_id.to_string())
@@ -773,6 +806,7 @@ pub async fn list(
         tag.as_deref(),
         unread_param,
         sort,
+        summary_only,
         &mut feeds_by_folder,
     );
     let tags = tag_records
@@ -786,6 +820,7 @@ pub async fn list(
                 unread_param,
                 sort,
                 None,
+                summary_only,
             );
             TagNav {
                 active: tag.as_deref() == Some(tag_record.name.as_str()),
@@ -804,6 +839,7 @@ pub async fn list(
         unread_param,
         sort,
         Some(offset),
+        summary_only,
     );
     // Nudge keyless users to bring their own AI key once, at the top of the list,
     // instead of repeating the pitch inside every article (§8.1.3).
@@ -831,6 +867,7 @@ pub async fn list(
             false,
             "recent",
             None,
+            false,
         ),
         unread_url: articles_url(
             None,
@@ -840,6 +877,7 @@ pub async fn list(
             true,
             "recent",
             None,
+            false,
         ),
         relevance_url: articles_url(
             None,
@@ -849,14 +887,35 @@ pub async fn list(
             false,
             "relevance",
             None,
+            false,
         ),
-        unfiled_url: articles_url(None, None, true, None, unread_param, sort, None),
+        summary_url: articles_url(
+            None,
+            category_id,
+            unfiled,
+            tag.as_deref(),
+            false,
+            "recent",
+            None,
+            true,
+        ),
+        unfiled_url: articles_url(
+            None,
+            None,
+            true,
+            None,
+            unread_param,
+            sort,
+            None,
+            summary_only,
+        ),
         scope_label,
         feed_filter: feed_id.map(|feed_id| feed_id.to_string()),
         category_filter: category_id.map(|category_id| category_id.to_string()),
         tag_filter: tag.clone(),
         unfiled_only: unfiled,
         unread_only,
+        summary_only,
         reading_mode: prefs.reading_mode,
         side_panel,
         sort: sort.to_string(),
@@ -871,6 +930,7 @@ pub async fn list(
             unread_param,
             sort,
             Some((offset - per_page).max(0)),
+            summary_only,
         ),
         next_url: articles_url(
             feed_id,
@@ -880,6 +940,7 @@ pub async fn list(
             unread_param,
             sort,
             Some(offset + per_page),
+            summary_only,
         ),
         filtered_count,
         show_ai_key_cue,
@@ -897,12 +958,14 @@ pub async fn list(
 }
 
 /// Recency-ordered page (newest first), fetching one extra row for `has_next`.
+#[allow(clippy::too_many_arguments)]
 async fn recency_page(
     state: &AppState,
     preferences: &prefs::Preferences,
     user_id: Uuid,
     filter: articles::LibraryFilter<'_>,
     unread_only: bool,
+    summary_only: bool,
     per_page: i64,
     offset: i64,
 ) -> Result<(Vec<ArticleView>, bool, usize), AppError> {
@@ -911,6 +974,7 @@ async fn recency_page(
         user_id,
         filter,
         unread_only,
+        summary_only,
         (per_page * 5 + 1).min(501),
         offset,
     )
@@ -944,12 +1008,14 @@ async fn recency_page(
 
 /// Relevance-ranked page: score a recent candidate window against the user's
 /// patterns (one batched weights lookup), sort by score, then paginate.
+#[allow(clippy::too_many_arguments)]
 async fn relevance_page(
     state: &AppState,
     preferences: &prefs::Preferences,
     user_id: Uuid,
     filter: articles::LibraryFilter<'_>,
     unread_only: bool,
+    summary_only: bool,
     per_page: i64,
     offset: i64,
 ) -> Result<(Vec<ArticleView>, bool, usize), AppError> {
@@ -958,6 +1024,7 @@ async fn relevance_page(
         user_id,
         filter,
         unread_only,
+        summary_only,
         RELEVANCE_CANDIDATES,
         0,
     )

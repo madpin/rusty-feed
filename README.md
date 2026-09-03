@@ -193,6 +193,18 @@ PLAYWRIGHT_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_fe
 
 Create the dedicated database once; an "already exists" response on later runs is harmless. Do not point Playwright at the database used by Rust integration tests or a real Rusty Feed instance. Playwright starts an isolated Rust server on `127.0.0.1:8088` with its embedded worker disabled and the deterministic test embedding model selected. It exercises discovery and OPML flows, reader modes and typography, Live View, privacy-gated media/YouTube, public sharing, feed organization and drag/drop, keyboard shortcuts, the fixed side panel, live AI-summary progress, admin queue refresh, no-JavaScript fallbacks, and authorization boundaries. CI creates a fresh `rusty_feed_e2e` database, installs Chromium, and runs this suite after Rust tests.
 
+### Full-stack stress test
+
+The ignored stress suite drives concurrent shared-feed subscriptions, deduplicated queue workers, feed ingestion, extraction, embeddings, mocked summaries, saved-search matching, L1/optional Redis caching, authenticated HTML/native API reads and writes, health, metrics, and tenant-isolation checks. Run it only against a dedicated disposable database:
+
+```bash
+TEST_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_feed_stress \
+  TEST_REDIS_URL=redis://localhost:6379 \
+  npm run test:stress
+```
+
+The suite always enforces correctness and prints throughput plus HTTP p95 latency. Set `STRESS_ENFORCE_TARGETS=1` to enforce the PRD performance targets. Workload controls are `STRESS_USERS`, `STRESS_FEEDS`, `STRESS_ARTICLES_PER_FEED`, `STRESS_REQUESTS`, `STRESS_CONCURRENCY`, and `STRESS_SUMMARIES`. Local feed/article and LLM servers keep the run deterministic; Chromium and real external providers are intentionally outside this test.
+
 ### Configuration (essentials)
 
 ```bash

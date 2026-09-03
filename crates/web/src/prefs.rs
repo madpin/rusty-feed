@@ -348,7 +348,7 @@ impl Preferences {
         }
         if !matches!(
             self.theme.as_str(),
-            "system" | "light" | "dark" | "ocean" | "forest" | "plum" | "sunset"
+            "system" | "light" | "dark" | "rusty" | "ocean" | "forest" | "plum" | "sunset"
         ) {
             self.theme = "system".to_string();
         }
@@ -495,6 +495,7 @@ struct PreferencesTemplate {
     tracking_pixel_strictness: String,
     tracking_pixel_blocked_host_count: usize,
     tracking_pixel_allowed_host_count: usize,
+    embeddings_enabled: bool,
     prefs_search_mode: String,
     prefs_search_text_config: String,
     prefs_search_semantic_weight_percent: String,
@@ -714,6 +715,7 @@ fn preferences_template(
             .settings
             .tracking_pixel_policy
             .allowed_host_count(),
+        embeddings_enabled: state.settings.embeddings_enabled,
         prefs_search_mode: prefs.search_mode.clone(),
         prefs_search_text_config: prefs.search_text_config.clone(),
         prefs_search_semantic_weight_percent: prefs
@@ -896,7 +898,12 @@ pub async fn save(
         } else {
             current.show_blocked_tracking_notice
         },
-        search_mode: if search_settings_present {
+        // A disabled instance is authoritative: never persist a stray
+        // semantic/hybrid choice or weight even if the (hidden) form fields
+        // were submitted directly, bypassing the preferences UI.
+        search_mode: if !state.settings.embeddings_enabled {
+            "instance".to_string()
+        } else if search_settings_present {
             form.search_mode.unwrap_or_else(|| "instance".to_string())
         } else {
             current.search_mode
@@ -907,7 +914,9 @@ pub async fn save(
         } else {
             current.search_text_config
         },
-        search_semantic_weight_percent: if search_settings_present {
+        search_semantic_weight_percent: if !state.settings.embeddings_enabled {
+            None
+        } else if search_settings_present {
             form.search_semantic_weight_percent
         } else {
             current.search_semantic_weight_percent
@@ -1086,6 +1095,23 @@ mod tests {
             preferences.enclosure_player_kinds,
             vec!["audio".to_string(), "video".to_string()]
         );
+    }
+
+    #[test]
+    fn accepts_rusty_theme_and_rejects_unknown_themes() {
+        let rusty = Preferences {
+            theme: "rusty".to_string(),
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert_eq!(rusty.theme, "rusty");
+
+        let unknown = Preferences {
+            theme: "remote-stylesheet".to_string(),
+            ..Preferences::default()
+        }
+        .sanitized();
+        assert_eq!(unknown.theme, "system");
     }
 
     #[test]

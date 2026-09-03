@@ -463,7 +463,7 @@ pub async fn register_submit(
         .await?
         .ok_or_else(|| AppError::Validation("This invitation is no longer available.".into()))?
     } else {
-        users::create_with_default_feeds(
+        users::create(
             state.db.pool(),
             email,
             name,

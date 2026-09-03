@@ -49,6 +49,7 @@
           <option value="system"{% if prefs_theme == "system" %} selected{% endif %}>System</option>
           <option value="light"{% if prefs_theme == "light" %} selected{% endif %}>Light</option>
           <option value="dark"{% if prefs_theme == "dark" %} selected{% endif %}>Dark</option>
+          <option value="rusty"{% if prefs_theme == "rusty" %} selected{% endif %}>Rusty</option>
           <option value="ocean"{% if prefs_theme == "ocean" %} selected{% endif %}>Ocean</option>
           <option value="forest"{% if prefs_theme == "forest" %} selected{% endif %}>Forest</option>
           <option value="plum"{% if prefs_theme == "plum" %} selected{% endif %}>Plum</option>
@@ -213,6 +214,7 @@
   <fieldset id="search">
     <legend>Search</legend>
     <input type="hidden" name="search_settings_present" value="true" />
+    {% if embeddings_enabled %}
     <p class="muted">Choose how exact PostgreSQL matches and semantic similarity are combined. Inherit keeps the instance administrator's defaults.</p>
     <div class="form-grid">
       <label>Default search mode
@@ -235,6 +237,18 @@
       </label>
     </div>
     <p class="muted">Keyword search supports quoted phrases, uppercase <code>OR</code>, and a leading minus to exclude a term. Language-neutral matching is the safest choice for multilingual feeds.</p>
+    {% else %}
+    <p class="notice">The instance administrator has disabled meaning-based search (<code>EMBEDDINGS_ENABLED=false</code>). Search uses exact PostgreSQL matching for everyone.</p>
+    <div class="form-grid">
+      <label>Text matching
+        <select name="search_text_config">
+          <option value="instance"{% if prefs_search_text_config == "instance" %} selected{% endif %}>Inherit ({{ instance_search_text_config }})</option>
+          <option value="simple"{% if prefs_search_text_config == "simple" %} selected{% endif %}>Language-neutral</option>
+          <option value="english"{% if prefs_search_text_config == "english" %} selected{% endif %}>English stemming</option>
+        </select>
+      </label>
+    </div>
+    {% endif %}
   </fieldset>
 
   <fieldset id="media">

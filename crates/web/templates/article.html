@@ -67,7 +67,6 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <input type="hidden" name="next" value="/articles/{{ id }}" />
           <button type="submit" class="reader-action-button summary-button" aria-label="{{ ui.text("generate_summary") }}"><span class="ra-icon" aria-hidden="true">✨</span></button>
-          <span data-summary-progress role="status"></span>
         </form>
         {% endif %}
         <details class="report-control reader-report">

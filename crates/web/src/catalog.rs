@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use askama::Template;
 use axum::extract::{Path, Query, State};
@@ -9,8 +9,11 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use rusty_feed_core::feed_content::{
+    recommended_catalog_content_mode, ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+};
 use rusty_feed_core::html::sanitize_article_html;
-use rusty_feed_db::{catalog, feed_icons, jobs, User};
+use rusty_feed_db::{articles, catalog, feed_icons, jobs, subscriptions, User};
 use rusty_feed_feeds::enqueue_fetch_feed;
 
 use crate::auth::csrf;
@@ -21,6 +24,7 @@ use crate::prefs;
 use crate::state::AppState;
 
 const MAX_CATALOG_SELECTION: usize = 30;
+const MAX_CONTENT_BACKFILL: usize = 5_000;
 
 struct Facet {
     value: String,
@@ -44,6 +48,7 @@ struct CatalogView {
     last_post: String,
     frequency: String,
     subscribed: bool,
+    article_page_recommended: bool,
 }
 
 struct PreviewStatsView {
@@ -151,6 +156,8 @@ fn feed_initial(name: &str) -> String {
 }
 
 fn view(entry: catalog::CatalogEntry, has_icon: bool) -> CatalogView {
+    let article_page_recommended =
+        recommended_catalog_content_mode(&entry.url) == FeedContentMode::ArticlePage;
     CatalogView {
         feed_id: entry.feed_id.to_string(),
         initial: feed_initial(&entry.title),
@@ -171,6 +178,7 @@ fn view(entry: catalog::CatalogEntry, has_icon: bool) -> CatalogView {
             .unwrap_or_else(|| "No dated posts yet".to_string()),
         frequency: frequency(entry.average_interval_hours),
         subscribed: entry.subscribed,
+        article_page_recommended,
     }
 }
 
@@ -371,9 +379,17 @@ async fn render_page(
     Ok((jar, body).into_response())
 }
 
-fn parse_subscription_form(values: Vec<(String, String)>) -> Result<(String, Vec<Uuid>), String> {
+struct CatalogSubscriptionForm {
+    csrf_token: String,
+    choices: Vec<catalog::CatalogSubscriptionChoice>,
+}
+
+fn parse_subscription_form(
+    values: Vec<(String, String)>,
+) -> Result<CatalogSubscriptionForm, String> {
     let mut csrf_token = None;
     let mut feed_ids = BTreeSet::new();
+    let mut content_modes = BTreeMap::new();
     for (name, value) in values {
         match name.as_str() {
             "csrf_token" if csrf_token.is_none() => csrf_token = Some(value),
@@ -381,6 +397,17 @@ fn parse_subscription_form(values: Vec<(String, String)>) -> Result<(String, Vec
                 let feed_id =
                     Uuid::parse_str(&value).map_err(|_| "The selected source was invalid.")?;
                 feed_ids.insert(feed_id);
+            }
+            _ if name.starts_with("content_mode.") => {
+                let feed_id = name
+                    .strip_prefix("content_mode.")
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .ok_or_else(|| "A content-source choice was invalid.".to_string())?;
+                let mode = FeedContentMode::parse(&value)
+                    .ok_or_else(|| "Choose RSS or public article page content.".to_string())?;
+                if content_modes.insert(feed_id, mode).is_some() {
+                    return Err("Choose one content source for each feed.".to_string());
+                }
             }
             _ => return Err("The catalog selection could not be processed.".to_string()),
         }
@@ -395,7 +422,26 @@ fn parse_subscription_form(values: Vec<(String, String)>) -> Result<(String, Vec
             "Choose at most {MAX_CATALOG_SELECTION} sources at once."
         ));
     }
-    Ok((csrf_token, feed_ids.into_iter().collect()))
+    let choices = feed_ids
+        .into_iter()
+        .map(|feed_id| {
+            let mode = content_modes
+                .get(&feed_id)
+                .copied()
+                .ok_or_else(|| "Choose a content source for each selected feed.".to_string())?;
+            Ok(catalog::CatalogSubscriptionChoice {
+                feed_id,
+                content: SubscriptionContentSettings {
+                    mode,
+                    lifetime: ContentLifetime::default(),
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(CatalogSubscriptionForm {
+        csrf_token,
+        choices,
+    })
 }
 
 pub async fn page(
@@ -523,7 +569,7 @@ pub async fn subscribe(
     jar: CookieJar,
     Form(values): Form<Vec<(String, String)>>,
 ) -> Result<Response, AppError> {
-    let (csrf_token, feed_ids) = match parse_subscription_form(values) {
+    let form = match parse_subscription_form(values) {
         Ok(form) => form,
         Err(error) => {
             return render_page(
@@ -541,9 +587,19 @@ pub async fn subscribe(
             .await;
         }
     };
-    if !csrf::verify(&jar, &csrf_token) {
+    if !csrf::verify(&jar, &form.csrf_token) {
         return Err(AppError::Forbidden);
     }
+    let feed_ids = form
+        .choices
+        .iter()
+        .map(|choice| choice.feed_id)
+        .collect::<Vec<_>>();
+    let content_choices = form
+        .choices
+        .iter()
+        .map(|choice| (choice.feed_id, choice.content))
+        .collect::<BTreeMap<_, _>>();
     crate::verify::require_verified(&state, &user)?;
     crate::quota::assert_within(
         &state,
@@ -561,7 +617,12 @@ pub async fn subscribe(
             )));
         }
     }
-    let result = match catalog::subscribe_published_many(state.db.pool(), user.id, &feed_ids).await
+    let result = match catalog::subscribe_published_many_with_content(
+        state.db.pool(),
+        user.id,
+        &form.choices,
+    )
+    .await
     {
         Ok(result) => result,
         Err(rusty_feed_db::DbError::NotFound) => {
@@ -582,6 +643,23 @@ pub async fn subscribe(
         Err(error) => return Err(error.into()),
     };
     let existing = result.attempted - result.created;
+    // File each newly subscribed feed under a folder/tag named for its catalog
+    // category, so its already-shared articles show up organized right away
+    // for the new subscriber instead of landing "Unfiled". Never touches feeds
+    // the user already had, so their own organization is never clobbered.
+    catalog::organize_new_subscriptions(state.db.pool(), user.id, &result.created_feed_ids).await?;
+    for feed_id in &result.created_feed_ids {
+        let Some(content) = content_choices.get(feed_id) else {
+            continue;
+        };
+        if content.mode.fetches_article_pages() {
+            let lifetime =
+                subscriptions::requested_article_page_lifetime(state.db.pool(), *feed_id).await?;
+            articles::apply_article_page_lifetime(state.db.pool(), *feed_id, lifetime).await?;
+            jobs::enqueue_extractions_for_feed(state.db.pool(), *feed_id, MAX_CONTENT_BACKFILL)
+                .await?;
+        }
+    }
     let mut queued = 0;
     for feed_id in &feed_ids {
         if enqueue_fetch_feed(&state.db, *feed_id).await?.is_some() {
@@ -621,13 +699,16 @@ mod tests {
     #[test]
     fn parses_deduplicated_catalog_choices() {
         let id = Uuid::now_v7();
-        let (csrf, ids) = parse_subscription_form(vec![
+        let form = parse_subscription_form(vec![
             ("csrf_token".to_string(), "token".to_string()),
             ("feed_id".to_string(), id.to_string()),
             ("feed_id".to_string(), id.to_string()),
+            (format!("content_mode.{id}"), "article_page".to_string()),
         ])
         .unwrap();
-        assert_eq!(csrf, "token");
-        assert_eq!(ids, vec![id]);
+        assert_eq!(form.csrf_token, "token");
+        assert_eq!(form.choices.len(), 1);
+        assert_eq!(form.choices[0].feed_id, id);
+        assert_eq!(form.choices[0].content.mode, FeedContentMode::ArticlePage);
     }
 }

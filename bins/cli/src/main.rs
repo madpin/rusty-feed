@@ -88,6 +88,13 @@ async fn canonicalize_urls(apply: bool) -> anyhow::Result<()> {
 /// air-gapped host without runtime network access.
 async fn fetch_model() -> anyhow::Result<()> {
     let config = rusty_feed_core::AppConfig::load()?;
+    if !config.embeddings_enabled {
+        println!(
+            "embeddings are disabled (EMBEDDINGS_ENABLED=false); nothing to fetch. \
+             Set EMBEDDINGS_ENABLED=true to use a model."
+        );
+        return Ok(());
+    }
     let embedder = rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
         provider: config.embedding_provider,
         model: config.embedding_model,
@@ -158,7 +165,7 @@ async fn create_admin() -> anyhow::Result<()> {
         .map_err(|error| anyhow::anyhow!("password hashing failed: {error}"))?
         .to_string();
     let name = std::env::var("RUSTY_FEED_ADMIN_NAME").ok();
-    rusty_feed_db::users::create_with_default_feeds(
+    rusty_feed_db::users::create(
         db.pool(),
         &email,
         name.as_deref(),
@@ -176,6 +183,12 @@ async fn create_admin() -> anyhow::Result<()> {
 /// vectors, making the disruptive model transition explicit.
 async fn queue_embedding_backfill(reindex: bool) -> anyhow::Result<()> {
     let config = rusty_feed_core::AppConfig::load()?;
+    if !config.embeddings_enabled {
+        anyhow::bail!(
+            "embeddings are disabled (EMBEDDINGS_ENABLED=false); queuing jobs the worker will \
+             never run would just fill the queue. Set EMBEDDINGS_ENABLED=true first."
+        );
+    }
     let model =
         rusty_feed_embed::canonical_model(config.embedding_provider, &config.embedding_model)?;
     let db = rusty_feed_db::Db::connect(&config.database_url).await?;

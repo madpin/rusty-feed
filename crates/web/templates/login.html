@@ -1,35 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Sign in — Rusty Feed{% endblock %}
+{% block body_class %}login-page{% endblock %}
 {% block content %}
-<h1>Sign in</h1>
-{% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
-<form method="post" action="/login">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-  {% if !next.is_empty() %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
-  <label>Email
-    <input type="email" name="email" autocomplete="email" required />
-  </label>
-  <label>Password
-    <input type="password" name="password" autocomplete="current-password" required />
-  </label>
-  <button type="submit" class="primary">Sign in</button>
-</form>
-{% if passkeys_enabled %}
-<div class="auth-separator"><span>or</span></div>
-<form data-passkey-login class="stack">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-  <label>Email
-    <input type="email" name="email" autocomplete="username webauthn" required />
-  </label>
-  <button type="submit">Sign in with a passkey</button>
-  <p class="muted" data-passkey-status role="status"></p>
-</form>
-{% endif %}
-{% if !providers.is_empty() %}
-<p class="muted">or</p>
-{% for p in providers %}
-<p><a href="/auth/oauth/{{ p.slug }}">Continue with {{ p.name }}</a></p>
-{% endfor %}
-{% endif %}
-<p class="muted">No account? <a href="/register">Register</a></p>
+<section class="login-context" aria-labelledby="login-context-heading">
+  <p class="eyebrow">Private state / shared intelligence</p>
+  <h1 id="login-context-heading">Return to your signal.</h1>
+  <p>Your subscriptions, folders, reading history, rankings, and credentials stay scoped to your account. Shared articles are fetched and enriched once.</p>
+  <dl class="login-runtime" aria-label="Authentication and runtime properties">
+    <div><dt>session</dt><dd>opaque · database-backed</dd></div>
+    <div><dt>transport</dt><dd>same-origin · CSRF-protected</dd></div>
+    <div><dt>content</dt><dd>sanitized · SSRF-guarded</dd></div>
+    <div><dt>runtime</dt><dd>Rust · Axum · PostgreSQL</dd></div>
+  </dl>
+  <p class="login-context-note"><span aria-hidden="true"></span> Your reader is waiting.</p>
+</section>
+
+<section class="login-form-panel" aria-labelledby="login-heading">
+  <div class="login-form-heading">
+    <span class="tech-sigil">rusty-feed / auth</span>
+    <h2 id="login-heading">Sign in</h2>
+    <p>Continue with your local account{% if !providers.is_empty() %}, identity provider,{% endif %}{% if passkeys_enabled %} or passkey{% endif %}.</p>
+  </div>
+  {% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
+  <form method="post" action="/login" class="login-password-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    {% if !next.is_empty() %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
+    <label>Email
+      <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required />
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required />
+    </label>
+    <button type="submit" class="primary">Sign in</button>
+  </form>
+  {% if passkeys_enabled %}
+  <div class="auth-separator"><span>or use a passkey</span></div>
+  <form data-passkey-login class="login-passkey-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label>Email
+      <input type="email" name="email" autocomplete="username webauthn" placeholder="you@example.com" required />
+    </label>
+    <button type="submit">Sign in with a passkey</button>
+    <p class="muted" data-passkey-status role="status"></p>
+  </form>
+  {% endif %}
+  {% if !providers.is_empty() %}
+  <div class="auth-separator"><span>or continue with</span></div>
+  <div class="login-provider-list">
+    {% for p in providers %}
+    <a class="btn" href="/auth/oauth/{{ p.slug }}">{{ p.name }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <p class="login-register-link">New to Rusty Feed? <a href="/register">Create an account</a></p>
+</section>
 {% endblock %}

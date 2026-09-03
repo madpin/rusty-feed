@@ -6,11 +6,13 @@
 //! milestones (see `docs/DEVELOPMENT_PLAN.md`).
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Context;
 use rusty_feed_cache::{Cache, CacheConfig};
 use rusty_feed_core::AppConfig;
 use rusty_feed_db::Db;
+use rusty_feed_embed::Embedder;
 use rusty_feed_web::{
     AppSettings, AppState, CaptchaSettings, OAuthProvider, ProviderKind, RateLimitSettings,
     ReverseProxyAuthSettings,
@@ -18,6 +20,14 @@ use rusty_feed_web::{
 
 #[path = "../../systemd.rs"]
 mod systemd;
+
+// glibc's default allocator fragments badly across the per-thread arenas this
+// process creates under concurrent HTML parsing/sanitization (embedded
+// worker + HTTP server in one process); jemalloc decays and returns freed
+// arena memory to the OS instead. See docs/FINDINGS.md.
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -76,17 +86,25 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("OAuth providers enabled: {}", names.join(", "));
     }
     // One embedding model per instance, shared by the search path and worker.
-    let embedder = rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
-        provider: config.embedding_provider,
-        model: embedding_model,
-        openai_api_key: config
-            .openai_api_key
-            .as_ref()
-            .map(|s| s.expose().to_string()),
-        openai_base_url: config.openai_base_url.clone(),
-        model_cache_dir: config.model_cache_dir.clone(),
-    })
-    .context("failed to build embedder")?;
+    // EMBEDDINGS_ENABLED=false skips building a real embedder entirely (no
+    // model download, no OpenAI credential requirement); every caller treats
+    // the resulting refusal as "semantic search unavailable".
+    let embedder: Arc<dyn Embedder> = if config.embeddings_enabled {
+        rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
+            provider: config.embedding_provider,
+            model: embedding_model,
+            openai_api_key: config
+                .openai_api_key
+                .as_ref()
+                .map(|s| s.expose().to_string()),
+            openai_base_url: config.openai_base_url.clone(),
+            model_cache_dir: config.model_cache_dir.clone(),
+        })
+        .context("failed to build embedder")?
+    } else {
+        tracing::info!("embeddings disabled (EMBEDDINGS_ENABLED=false): search is keyword-only");
+        Arc::new(rusty_feed_embed::DisabledEmbedder)
+    };
 
     // Optional LLM client for summaries (None ⇒ summarization disabled).
     let llm = rusty_feed_llm::build_client(rusty_feed_llm::LlmConfig {
@@ -162,6 +180,7 @@ async fn main() -> anyhow::Result<()> {
         summarization_enabled: true,
         env_llm,
         auto_embed: config.embedding_auto_generate,
+        embeddings_enabled: config.embeddings_enabled,
         search_mode: config.search_mode,
         search_text_config: config.search_text_config,
         search_semantic_weight_percent: config.search_semantic_weight_percent,
@@ -292,6 +311,7 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|error| anyhow::anyhow!("invalid CLEANUP_SCHEDULE: {error}"))?,
                 extraction_config: extraction_config(&config),
                 embed_on_ingest: config.embedding_auto_generate,
+                embeddings_enabled: config.embeddings_enabled,
                 auto_summarize: config.llm_auto_summarize,
                 eager_extraction: config.article_page_eager_extraction,
                 tracking_url_policy,

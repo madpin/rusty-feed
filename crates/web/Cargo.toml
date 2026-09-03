@@ -43,6 +43,7 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 
 [dev-dependencies]
 rusty-feed-agents = { workspace = true }
+rusty-feed-llm = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true }
 http-body-util = "0.1"

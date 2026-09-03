@@ -4,9 +4,10 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rusty_feed_cache::Cache;
+use rusty_feed_core::feed_content::CATALOG_ARTICLE_PAGE_RECOMMENDATIONS;
 use rusty_feed_db::models::NewArticle;
 use rusty_feed_db::{
-    api_tokens, articles, catalog, feeds, subscriptions, user_preferences, users, Db,
+    api_tokens, articles, catalog, categories, feeds, subscriptions, user_preferences, users, Db,
 };
 use rusty_feed_web::{router, AppSettings, AppState};
 
@@ -191,7 +192,19 @@ async fn landing_page_renders_for_anonymous_visitors() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let body = String::from_utf8_lossy(&body);
-    assert!(body.contains("Create free account"), "hero CTA present");
+    assert!(body.contains("Create your account"), "hero CTA present");
+    assert!(
+        body.contains("Own the feed"),
+        "distinct product voice present"
+    );
+    assert!(
+        body.contains("content: shared once") && body.contains("state: personal"),
+        "the architectural north star is explicit"
+    );
+    assert!(
+        body.contains("SKIP LOCKED"),
+        "durable worker design present"
+    );
     assert!(body.contains("Miniflux"), "comparison present");
     assert!(body.contains("Semantic"), "features present");
     // Strict-CSP: the landing page must carry no inline styles/scripts (§8.2).
@@ -402,6 +415,22 @@ async fn wizard_suggests_and_subscribes_curated_feeds() {
             .unwrap(),
         "wizard subscribes to the selected curated feed"
     );
+    // The already-shared feed lands pre-organized: a personal folder named for
+    // its catalog category, tagged the same way, instead of "Unfiled".
+    let expected_category: String = category.chars().take(40).collect();
+    let organization = subscriptions::list_organization(state.db.pool(), user.id)
+        .await
+        .unwrap();
+    let organized = organization
+        .iter()
+        .find(|entry| entry.feed_id == feed.id)
+        .expect("the newly subscribed feed has an organization row");
+    assert_eq!(organized.tags, vec![expected_category.clone()]);
+    let folder = categories::find_by_name(state.db.pool(), user.id, &expected_category)
+        .await
+        .unwrap()
+        .expect("a folder named for the catalog category was created");
+    assert_eq!(organized.category_id, Some(folder.id));
     let refreshed = users::find_by_id(state.db.pool(), user.id)
         .await
         .unwrap()
@@ -425,6 +454,115 @@ async fn wizard_suggests_and_subscribes_curated_feeds() {
             .any(|value| value.as_str() == Some(category.as_str())),
         "wizard records the selected interest"
     );
+}
+
+/// Featured catalog feeds are showcase content for demos only. A regular
+/// account starts empty, while every demo feed is immediately filed into its
+/// catalog-category folder and tagged with that category.
+#[tokio::test]
+async fn featured_feeds_are_demo_only_and_organized() {
+    let Some(state) = state().await else { return };
+    let regular = users::create(
+        state.db.pool(),
+        &format!("regular-empty-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        subscriptions::count_for_user(state.db.pool(), regular.id)
+            .await
+            .unwrap(),
+        0,
+        "regular accounts must choose their own feeds"
+    );
+
+    // Other test binaries share this database and one exercises the global
+    // demo reset. Protect this fixture immediately after create_demo has run;
+    // if the reset wins the tiny gap, recreate it. The returned value still
+    // proves create_demo itself marked the account as a demo.
+    let demo = loop {
+        let candidate = users::create_demo(
+            state.db.pool(),
+            &format!("demo-seeded-{}@demo.invalid", uuid::Uuid::now_v7()),
+            "Demo user",
+            "user",
+        )
+        .await
+        .unwrap();
+        let protected = sqlx::query("UPDATE users SET is_demo = false WHERE id = $1")
+            .bind(candidate.id)
+            .execute(state.db.pool())
+            .await
+            .unwrap()
+            .rows_affected();
+        if protected == 1 {
+            break candidate;
+        }
+    };
+    assert!(demo.is_demo, "create_demo marks the account as ephemeral");
+    let demo_preferences = user_preferences::get(state.db.pool(), demo.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(demo_preferences["theme"], "rusty");
+    let demo_count = subscriptions::count_for_user(state.db.pool(), demo.id)
+        .await
+        .unwrap();
+    let featured_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM user_feeds uf \
+         JOIN feed_catalog_entries c ON c.feed_id = uf.feed_id \
+         WHERE uf.user_id = $1 AND c.published AND c.featured",
+    )
+    .bind(demo.id)
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap();
+    assert!(demo_count > 0, "the demo catalog has showcase feeds");
+    assert_eq!(
+        demo_count, featured_count,
+        "every demo subscription is a featured showcase feed"
+    );
+    let recommended_public_pages: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM user_feeds uf JOIN feeds f ON f.id = uf.feed_id \
+         WHERE uf.user_id = $1 AND f.url = ANY($2) \
+           AND uf.settings->>'content_mode' = 'article_page'",
+    )
+    .bind(demo.id)
+    .bind(CATALOG_ARTICLE_PAGE_RECOMMENDATIONS)
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        recommended_public_pages as usize,
+        CATALOG_ARTICLE_PAGE_RECOMMENDATIONS.len(),
+        "recommended demo feeds use their shared public article-page copy"
+    );
+    let unexpected_public_pages: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM user_feeds uf JOIN feeds f ON f.id = uf.feed_id \
+         WHERE uf.user_id = $1 AND NOT (f.url = ANY($2)) \
+           AND uf.settings->>'content_mode' = 'article_page'",
+    )
+    .bind(demo.id)
+    .bind(CATALOG_ARTICLE_PAGE_RECOMMENDATIONS)
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap();
+    assert_eq!(unexpected_public_pages, 0);
+    let organization = subscriptions::list_organization(state.db.pool(), demo.id)
+        .await
+        .unwrap();
+    assert_eq!(organization.len() as i64, featured_count);
+    assert!(organization.iter().all(|feed| {
+        feed.category_id.is_some() && feed.tags.len() == 1 && !feed.tags[0].trim().is_empty()
+    }));
+    let folders = categories::list_for_user(state.db.pool(), demo.id)
+        .await
+        .unwrap();
+    assert!(!folders.is_empty(), "demo category folders were created");
 }
 
 fn set_cookies_value(resp: &axum::response::Response, name: &str) -> Option<String> {

@@ -40,6 +40,122 @@ const MAX_RESOURCE_BYTES: usize = 3 * 1024 * 1024;
 
 const LIVE_CSP: &str = "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; default-src * data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' blob:; style-src * 'unsafe-inline'; img-src * data: blob:; media-src * data: blob:; font-src * data:; connect-src *; frame-src *; object-src 'none'; base-uri *; form-action *; frame-ancestors 'self'";
 
+/// Third-party video-player CDNs whose embeds authenticate manifest/segment
+/// requests using the embedding page's own origin (Brightcove, Vimeo, JW
+/// Player, Wistia, Dailymotion — the platforms most licensed news/publisher
+/// video relies on). Live View's iframe deliberately has no `allow-same-origin`
+/// (FND-134) so it keeps an opaque, cookieless origin; any iframe it nests
+/// inherits that restriction (sandbox flags cascade to nested browsing
+/// contexts), so these players load but their CORS-gated video requests get
+/// rejected and playback silently fails. Rather than weakening the sandbox —
+/// which would reopen the same-origin/cookie risk FND-134 closed — these
+/// known embeds are swapped for a direct link to the real player page, which
+/// plays fine once opened in a normal, unsandboxed tab.
+const UNEMBEDDABLE_VIDEO_HOSTS: [&str; 7] = [
+    "players.brightcove.net",
+    "player.vimeo.com",
+    "fast.wistia.net",
+    "fast.wistia.com",
+    "cdn.jwplayer.com",
+    "content.jwplatform.net",
+    "www.dailymotion.com",
+];
+
+/// Detects and swaps iframes from [`UNEMBEDDABLE_VIDEO_HOSTS`] that a
+/// publisher's own script injects *after* the page loads (the common case —
+/// e.g. Brightcove/JW Player embeds are usually built from a JSON config, not
+/// a static `<iframe>`, so [`rewrite_publisher_html`]'s static rewrite never
+/// sees them). Runs entirely inside the sandboxed document using the
+/// `allow-scripts` grant it already has; it never touches Rusty Feed's own
+/// origin, cookies, or the parent frame.
+const UNEMBEDDABLE_VIDEO_SHIM_TEMPLATE: &str = r##"<script>(function () {
+  var HOSTS = __HOSTS__;
+  function blocked(absoluteUrl) {
+    try {
+      var host = new URL(absoluteUrl).hostname;
+      return HOSTS.some(function (known) {
+        return host === known || host.slice(-(known.length + 1)) === "." + known;
+      });
+    } catch (error) {
+      return false;
+    }
+  }
+  function swap(frame) {
+    if (!frame || frame.tagName !== "IFRAME" || frame.dataset.rfSwapped) return;
+    var src = frame.getAttribute("src");
+    if (!src) return;
+    var absolute;
+    try {
+      absolute = new URL(src, document.baseURI).href;
+    } catch (error) {
+      return;
+    }
+    if (!blocked(absolute)) return;
+    frame.dataset.rfSwapped = "1";
+    var link = document.createElement("a");
+    link.href = absolute;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "\u25b6 Play this video on the publisher's page";
+    link.style.cssText =
+      "display:flex;align-items:center;justify-content:center;gap:.5rem;min-height:3.5rem;" +
+      "margin:.75rem 0;padding:1rem;border:1px solid #d8dee8;border-radius:.7rem;" +
+      "background:#f6f8fb;color:#1769aa;font:600 15px/1.4 system-ui,sans-serif;text-decoration:none;";
+    frame.replaceWith(link);
+  }
+  function scan(root) {
+    if (root.querySelectorAll) root.querySelectorAll("iframe[src]").forEach(swap);
+  }
+  scan(document);
+  new MutationObserver(function (mutations) {
+    mutations.forEach(function (mutation) {
+      mutation.addedNodes.forEach(function (node) {
+        if (node.nodeType !== 1) return;
+        swap(node);
+        scan(node);
+      });
+      if (mutation.type === "attributes" && mutation.target.tagName === "IFRAME") {
+        swap(mutation.target);
+      }
+    });
+  }).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["src"],
+  });
+})();</script>"##;
+
+fn unembeddable_video_shim_script() -> String {
+    let hosts = UNEMBEDDABLE_VIDEO_HOSTS
+        .iter()
+        .map(|host| format!("{host:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    UNEMBEDDABLE_VIDEO_SHIM_TEMPLATE.replace("__HOSTS__", &format!("[{hosts}]"))
+}
+
+/// Whether `url`'s host is one of [`UNEMBEDDABLE_VIDEO_HOSTS`].
+fn is_unembeddable_video_host(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    UNEMBEDDABLE_VIDEO_HOSTS
+        .iter()
+        .any(|known| host == *known || host.ends_with(&format!(".{known}")))
+}
+
+/// A small, self-contained (inline-styled, since the publisher's own CSS may
+/// not have loaded) link that replaces an unplayable embedded player: opening
+/// `url` directly in a normal, unsandboxed tab gives the browser a real
+/// origin, so the video actually plays there.
+fn unembeddable_video_notice(url: &str) -> String {
+    format!(
+        "<a href=\"{href}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"display:flex;align-items:center;justify-content:center;gap:.5rem;min-height:3.5rem;margin:.75rem 0;padding:1rem;border:1px solid #d8dee8;border-radius:.7rem;background:#f6f8fb;color:#1769aa;font:600 15px/1.4 system-ui,sans-serif;text-decoration:none;\">\u{25b6}&nbsp;Play this video on the publisher's page</a>",
+        href = escape_html(url)
+    )
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct LivePageTicket {
     article_id: Uuid,
@@ -415,6 +531,7 @@ fn rewrite_publisher_html(
     let inline_style_base = base.clone();
     let style_tag_base = base.clone();
     let anchor_base = base.clone();
+    let iframe_base = base.clone();
     let form_base = base;
     let script_tokens = cryptor.clone();
     let style_tokens = cryptor.clone();
@@ -452,11 +569,26 @@ fn rewrite_publisher_html(
             .append_element_content_handler(element!("head", move |element| {
                 element.prepend(
                     &format!(
-                        "<base href=\"{}\"><meta name=\"referrer\" content=\"no-referrer\">",
-                        base_for_head
+                        "<base href=\"{}\"><meta name=\"referrer\" content=\"no-referrer\">{}",
+                        base_for_head,
+                        unembeddable_video_shim_script()
                     ),
                     ContentType::Html,
                 );
+                Ok(())
+            }))
+            .append_element_content_handler(element!("iframe[src]", move |element| {
+                let Some(src) = element.get_attribute("src") else {
+                    return Ok(());
+                };
+                if let Some(absolute) = resolve_public_url(&iframe_base, &src) {
+                    if is_unembeddable_video_host(&absolute) {
+                        element.replace(
+                            &unembeddable_video_notice(absolute.as_str()),
+                            ContentType::Html,
+                        );
+                    }
+                }
                 Ok(())
             }))
             .append_element_content_handler(element!("script[src]", move |element| {
@@ -968,6 +1100,51 @@ mod tests {
         assert!(!rewritten.contains("loading=\"lazy\""));
         assert!(rewritten.contains("href=\"https://publisher.example/story\""));
         assert!(rewritten.contains("target=\"_blank\""));
+    }
+
+    #[test]
+    fn swaps_a_static_iframe_from_a_known_unembeddable_video_host() {
+        let cryptor = Cryptor::new(b"test-live-view-secret");
+        let article_id = Uuid::now_v7();
+        let rewritten = rewrite_publisher_html(
+            r#"<!doctype html><html><head></head><body><iframe src="https://players.brightcove.net/665003303001/6tKQRAx7lu_default/index.html"></iframe><iframe src="/embed/map"></iframe></body></html>"#,
+            "https://publisher.example/posts/one",
+            article_id,
+            &cryptor,
+            "https://rusty-feed.example",
+        )
+        .unwrap();
+
+        // The Brightcove embed is swapped for a direct, working link...
+        assert!(!rewritten.contains("<iframe src=\"https://players.brightcove.net"));
+        assert!(rewritten.contains(
+            "href=\"https://players.brightcove.net/665003303001/6tKQRAx7lu_default/index.html\""
+        ));
+        assert!(rewritten.contains("Play this video on the publisher's page"));
+        // ...while an unrelated, same-publisher iframe is left alone (its
+        // relative src resolves correctly via the injected <base href>).
+        assert!(rewritten.contains("<iframe src=\"/embed/map\">"));
+    }
+
+    #[test]
+    fn injects_a_shim_that_swaps_dynamically_created_player_iframes() {
+        let cryptor = Cryptor::new(b"test-live-view-secret");
+        let article_id = Uuid::now_v7();
+        let rewritten = rewrite_publisher_html(
+            "<!doctype html><html><head></head><body></body></html>",
+            "https://publisher.example/posts/one",
+            article_id,
+            &cryptor,
+            "https://rusty-feed.example",
+        )
+        .unwrap();
+
+        // The publisher's own script (e.g. Brightcove) builds its iframe after
+        // load, so the shim must watch for it rather than rely on the static
+        // rewrite alone.
+        assert!(rewritten.contains("MutationObserver"));
+        assert!(rewritten.contains("\"players.brightcove.net\""));
+        assert!(rewritten.contains("\"player.vimeo.com\""));
     }
 
     #[test]

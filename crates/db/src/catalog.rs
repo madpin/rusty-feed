@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+
+use rusty_feed_core::feed_content::SubscriptionContentSettings;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -49,10 +52,21 @@ pub struct CatalogEntry {
     pub subscribed: bool,
 }
 
+/// One catalog subscription and its initial personal content preference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CatalogSubscriptionChoice {
+    pub feed_id: Uuid,
+    pub content: SubscriptionContentSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogSubscriptionResult {
     pub attempted: usize,
     pub created: usize,
+    /// Feed ids that were newly subscribed by this call (excludes ones the
+    /// caller was already subscribed to), so callers can auto-organize only
+    /// the new subscriptions without disturbing existing folders/tags.
+    pub created_feed_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -400,41 +414,111 @@ pub async fn subscribe_published_many(
     user_id: Uuid,
     feed_ids: &[Uuid],
 ) -> Result<CatalogSubscriptionResult> {
-    if feed_ids.is_empty() {
+    let choices = feed_ids
+        .iter()
+        .copied()
+        .map(|feed_id| CatalogSubscriptionChoice {
+            feed_id,
+            content: SubscriptionContentSettings::default(),
+        })
+        .collect::<Vec<_>>();
+    subscribe_published_many_with_content(pool, user_id, &choices).await
+}
+
+/// Subscribe to published catalog feeds with an initial per-subscription content choice.
+pub async fn subscribe_published_many_with_content(
+    pool: &PgPool,
+    user_id: Uuid,
+    choices: &[CatalogSubscriptionChoice],
+) -> Result<CatalogSubscriptionResult> {
+    let choices = choices
+        .iter()
+        .map(|choice| (choice.feed_id, choice.content))
+        .collect::<BTreeMap<_, _>>();
+    if choices.is_empty() {
         return Ok(CatalogSubscriptionResult {
             attempted: 0,
             created: 0,
+            created_feed_ids: Vec::new(),
         });
     }
+    let feed_ids = choices.keys().copied().collect::<Vec<_>>();
     let mut transaction = pool.begin().await?;
     let published: Vec<Uuid> = sqlx::query_scalar(
         "SELECT feed_id FROM feed_catalog_entries \
          WHERE published AND feed_id = ANY($1) FOR SHARE",
     )
-    .bind(feed_ids)
+    .bind(&feed_ids)
     .fetch_all(&mut *transaction)
     .await?;
     if published.len() != feed_ids.len() {
         return Err(crate::DbError::NotFound);
     }
-    let mut created = 0;
-    for feed_id in feed_ids {
+    let mut created_feed_ids = Vec::new();
+    for (feed_id, content) in &choices {
         let result = sqlx::query(
-            "INSERT INTO user_feeds (id, user_id, feed_id) VALUES ($1, $2, $3) \
+            "INSERT INTO user_feeds (id, user_id, feed_id, settings) VALUES ($1, $2, $3, $4) \
              ON CONFLICT (user_id, feed_id) DO NOTHING",
         )
         .bind(Uuid::now_v7())
         .bind(user_id)
         .bind(feed_id)
+        .bind(content.to_json())
         .execute(&mut *transaction)
         .await?;
-        created += result.rows_affected() as usize;
+        if result.rows_affected() > 0 {
+            created_feed_ids.push(*feed_id);
+        }
     }
     transaction.commit().await?;
     Ok(CatalogSubscriptionResult {
-        attempted: feed_ids.len(),
-        created,
+        attempted: choices.len(),
+        created: created_feed_ids.len(),
+        created_feed_ids,
     })
+}
+
+/// After subscribing a user to catalog feeds, place each **newly created**
+/// subscription (never ones the caller already had — that would clobber their
+/// existing organization) into a personal folder named after its catalog
+/// category, and tag it with that category. Without this, a feed's
+/// already-shared articles (probed/fetched before this user ever subscribed)
+/// would land "Unfiled" and untagged for the new subscriber even though the
+/// catalog already knows what the source is about. Best-effort per feed: a
+/// feed with no published catalog entry is skipped rather than failing the
+/// whole batch.
+pub async fn organize_new_subscriptions(
+    pool: &PgPool,
+    user_id: Uuid,
+    feed_ids: &[Uuid],
+) -> Result<()> {
+    for &feed_id in feed_ids {
+        let category: Option<String> = sqlx::query_scalar(
+            "SELECT category FROM feed_catalog_entries WHERE feed_id = $1 AND published",
+        )
+        .bind(feed_id)
+        .fetch_optional(pool)
+        .await?;
+        let Some(category) = category else { continue };
+        let category = category.trim();
+        if category.is_empty() {
+            continue;
+        }
+        // Mirror the 40-char tag limit enforced on the manual organize path
+        // (crate::subscriptions::validate_tags) so this never produces a tag
+        // longer than what the UI would otherwise accept.
+        let category: String = category.chars().take(40).collect();
+        let folder = crate::categories::create(pool, user_id, &category, None).await?;
+        crate::subscriptions::update_organization(
+            pool,
+            user_id,
+            feed_id,
+            std::slice::from_ref(&category),
+            Some(folder.id),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn upsert(

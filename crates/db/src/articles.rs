@@ -837,12 +837,15 @@ pub struct ArticleListItem {
 
 /// List a user's reading feed: articles from their subscribed feeds, newest
 /// first, annotated with per-user read/bookmark flags. Optionally filter to one
-/// `feed_id`; `unread_only` hides already-read articles.
+/// `feed_id`; `unread_only` hides already-read articles; `summary_only` hides
+/// articles that don't have a ready AI summary yet (so a reader who queued
+/// several summaries and moved on can jump straight to the ones now ready).
 pub async fn list_for_user(
     pool: &PgPool,
     user_id: Uuid,
     filter: LibraryFilter<'_>,
     unread_only: bool,
+    summary_only: bool,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ArticleListItem>> {
@@ -872,7 +875,8 @@ pub async fn list_for_user(
                 WHERE ufc.user_feed_id = uf.id)) \
            AND (NOT $4 OR NOT EXISTS (SELECT 1 FROM user_feed_categories ufc \
                 WHERE ufc.user_feed_id = uf.id)) \
-           AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[]) {read_filter} \
+           AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[]) \
+           AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) {read_filter} \
          ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
          LIMIT $6 OFFSET $7",
         read_filter = if unread_only {
@@ -889,6 +893,7 @@ pub async fn list_for_user(
         .bind(filter.tag)
         .bind(limit)
         .bind(offset)
+        .bind(summary_only)
         .fetch_all(pool)
         .await?)
 }

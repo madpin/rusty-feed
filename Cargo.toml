@@ -116,6 +116,11 @@ metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
 sd-notify = "0.5"
 
+# allocator — glibc's default per-thread arenas fragment badly under the
+# server/worker's concurrent HTML-parsing workload (see docs/FINDINGS.md);
+# jemalloc decays/returns freed arena memory to the OS instead.
+tikv-jemallocator = "0.7"
+
 [profile.dev]
 # Keep source locations for backtraces without retaining full debug information.
 debug = "line-tables-only"

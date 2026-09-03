@@ -24,3 +24,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 sd-notify = { workspace = true }
+
+# jemalloc isn't available on MSVC; irrelevant here (Linux-only deploys) but
+# kept as the crate's documented guard.
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { workspace = true }

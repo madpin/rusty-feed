@@ -87,6 +87,11 @@ PLAYWRIGHT_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_fe
   PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
   npm run test:e2e
 
+# Opt-in full-stack stress test (dedicated disposable database; optional Redis L2)
+TEST_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_feed_stress \
+  TEST_REDIS_URL=redis://localhost:6379 \
+  npm run test:stress
+
 # Dependencies (local dev)
 docker compose --env-file .env -f docker/compose.yaml up -d postgres redis chromium
 

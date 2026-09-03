@@ -265,6 +265,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
             tag: None,
         },
         false,
+        false,
         20,
         0,
     )
@@ -285,6 +286,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
             tag: Some("work"),
         },
         false,
+        false,
         20,
         0,
     )
@@ -304,6 +306,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
             tag: Some("personal"),
         },
         false,
+        false,
         20,
         0,
     )
@@ -322,6 +325,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
             unfiled: true,
             tag: None,
         },
+        false,
         false,
         20,
         0,
@@ -373,6 +377,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
             tag: Some("work"),
         },
         true,
+        false,
         20,
         0,
     )
@@ -389,6 +394,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
             tag: Some("personal"),
         },
         true,
+        false,
         20,
         0,
     )
@@ -408,6 +414,7 @@ async fn folders_and_tags_are_personal_single_folder_library_filters() {
             tag: None,
         },
         true,
+        false,
         20,
         0,
     )
@@ -576,4 +583,118 @@ async fn bulk_organization_is_atomic_and_personal() {
         assert_eq!(organization.category_id, Some(folder.id));
         assert_eq!(organization.tags, vec!["final".to_string()]);
     }
+}
+
+/// A reader who queues several summaries and moves on needs a single filter
+/// that finds exactly the ones now ready and not yet read — not everything
+/// with a summary (including ones already read), and not everything unread
+/// (including ones with no summary at all).
+#[tokio::test]
+async fn summary_only_filter_finds_ready_and_unread_but_nothing_else() {
+    let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&database_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let alice = users::create(
+        db.pool(),
+        &format!("{}@example.com", unique("alice-summary")),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://organization.example/{}.xml", uuid::Uuid::now_v7()),
+        "Summary feed",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), alice.id, feed.id, None)
+        .await
+        .unwrap();
+
+    async fn add(db: &Db, feed_id: uuid::Uuid, title: &str) -> rusty_feed_db::Article {
+        articles::upsert(
+            db.pool(),
+            &NewArticle {
+                feed_id,
+                url: format!(
+                    "https://organization.example/{}/{title}",
+                    uuid::Uuid::now_v7()
+                ),
+                comments_url: None,
+                guid: None,
+                title: title.to_string(),
+                author: None,
+                content: title.to_string(),
+                excerpt: None,
+                image_url: None,
+                enclosures: Vec::new(),
+                published_at: None,
+            },
+        )
+        .await
+        .unwrap()
+        .0
+    }
+
+    let ready_unread = add(&db, feed.id, "Ready and unread").await;
+    assert!(articles::set_summary(
+        db.pool(),
+        ready_unread.id,
+        ready_unread.content_revision,
+        "A ready summary",
+        &[],
+        &[],
+        "test-model",
+    )
+    .await
+    .unwrap());
+
+    let ready_read = add(&db, feed.id, "Ready but already read").await;
+    assert!(articles::set_summary(
+        db.pool(),
+        ready_read.id,
+        ready_read.content_revision,
+        "Another ready summary",
+        &[],
+        &[],
+        "test-model",
+    )
+    .await
+    .unwrap());
+    read_articles::mark_read(db.pool(), alice.id, ready_read.id)
+        .await
+        .unwrap();
+
+    let _unread_no_summary = add(&db, feed.id, "Unread with no summary").await;
+
+    // The "unread AI summaries" view combines both flags (the web layer forces
+    // unread_only whenever summary_only is requested; this proves they compose
+    // as independent, orthogonal predicates at the data layer).
+    let filter = articles::LibraryFilter::default();
+    let summary_only = articles::list_for_user(db.pool(), alice.id, filter, true, true, 20, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        summary_only
+            .into_iter()
+            .map(|item| item.title)
+            .collect::<std::collections::HashSet<_>>(),
+        std::collections::HashSet::from(["Ready and unread".to_string()])
+    );
+
+    // Without the summary filter, everything (including the read/no-summary
+    // articles) is still there — the new predicate is additive, not a
+    // side effect of unread-scoping alone.
+    let unfiltered = articles::list_for_user(db.pool(), alice.id, filter, false, false, 20, 0)
+        .await
+        .unwrap();
+    assert_eq!(unfiltered.len(), 3);
 }

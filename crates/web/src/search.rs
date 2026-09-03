@@ -37,6 +37,7 @@ struct SearchTemplate {
     is_admin: bool,
     query: String,
     requested_mode: String,
+    embeddings_enabled: bool,
     effective_mode: String,
     effective_text_config: String,
     semantic_weight_percent: u8,
@@ -133,7 +134,14 @@ pub async fn page(
         Some("hybrid" | "keyword" | "semantic") => query.mode.unwrap_or_default(),
         _ => "preferred".to_string(),
     };
-    let mode = SearchMode::parse(&requested_mode).unwrap_or(preferred);
+    // EMBEDDINGS_ENABLED=false is authoritative: ignore both the request and
+    // any stale personal preference saved before the instance disabled it,
+    // rather than relying solely on the embedder erroring on every query.
+    let mode = if state.settings.embeddings_enabled {
+        SearchMode::parse(&requested_mode).unwrap_or(preferred)
+    } else {
+        SearchMode::Keyword
+    };
     let text_config = text_config(&preferences, &state.settings);
     let semantic_weight_percent = preferences
         .search_semantic_weight_percent
@@ -233,6 +241,7 @@ pub async fn page(
         is_admin,
         query: q,
         requested_mode,
+        embeddings_enabled: state.settings.embeddings_enabled,
         effective_mode: mode.as_str().to_string(),
         effective_text_config: text_config.as_str().to_string(),
         semantic_weight_percent,

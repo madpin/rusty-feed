@@ -7,6 +7,20 @@ use crate::content_rules::{rewrite_rules_from_json, RewriteRule};
 pub const DEFAULT_CONTENT_LIFETIME_DAYS: u16 = 30;
 /// Longest finite public-page lifetime accepted from a subscription.
 pub const MAX_CONTENT_LIFETIME_DAYS: u16 = 3650;
+/// Built-in catalog sources whose public pages provide the recommended reading body.
+pub const CATALOG_ARTICLE_PAGE_RECOMMENDATIONS: &[&str] = &[
+    "https://openai.com/news/rss.xml",
+    "https://blog.python.org/feeds/posts/default?alt=rss",
+    "https://www.propublica.org/feeds/propublica/main",
+    "https://api.quantamagazine.org/feed/",
+    "https://news.ycombinator.com/rss",
+    "https://feeds.arstechnica.com/arstechnica/index",
+    "https://www.aljazeera.com/xml/rss/all.xml",
+    "http://feeds.bbci.co.uk/news/world/rss.xml",
+    "https://rss.dw.com/rdf/rss-en-top",
+    "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+    "https://www.theguardian.com/world/rss",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +55,15 @@ impl FeedContentMode {
 
     pub fn fetches_article_pages(self) -> bool {
         matches!(self, Self::ArticlePage)
+    }
+}
+
+/// Return the built-in content recommendation for a catalog feed URL.
+pub fn recommended_catalog_content_mode(feed_url: &str) -> FeedContentMode {
+    if CATALOG_ARTICLE_PAGE_RECOMMENDATIONS.contains(&feed_url) {
+        FeedContentMode::ArticlePage
+    } else {
+        FeedContentMode::Rss
     }
 }
 
@@ -313,6 +336,18 @@ mod tests {
         assert_eq!(
             FeedContentSettings::from_json(None),
             FeedContentSettings::default()
+        );
+    }
+
+    #[test]
+    fn recommends_public_pages_only_for_selected_catalog_sources() {
+        assert_eq!(
+            recommended_catalog_content_mode("https://openai.com/news/rss.xml"),
+            FeedContentMode::ArticlePage
+        );
+        assert_eq!(
+            recommended_catalog_content_mode("https://blog.rust-lang.org/feed.xml"),
+            FeedContentMode::Rss
         );
     }
 

@@ -232,40 +232,69 @@ the tested Postgres + pgvector version for you.
 
 ## C. Dokploy
 
-[Dokploy](https://dokploy.com) is a self-hosted platform that deploys Docker apps
-from a Git repo. Rusty Feed ships a Compose file it can use directly.
+[Dokploy](https://dokploy.com) is a self-hosted PaaS that runs Docker Compose
+stacks with automatic TLS. Rusty Feed publishes a ready-to-run, multi-arch image
+(`linux/amd64` + `linux/arm64`) for **every green commit on `main`**, so Dokploy
+just **pulls and runs** it — no Rust build on your server. The stack file is
+[`docker/compose.dokploy.yaml`](../docker/compose.dokploy.yaml) and brings up the
+app + Postgres/pgvector + Redis + headless Chrome.
 
 ### 1. Prepare
-- Have Dokploy installed on your server (see Dokploy's own install docs).
-- Push your copy of Rusty Feed to a Git repository Dokploy can reach (GitHub, GitLab,
-  or a private repo with credentials).
+- Install Dokploy on your server (see Dokploy's install docs).
+- Make the image pullable by Dokploy. GHCR packages start **private**, so after
+  the first `main` build either (a) set the `rusty-feed` package to **Public**
+  once (GitHub → Packages → `rusty-feed` → Package settings → Change visibility),
+  or (b) keep it private and add a GHCR registry credential in Dokploy
+  (Settings → Registry) using a token with `read:packages`.
+- Generate two secrets:
+  ```
+  openssl rand -base64 48   # SESSION_SECRET
+  openssl rand -base64 48   # ENCRYPTION_SECRET
+  ```
 
 ### 2. Create a Compose service
 1. In the Dokploy dashboard, create a **Project**, then add a **Compose** service.
-2. Point it at your Rusty Feed Git repository and branch.
-3. Set the **Compose file path** to `docker/compose.yaml`.
+2. Point it at the Rusty Feed Git repository (or choose a **Raw** compose service
+   and paste the contents of `docker/compose.dokploy.yaml`).
+3. Set the **Compose file path** to `docker/compose.dokploy.yaml`.
 
-### 3. Set environment variables (secrets)
-In the service's **Environment** settings, add:
+### 3. Set environment variables
+In the service's **Environment** editor:
 
 ```
-SESSION_SECRET=<your generated secret>
-ENCRYPTION_SECRET=<your generated secret>
+SESSION_SECRET=<generated secret>
+ENCRYPTION_SECRET=<generated secret>
+BASE_URL=https://your-domain          # your real public URL
+# Optional:
+# REGISTRATION_MODE=invite            # open | invite | closed
+# OPENAI_API_KEY=sk-...               # enable AI summaries
+# RUSTY_FEED_IMAGE=ghcr.io/you/rusty-feed:main   # your fork, or pin a commit/tag
 ```
-
-Optional: `OPENAI_API_KEY`, `LOG_LEVEL=info`, and any OAuth credentials.
 
 ### 4. Expose the app
-- Point Dokploy's domain/proxy at the **`app`** service, container port **8080**.
-- Add your domain and enable HTTPS (Dokploy handles the certificate).
-- Set `BASE_URL=https://your-domain` in the environment so links are correct.
+- Open the **Domains** tab, add your domain, and select service **`app`**,
+  container port **8080**. Dokploy adds the Traefik route and issues the
+  certificate automatically — no ports or labels to edit by hand.
+- Keep `BASE_URL` in step 3 matching that domain so links, OAuth, and passkeys work.
 
 ### 5. Deploy
-Click **Deploy**. Dokploy builds the image and starts the stack; migrations run
+Click **Deploy**. Dokploy pulls the image and starts the stack; migrations run
 automatically on boot. Verify at `https://your-domain/api/health`.
 
-> Data (Postgres) lives in the compose volumes Dokploy manages — configure
-> backups for the `pgdata` volume.
+**Which image tag runs?** The stack defaults to `ghcr.io/madpin/rusty-feed:main`
+(the tip of `main`). Choose another by setting `RUSTY_FEED_IMAGE`:
+
+| Tag | Meaning |
+|---|---|
+| `:main` | Latest green commit on `main` (rolling). Redeploy to update. |
+| `:main-<shortsha>` | One exact commit — reproducible deploys and easy rollback. |
+| `:vX.Y.Z` | A tagged, signed, SBOM-attested release. |
+| `:edge` | Alias for the tip of `main`. |
+
+To auto-update on every push, enable Dokploy's Git webhook / auto-deploy.
+
+> Data (Postgres) and the embedding model cache live in the `pgdata` and `models`
+> volumes Dokploy manages — configure backups for the `pgdata` volume.
 
 ---
 

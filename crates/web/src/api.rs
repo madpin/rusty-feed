@@ -270,6 +270,7 @@ pub async fn articles_list(
             tag: None,
         },
         query.unread,
+        false,
         query.limit.clamp(1, 100),
         query.offset.clamp(0, 1_000_000),
     )

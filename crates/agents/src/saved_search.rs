@@ -64,17 +64,24 @@ struct Payload {
 /// Matches new articles against a single saved search.
 pub struct SavedSearchMatchAgent {
     embedder: Arc<dyn Embedder>,
+    /// When `false` (`EMBEDDINGS_ENABLED=false`), matching never calls the
+    /// embedder: candidates come from recency alone and scoring is
+    /// keyword-only, instead of the semantic+keyword blend.
+    embeddings_enabled: bool,
 }
 
 impl SavedSearchMatchAgent {
-    pub fn new(embedder: Arc<dyn Embedder>) -> Self {
-        Self { embedder }
+    pub fn new(embedder: Arc<dyn Embedder>, embeddings_enabled: bool) -> Self {
+        Self {
+            embedder,
+            embeddings_enabled,
+        }
     }
 }
 
 impl Default for SavedSearchMatchAgent {
     fn default() -> Self {
-        Self::new(Arc::new(HashEmbedder::default()))
+        Self::new(Arc::new(HashEmbedder::default()), true)
     }
 }
 
@@ -99,17 +106,29 @@ impl Agent for SavedSearchMatchAgent {
         } else {
             terms.join(" ")
         };
-        let query_vec = self.embedder.embed_one(&query_text).await?;
-
-        let candidates = embeddings::candidates_for_query(
-            pool,
-            ss.user_id,
-            &query_vec,
-            self.embedder.model(),
-            CANDIDATE_DAYS,
-            CANDIDATE_LIMIT,
-        )
-        .await?;
+        // With embeddings disabled, never call the embedder at all: rank the
+        // same recent per-user window by recency instead of similarity, and
+        // fall through to keyword-only scoring below.
+        let candidates = if self.embeddings_enabled {
+            let query_vec = self.embedder.embed_one(&query_text).await?;
+            embeddings::candidates_for_query(
+                pool,
+                ss.user_id,
+                &query_vec,
+                self.embedder.model(),
+                CANDIDATE_DAYS,
+                CANDIDATE_LIMIT,
+            )
+            .await?
+        } else {
+            embeddings::recent_candidates_for_user(
+                pool,
+                ss.user_id,
+                CANDIDATE_DAYS,
+                CANDIDATE_LIMIT,
+            )
+            .await?
+        };
 
         let mut new_matches = 0i64;
         let mut notified = 0u64;
@@ -120,15 +139,23 @@ impl Agent for SavedSearchMatchAgent {
                 continue;
             }
             let kw = saved::keyword_score(&query, &cand.title, &cand.content);
-            let score = saved::combine(cand.similarity, kw.score);
+            let score = if self.embeddings_enabled {
+                saved::combine(cand.similarity, kw.score)
+            } else {
+                kw.score
+            };
             if score < ss.threshold {
                 continue;
             }
 
-            let reason = format!(
-                "{}% match (semantic + keyword)",
-                (score * 100.0).round() as i64
-            );
+            let reason = if self.embeddings_enabled {
+                format!(
+                    "{}% match (semantic + keyword)",
+                    (score * 100.0).round() as i64
+                )
+            } else {
+                format!("{}% match (keyword)", (score * 100.0).round() as i64)
+            };
             let created = saved_search_matches::upsert(
                 pool,
                 ss.id,

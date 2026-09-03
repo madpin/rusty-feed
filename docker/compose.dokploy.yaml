@@ -1,0 +1,98 @@
+# Rusty Feed — full self-contained stack that PULLS the prebuilt image.
+#
+# Unlike docker/compose.yaml (which BUILDS from source on the host), this file
+# runs the multi-arch image published for every green commit on main:
+#   ghcr.io/madpin/rusty-feed:main         # tip of main (rolling, auto-updates)
+#   ghcr.io/madpin/rusty-feed:main-<sha>   # pinned to one commit (reproducible)
+#   ghcr.io/madpin/rusty-feed:vX.Y.Z       # signed, SBOM-attested release
+# Override the image/tag with RUSTY_FEED_IMAGE (e.g. your own fork's GHCR path).
+#
+# ── Deploy to Dokploy ─────────────────────────────────────────────────────────
+#   1. Project → Create Service → Compose.
+#   2. Point it at this Git repo and set the Compose Path to
+#      docker/compose.dokploy.yaml (or paste this file into a Raw compose service).
+#   3. Environment: set SESSION_SECRET, ENCRYPTION_SECRET (openssl rand -base64 48)
+#      and BASE_URL=https://your-domain. See docs/GETTING_STARTED.md §C.
+#   4. Domains → add your domain → service "app", container port 8080 (Dokploy
+#      injects the Traefik labels + network and issues the TLS certificate).
+#   5. Deploy. Migrations run automatically on boot; verify at /api/health.
+#
+# ── Plain Docker Compose (no Dokploy) ─────────────────────────────────────────
+#   Add a host port to the app service, e.g.  ports: ["8080:8080"]  then:
+#     SESSION_SECRET=... ENCRYPTION_SECRET=... \
+#       docker compose -f docker/compose.dokploy.yaml up -d
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rusty_feed
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rusty_feed}
+      POSTGRES_DB: rusty_feed
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rusty_feed -d rusty_feed"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Remote headless Chrome for the extraction agent's bounded fallback. Kept
+  # separate so the app image stays small and browser memory is capped alone.
+  chromium:
+    image: chromedp/headless-shell:latest
+    restart: unless-stopped
+    init: true
+    command:
+      - --no-sandbox
+      - --disable-gpu
+      - --headless=new
+
+  app:
+    image: ${RUSTY_FEED_IMAGE:-ghcr.io/madpin/rusty-feed:main}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Dokploy routes to this after you add a domain (service: app, port 8080).
+    # No host port is published so it never clashes with Traefik or other stacks.
+    expose:
+      - "8080"
+    environment:
+      BIND_ADDR: 0.0.0.0:8080
+      # Public URL — used for absolute links, OAuth redirects, and passkeys.
+      # Set this to your real https origin in the Dokploy environment editor.
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
+      DATABASE_URL: postgres://rusty_feed:${POSTGRES_PASSWORD:-rusty_feed}@postgres:5432/rusty_feed
+      REDIS_URL: redis://redis:6379
+      CACHE_ENABLED: "true"
+      CHROMIUM_CDP_URL: http://chromium:9222
+      MODEL_CACHE_DIR: /var/lib/rusty-feed/models
+      RUN_EMBEDDED_WORKER: "true"
+      AUTO_MIGRATE: "true"
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-open}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Required secrets — generate each with: openssl rand -base64 48
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET, e.g. openssl rand -base64 48}
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:?set ENCRYPTION_SECRET, e.g. openssl rand -base64 48}
+      # Optional AI summaries (leave unset to disable):
+      # OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - models:/var/lib/rusty-feed/models
+
+volumes:
+  pgdata:
+  models:

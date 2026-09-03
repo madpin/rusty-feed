@@ -90,7 +90,6 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit" class="summary-button">Summarize with AI</button>
-            <span class="muted" data-summary-progress role="status"></span>
           </form>
           {% endif %}
           <a href="/articles/{{ a.id }}/send" class="btn">Send to…</a>
@@ -127,6 +126,7 @@
             </div>
           </details>
         </div>
+        <p class="card-summary-status muted" data-summary-progress role="status"></p>
       </li>
       {% endfor %}
     </ul>

@@ -175,12 +175,19 @@ library; outbound HTTP and OAuth traffic continue to use rustls.
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `EMBEDDING_PROVIDER` | `local` | `local` or `openai` |
+| `EMBEDDINGS_ENABLED` | `true` | Master switch for every embedding use case. `false` skips loading/downloading a model (no ONNX runtime, no OpenAI credential requirement), forces `SEARCH_MODE=keyword` and `EMBEDDING_AUTO_GENERATE=false` instance-wide, hides the semantic/hybrid options in Preferences and Search, and keeps saved searches working keyword-only instead of semantic+keyword |
+| `EMBEDDING_PROVIDER` | `local` | `local` or `openai`; irrelevant when `EMBEDDINGS_ENABLED=false` |
 | `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | One active vector space per instance |
 | `EMBEDDING_BATCH_SIZE` | `10` | Positive processing batch size |
 | `EMBEDDING_AUTO_GENERATE` | `false` | Queue embeddings during ingestion |
 | `MODEL_CACHE_DIR` | `/var/lib/rusty-feed/models` | Persistent model directory |
-| `OPENAI_API_KEY` | unset | Required for the OpenAI embedding provider |
+| `OPENAI_API_KEY` | unset | Required for the OpenAI embedding provider, unless `EMBEDDINGS_ENABLED=false` |
+
+Disabling embeddings is a good fit for small/low-resource instances that only
+need exact-word search: it removes the local model/ONNX runtime from the
+process's memory footprint (see the admin dashboard's storage & memory
+section) and the `rusty-feed-cli fetch-model`/`backfill`/`reindex` commands
+refuse cleanly instead of doing wasted work.
 | `OPENAI_BASE_URL` | provider default | OpenAI-compatible API base URL |
 | `SEARCH_MODE` | `hybrid` | `hybrid`, `keyword`, or `semantic` |
 | `SEARCH_TEXT_CONFIG` | `simple` | `simple` multilingual tokens or `english` stemming |
@@ -390,9 +397,13 @@ jurisdiction before launch.
 ## Public launch: demo mode & read-only admin
 
 A shared guest sandbox (`docs/PUBLIC_LAUNCH_PLAN.md` §7). "Try the demo" on the
-landing page provisions ephemeral `is_demo` accounts that are sandboxed and
-wiped daily by the `DemoResetAgent` (scoped strictly to `is_demo = true`, so real
-users and shared seed content are never touched). A first-class `admin_readonly`
+landing page provisions ephemeral `is_demo` accounts that are sandboxed,
+preloaded with the featured showcase feeds, organized into folders/tags by
+catalog category, and wiped daily by the `DemoResetAgent` (scoped strictly to
+`is_demo = true`, so real users and shared seed content are never touched).
+Featured feeds are never automatic subscriptions for regular local, OAuth,
+invited, reverse-proxy, or CLI-created accounts; those accounts start empty and
+choose their own sources. A first-class `admin_readonly`
 role backs the demo "see as admin" view and is reusable for support/auditors:
 it may `GET` admin pages but is structurally `403` on every admin write, and
 other users' PII (emails, cost breakdown) is masked.

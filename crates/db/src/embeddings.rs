@@ -146,6 +146,31 @@ pub async fn candidates_for_query(
         .await?)
 }
 
+/// The embeddings-disabled counterpart to [`candidates_for_query`]: the same
+/// recent, per-user candidate window, but ranked by recency instead of vector
+/// similarity (`similarity` is always `0.0`) since there is no query vector to
+/// compare against. Lets saved-search matching keep working, keyword-only,
+/// on an instance with `EMBEDDINGS_ENABLED=false`.
+pub async fn recent_candidates_for_user(
+    pool: &PgPool,
+    user_id: Uuid,
+    since_days: i64,
+    limit: i64,
+) -> Result<Vec<Candidate>> {
+    let sql = "SELECT a.id, a.title, a.content, 0.0::float8 AS similarity \
+               FROM articles a \
+               JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+               WHERE a.created_at > now() - make_interval(days => $2::int) \
+               ORDER BY a.created_at DESC \
+               LIMIT $3";
+    Ok(sqlx::query_as::<_, Candidate>(sql)
+        .bind(user_id)
+        .bind(since_days)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?)
+}
+
 /// Articles similar to `article_id` (using its stored embedding), within the
 /// user's subscribed feeds and the same model.
 pub async fn related_for_user(

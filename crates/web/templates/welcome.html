@@ -26,6 +26,7 @@
       <label><input type="radio" name="theme" value="system" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "system" %} checked{% endif %}> <span class="theme-swatch theme-swatch--system" aria-hidden="true"></span> System</label>
       <label><input type="radio" name="theme" value="light" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "light" %} checked{% endif %}> <span class="theme-swatch theme-swatch--light" aria-hidden="true"></span> Light</label>
       <label><input type="radio" name="theme" value="dark" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "dark" %} checked{% endif %}> <span class="theme-swatch theme-swatch--dark" aria-hidden="true"></span> Dark</label>
+      <label><input type="radio" name="theme" value="rusty" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "rusty" %} checked{% endif %}> <span class="theme-swatch theme-swatch--rusty" aria-hidden="true"></span> Rusty</label>
       <label><input type="radio" name="theme" value="ocean" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "ocean" %} checked{% endif %}> <span class="theme-swatch theme-swatch--ocean" aria-hidden="true"></span> Ocean</label>
       <label><input type="radio" name="theme" value="forest" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "forest" %} checked{% endif %}> <span class="theme-swatch theme-swatch--forest" aria-hidden="true"></span> Forest</label>
       <label><input type="radio" name="theme" value="plum" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "plum" %} checked{% endif %}> <span class="theme-swatch theme-swatch--plum" aria-hidden="true"></span> Plum</label>
@@ -54,19 +55,24 @@
   {% if !categories.is_empty() %}
   <fieldset class="panel">
     <legend>4. What are you interested in?</legend>
-    <p class="muted">Pick a few topics to narrow the suggested feeds below. Optional — you can change it anytime in Preferences.</p>
+    <p class="muted">Pick a few topics to narrow the suggested feeds below — the count on each chip is how many suggestions it will show. Optional — you can change it anytime in Preferences.</p>
     <div class="wizard-interests">
       {% for category in categories %}
-      <label class="wizard-interest-chip"><input type="checkbox" name="interest" value="{{ category }}" data-wizard-interest{% if ui.has_interest(category) %} checked{% endif %}> <span>{{ category }}</span></label>
+      <label class="wizard-interest-chip"><input type="checkbox" name="interest" value="{{ category.category }}" data-wizard-interest{% if ui.has_interest(category.category) %} checked{% endif %}> <span>{{ category.category }} <span class="wizard-interest-count muted">{{ category.count }}</span></span></label>
       {% endfor %}
     </div>
   </fieldset>
   {% endif %}
 
-  {% if !suggestions.is_empty() %}
+  {% if !suggestions.is_empty() || !starter_feeds.is_empty() %}
   <fieldset class="panel" data-wizard-suggestions>
     <legend>{% if !categories.is_empty() %}5{% else %}4{% endif %}. Subscribe to a few feeds</legend>
-    <p class="muted">Hand-picked, trusted sources. Select any that look good — or skip and add your own later. You can browse the full <a href="/catalog">feed catalog</a> anytime.</p>
+    {% if is_demo && !starter_feeds.is_empty() %}
+    <p class="notice">This demo starts with {{ starter_feeds.len() }} showcase feed{% if starter_feeds.len() != 1 %}s{% endif %}, already filed into topic folders ({{ starter_feeds_preview }}). You can explore or reorganize them from the <a href="/articles">library</a>.</p>
+    {% endif %}
+    {% if !suggestions.is_empty() %}
+    <p class="muted">Hand-picked, trusted sources. Select any that look good, or skip and add your own later. You can browse the full <a href="/catalog">feed catalog</a> anytime.</p>
+    <p class="muted wizard-suggestions-status" data-wizard-suggestions-status>Showing all {{ suggestions.len() }} curated feeds.</p>
     <div class="wizard-suggestion-grid">
       {% for feed in suggestions %}
       <label class="wizard-suggestion{% if feed.featured %} featured{% endif %}" data-wizard-feed data-category="{{ feed.category }}">
@@ -81,6 +87,7 @@
       {% endfor %}
     </div>
     <p class="muted wizard-suggestions-empty" data-wizard-suggestions-empty hidden>No suggestions match those topics — clear a topic to see more.</p>
+    {% endif %}
   </fieldset>
   {% endif %}
 

@@ -180,6 +180,34 @@ impl Embedder for LocalEmbedder {
     }
 }
 
+/// Stands in for the instance's embedder when `EMBEDDINGS_ENABLED=false`.
+/// Loads/downloads nothing and always refuses to embed, so every caller must
+/// go through its existing graceful-degradation path (indexed keyword search,
+/// keyword-only saved-search matching) rather than silently computing
+/// meaningless vectors. Callers that must not fail outright (interactive
+/// search) already treat an `embed` error as "semantic search unavailable".
+#[derive(Debug, Default)]
+pub struct DisabledEmbedder;
+
+#[async_trait]
+impl Embedder for DisabledEmbedder {
+    fn model(&self) -> &str {
+        "disabled"
+    }
+    fn provider(&self) -> &str {
+        "disabled"
+    }
+    fn dimensions(&self) -> usize {
+        EMBEDDING_DIM
+    }
+    async fn embed(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        anyhow::bail!("embeddings are disabled for this instance (EMBEDDINGS_ENABLED=false)")
+    }
+}
+
 /// Deterministic feature-hashing embedder (no model download). Good enough to
 /// exercise the whole pipeline; similarity reflects lexical overlap.
 pub struct HashEmbedder {
@@ -348,6 +376,19 @@ mod tests {
         assert!(
             cosine(&q, &related) > cosine(&q, &unrelated),
             "shared words should score higher"
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_embedder_always_refuses_without_panicking() {
+        let e = DisabledEmbedder;
+        assert_eq!(e.dimensions(), EMBEDDING_DIM);
+        assert!(e.embed(&["anything".to_string()]).await.is_err());
+        assert!(e.embed_one("anything").await.is_err());
+        assert_eq!(
+            e.embed(&[]).await.unwrap(),
+            Vec::<Vec<f32>>::new(),
+            "an empty batch is a no-op, matching the other embedders"
         );
     }
 

@@ -5,7 +5,7 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rusty_feed_cache::Cache;
-use rusty_feed_core::feed_content::ContentLifetime;
+use rusty_feed_core::feed_content::{ContentLifetime, FeedContentMode};
 use rusty_feed_db::{
     agent_runs, articles, catalog, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle,
 };
@@ -180,6 +180,8 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     assert!(page.contains(&format!("/feeds/{}/icon", rust_feed.id)));
     assert!(page.contains("Go Blog"));
     assert!(page.contains("Al Jazeera English"));
+    assert!(page.contains("Public article page"));
+    assert!(page.contains("Recommended"));
     assert!(page.contains("Catalog UI source"));
     let response = app
         .clone()
@@ -213,8 +215,8 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
                     format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
                 )
                 .body(Body::from(format!(
-                    "csrf_token={csrf}&feed_id={}&feed_id={}",
-                    feed.id, second_feed.id
+                    "csrf_token={csrf}&feed_id={}&feed_id={}&content_mode.{}=article_page&content_mode.{}=rss",
+                    feed.id, second_feed.id, feed.id, second_feed.id
                 )))
                 .unwrap(),
         )
@@ -233,6 +235,22 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         subscriptions::is_subscribed(state.db.pool(), user.id, second_feed.id)
             .await
             .unwrap()
+    );
+    assert_eq!(
+        subscriptions::content_settings_for_user(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        FeedContentMode::ArticlePage
+    );
+    assert_eq!(
+        subscriptions::content_settings_for_user(state.db.pool(), user.id, second_feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        FeedContentMode::Rss
     );
 
     let response = app

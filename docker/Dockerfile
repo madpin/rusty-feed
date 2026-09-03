@@ -6,8 +6,10 @@ WORKDIR /app
 
 # fastembed/ONNX links C++ support. WebAuthn attestation verification uses the
 # platform OpenSSL library; outbound application HTTP remains rustls-only.
+# `make` builds vendored jemalloc (tikv-jemalloc-sys) for the server/worker
+# binaries' global allocator (see docs/FINDINGS.md).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends g++ pkg-config libssl-dev \
+ && apt-get install -y --no-install-recommends g++ make pkg-config libssl-dev \
  && rm -rf /var/lib/apt/lists/*
 
 # Copy build inputs after system dependencies for better layer caching.

@@ -15,6 +15,14 @@
       {% endif %}
     </div>
   </section>
+  {% else if can_summarize %}
+  <!-- Live status for an in-flight summarize job — no "At a glance / AI
+       summary" heading here, since that framing is reserved for when the
+       summary actually exists, not while it's still generating. Empty and
+       invisible until the toolbar's summarize action starts polling and
+       writes a status into [data-summary-progress] (kept out of the compact
+       icon toolbar so a status message never disturbs its layout). -->
+  <p class="reader-summary-status muted" data-summary-progress role="status"></p>
   {% endif %}
 
   {% include "article_youtube.html" %}

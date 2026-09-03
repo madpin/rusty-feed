@@ -45,7 +45,7 @@
 <form method="post" action="/catalog/subscribe" class="catalog-selection">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
   <div class="catalog-selection-bar">
-    <div><strong>{{ entries.len() }} sources</strong><span>Matching your current filters.</span></div>
+    <div><strong>{{ entries.len() }} sources</strong><span>Matching your current filters. Choose RSS or public-page content for each new subscription.</span></div>
     <div class="catalog-selection-actions">
       <label class="catalog-select-all"><input type="checkbox" data-catalog-select-all /> <span data-catalog-select-all-label>Select all</span></label>
       <button type="submit" class="primary">Subscribe to selected</button>
@@ -75,6 +75,13 @@
         <a href="/catalog/{{ entry.feed_id }}/preview" class="btn catalog-preview-link">Preview</a>
         <a href="{{ entry.url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">View RSS</a>
       </div>
+      {% if !entry.subscribed %}
+      <fieldset class="catalog-content-choice">
+        <legend>Reading content</legend>
+        <label><input type="radio" name="content_mode.{{ entry.feed_id }}" value="rss"{% if !entry.article_page_recommended %} checked{% endif %} /> <span><strong>RSS</strong><small>Stored feed body</small></span></label>
+        <label><input type="radio" name="content_mode.{{ entry.feed_id }}" value="article_page"{% if entry.article_page_recommended %} checked{% endif %} /> <span><strong>Public article page</strong><small>Shared readable copy with RSS fallback</small></span>{% if entry.article_page_recommended %} <span class="badge">Recommended</span>{% endif %}</label>
+      </fieldset>
+      {% endif %}
       <label class="catalog-choice">
         <input type="checkbox" name="feed_id" value="{{ entry.feed_id }}"{% if entry.subscribed %} checked disabled{% endif %} />
         <span>{% if entry.subscribed %}Already in your library{% else %}Subscribe to this source{% endif %}</span>

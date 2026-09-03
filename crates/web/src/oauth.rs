@@ -305,15 +305,7 @@ async fn upsert_oauth_user(
                 ));
             }
             let role = if bootstrap { "admin" } else { "user" };
-            users::create_with_default_feeds(
-                pool,
-                &email,
-                profile.name.as_deref(),
-                None,
-                role,
-                None,
-            )
-            .await?
+            users::create(pool, &email, profile.name.as_deref(), None, role, None).await?
         }
     };
 

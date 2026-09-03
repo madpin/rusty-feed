@@ -149,7 +149,7 @@ async fn preferences_save_roundtrip() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header("cookie", format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "theme=ocean&reading_mode=side-panel&articles_per_page=30&article_density=compact&font_family=serif&reader_font_size=large&reader_line_height=airy&sidebar_width=19&sidebar_collapsed=true&reader_panel_width=61&external_link_mode=original&external_open_mode=same-tab&enclosure_settings_present=true&enclosure_load_mode=links-only&enclosure_delivery_mode=mixed-content&enclosure_audio=true&youtube_settings_present=true&youtube_player_mode=privacy&youtube_autoplay=true&youtube_captions=on&touch_gestures_enabled=true&touch_gesture_sensitivity=high&touch_gesture_direction=reversed&shortcuts_enabled=true&shortcut_next_article=ArrowDown&shortcut_previous_article=ArrowUp&csrf_token={csrf}"
+                    "theme=rusty&reading_mode=side-panel&articles_per_page=30&article_density=compact&font_family=serif&reader_font_size=large&reader_line_height=airy&sidebar_width=19&sidebar_collapsed=true&reader_panel_width=61&external_link_mode=original&external_open_mode=same-tab&enclosure_settings_present=true&enclosure_load_mode=links-only&enclosure_delivery_mode=mixed-content&enclosure_audio=true&youtube_settings_present=true&youtube_player_mode=privacy&youtube_autoplay=true&youtube_captions=on&touch_gestures_enabled=true&touch_gesture_sensitivity=high&touch_gesture_direction=reversed&shortcuts_enabled=true&shortcut_next_article=ArrowDown&shortcut_previous_article=ArrowUp&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )
@@ -158,7 +158,7 @@ async fn preferences_save_roundtrip() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains("Preferences saved"));
-    assert!(body.contains("data-theme=\"ocean\""));
+    assert!(body.contains("data-theme=\"rusty\""));
     assert!(body.contains("data-font-family=\"serif\""));
     assert!(body.contains("sidebar-width-19"));
     assert!(body.contains("data-sidebar-collapsed=\"true\""));
@@ -177,7 +177,7 @@ async fn preferences_save_roundtrip() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored["theme"], "ocean");
+    assert_eq!(stored["theme"], "rusty");
     assert_eq!(stored["reading_mode"], "side-panel");
     assert_eq!(stored["articles_per_page"], 30);
     assert_eq!(stored["article_density"], "compact");
@@ -231,7 +231,7 @@ async fn preferences_save_roundtrip() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored["theme"], "ocean");
+    assert_eq!(stored["theme"], "rusty");
     assert_eq!(stored["sidebar_collapsed"], false);
     assert_eq!(stored["reader_panel_width"], 45);
 
@@ -275,7 +275,7 @@ async fn preferences_save_roundtrip() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored["theme"], "ocean");
+    assert_eq!(stored["theme"], "rusty");
     assert_eq!(stored["sidebar_collapsed"], true);
     assert_eq!(stored["reader_panel_width"], 62);
 }
@@ -1256,6 +1256,135 @@ async fn feedback_records_patterns_and_relevance_sort_works() {
     let body = body_string(resp).await;
     assert!(body.contains("Async Rust Concurrency"));
     assert!(body.contains("Personalized"));
+}
+
+/// A reader who queues several summaries and moves on to other articles needs
+/// one filter that finds exactly the ones now ready and still unread — not
+/// every summarized article (including already-read ones) and not every
+/// unread article (including ones with no summary at all).
+#[tokio::test]
+async fn unread_ai_summaries_filter_shows_only_ready_and_unread() {
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{articles, feeds, read_articles, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "F",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+
+    let (ready_unread, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: "Ready Summary Unread".into(),
+            author: None,
+            content: "content for the unread ready summary".into(),
+            excerpt: None,
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(articles::set_summary(
+        pool,
+        ready_unread.id,
+        ready_unread.content_revision,
+        "A ready summary",
+        &[],
+        &[],
+        "test-model",
+    )
+    .await
+    .unwrap());
+
+    let (ready_read, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: "Ready Summary Already Read".into(),
+            author: None,
+            content: "content for the already-read ready summary".into(),
+            excerpt: None,
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(articles::set_summary(
+        pool,
+        ready_read.id,
+        ready_read.content_revision,
+        "Another ready summary",
+        &[],
+        &[],
+        "test-model",
+    )
+    .await
+    .unwrap());
+    read_articles::mark_read(pool, user.id, ready_read.id)
+        .await
+        .unwrap();
+
+    articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: "No Summary Yet".into(),
+            author: None,
+            content: "content for the article with no summary".into(),
+            excerpt: None,
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::get("/articles?summary=1")
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("Ready Summary Unread"));
+    assert!(!body.contains("Ready Summary Already Read"));
+    assert!(!body.contains("No Summary Yet"));
+    assert!(body.contains("Unread AI summaries"));
 }
 
 #[tokio::test]

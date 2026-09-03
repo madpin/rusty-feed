@@ -41,6 +41,14 @@ struct WizardFeedView {
     featured: bool,
 }
 
+/// A topic chip with how many suggested feeds currently match it, so picking
+/// one is predictable instead of a surprise (the count is exactly what the
+/// live filter in `app.js` will show).
+struct WizardInterestView {
+    category: String,
+    count: usize,
+}
+
 #[derive(Template)]
 #[template(path = "welcome.html")]
 struct WelcomeTemplate {
@@ -48,11 +56,25 @@ struct WelcomeTemplate {
     user_email: String,
     ui: prefs::Preferences,
     is_admin: bool,
+    is_demo: bool,
     csrf_token: String,
     /// Distinct topics (catalog categories) present in `suggestions`, used for
     /// the interest chips that live-filter the suggestion grid.
-    categories: Vec<String>,
+    categories: Vec<WizardInterestView>,
     suggestions: Vec<WizardFeedView>,
+    /// Titles of featured feeds already present in a demo library, so a demo
+    /// user who reopens setup can see where those showcase sources came from.
+    starter_feeds: Vec<String>,
+    /// Compact, human-readable preview of `starter_feeds` (a few names, plus
+    /// a "and N more" tail).
+    starter_feeds_preview: String,
+}
+
+/// Loaded suggestion data for the wizard's feed-picking step.
+struct WizardData {
+    suggestions: Vec<WizardFeedView>,
+    categories: Vec<WizardInterestView>,
+    starter_feeds: Vec<String>,
 }
 
 fn feed_initial(name: &str) -> String {
@@ -78,20 +100,26 @@ fn short_description(text: Option<String>) -> Option<String> {
 
 /// Pick a compact, topic-diverse set of curated feeds the user does not already
 /// follow. Entries arrive featured-first; we round-robin across categories so a
-/// single popular topic cannot crowd out the rest under the overall cap.
-async fn load_suggestions(
-    state: &AppState,
-    user_id: Uuid,
-) -> Result<Vec<WizardFeedView>, AppError> {
+/// single popular topic cannot crowd out the rest under the overall cap. Also
+/// collects the already-subscribed featured ("starter") feeds so the wizard
+/// can explain where they came from instead of staying silent about them.
+async fn load_suggestions(state: &AppState, user_id: Uuid) -> Result<WizardData, AppError> {
     let entries =
         catalog::list_published_for_user(state.db.pool(), user_id, None, None, None).await?;
     let feed_ids: Vec<Uuid> = entries.iter().map(|entry| entry.feed_id).collect();
     let icon_ids = feed_icons::available_for_feeds(state.db.pool(), &feed_ids).await?;
 
+    let mut starter_feeds: Vec<String> = Vec::new();
     let mut order: Vec<String> = Vec::new();
     let mut groups: HashMap<String, Vec<catalog::CatalogEntry>> = HashMap::new();
     for entry in entries {
         if entry.subscribed {
+            // Already in the library. Only call out the instance's featured
+            // defaults (applied automatically at signup) — a feed the user
+            // subscribed to themselves is not a surprise to explain.
+            if entry.featured {
+                starter_feeds.push(entry.title.clone());
+            }
             continue;
         }
         if !groups.contains_key(&entry.category) {
@@ -102,6 +130,7 @@ async fn load_suggestions(
             .or_default()
             .push(entry);
     }
+    starter_feeds.sort();
 
     let mut suggestions = Vec::new();
     'rounds: for round in 0..WIZARD_SUGGESTIONS_PER_CATEGORY {
@@ -123,7 +152,38 @@ async fn load_suggestions(
             }
         }
     }
-    Ok(suggestions)
+
+    // Count the feeds actually rendered per category (after the overall cap),
+    // so each topic chip promises exactly what selecting it will show.
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for suggestion in &suggestions {
+        *counts.entry(suggestion.category.as_str()).or_insert(0) += 1;
+    }
+    let categories: Vec<WizardInterestView> = order
+        .into_iter()
+        .filter_map(|category| {
+            let count = *counts.get(category.as_str())?;
+            Some(WizardInterestView { category, count })
+        })
+        .collect();
+
+    Ok(WizardData {
+        suggestions,
+        categories,
+        starter_feeds,
+    })
+}
+
+/// "A, B, and N more" (or the full list when it already fits in `show`).
+fn preview_names(names: &[String], show: usize) -> String {
+    if names.len() <= show {
+        return names.join(", ");
+    }
+    format!(
+        "{}, and {} more",
+        names[..show].join(", "),
+        names.len() - show
+    )
 }
 
 /// `GET /welcome` — the wizard (also reachable via "Re-run setup").
@@ -133,22 +193,20 @@ pub async fn page(
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     let ui = prefs::load(&state.db, user.id).await;
-    let suggestions = load_suggestions(&state, user.id).await?;
-    let categories: Vec<String> = suggestions
-        .iter()
-        .map(|suggestion| suggestion.category.clone())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
+    let data = load_suggestions(&state, user.id).await?;
+    let starter_feeds_preview = preview_names(&data.starter_feeds, 3);
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = WelcomeTemplate {
         theme: ui.theme.clone(),
         user_email: user.email.clone(),
         ui,
         is_admin: user.role == "admin",
+        is_demo: user.is_demo,
         csrf_token,
-        categories,
-        suggestions,
+        categories: data.categories,
+        suggestions: data.suggestions,
+        starter_feeds: data.starter_feeds,
+        starter_feeds_preview,
     }
     .render()
     .map_err(|e| AppError::Internal(anyhow::anyhow!("template render failed: {e}")))?;
@@ -189,13 +247,16 @@ async fn subscribe_wizard_feeds(state: &AppState, user: &User, feed_ids: &BTreeS
     if ids.is_empty() {
         return;
     }
-    if catalog::subscribe_published_many(state.db.pool(), user.id, &ids)
-        .await
-        .is_ok()
-    {
+    if let Ok(result) = catalog::subscribe_published_many(state.db.pool(), user.id, &ids).await {
         for feed_id in &ids {
             let _ = enqueue_fetch_feed(&state.db, *feed_id).await;
         }
+        // Best-effort: file each newly subscribed feed under a folder/tag named
+        // for its catalog category, so its already-shared articles show up
+        // organized right away instead of landing "Unfiled".
+        let _ =
+            catalog::organize_new_subscriptions(state.db.pool(), user.id, &result.created_feed_ids)
+                .await;
     }
 }
 
@@ -242,7 +303,7 @@ pub async fn submit(
         let mut patch = serde_json::Map::new();
         if matches!(
             theme.as_str(),
-            "system" | "light" | "dark" | "ocean" | "forest" | "plum" | "sunset"
+            "system" | "light" | "dark" | "rusty" | "ocean" | "forest" | "plum" | "sunset"
         ) {
             patch.insert("theme".to_string(), json!(theme));
         }
@@ -303,6 +364,30 @@ mod tests {
         assert_eq!(
             interests,
             vec!["Technology".to_string(), "Science".to_string()]
+        );
+    }
+
+    #[test]
+    fn preview_names_lists_everything_when_it_fits() {
+        let names = vec!["Rust Blog".to_string(), "Hacker News".to_string()];
+        assert_eq!(preview_names(&names, 3), "Rust Blog, Hacker News");
+    }
+
+    #[test]
+    fn preview_names_truncates_with_a_count() {
+        let names = [
+            "Rust Blog",
+            "Hacker News",
+            "NASA Science",
+            "arXiv AI",
+            "BBC",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>();
+        assert_eq!(
+            preview_names(&names, 3),
+            "Rust Blog, Hacker News, NASA Science, and 2 more"
         );
     }
 }

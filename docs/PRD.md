@@ -75,8 +75,9 @@ The following flows must be supported end-to-end. Each maps to concrete features
 
 ### 4.1 Onboarding
 1. User signs up via OAuth (Google/GitHub/Generic) **or** local email/password.
-2. On first login, the user is auto-subscribed to a **curated default feed set** (idempotent; shared feeds created once).
-3. User lands on the main reading view with articles already populating.
+2. A regular account starts with no subscriptions and explicitly chooses feeds in the setup wizard, curated catalog, OPML import, or direct-add flow.
+3. An ephemeral demo account alone receives the featured showcase set, pre-organized into folders/tags by catalog category, so the demo is immediately useful without silently changing a real user's library.
+4. User lands on the main reading view after completing or skipping setup.
 
 ### 4.2 Add & organize feeds
 1. User adds a feed by URL → system validates (SSRF-safe), dedupes by normalized URL (creates the shared feed only if new), subscribes the user.
@@ -184,7 +185,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 
 ### 5.10 Reading Experience & Preferences
 - **FR-UX-1 (P0):** Three reading modes: **side panel** (resizable), **inline** (accordion), **standalone** (full page).
-- **FR-UX-2 (P0):** Extensive user preferences (30+ fields): theme (14 themes incl. system), font sizes, reading typography (family, size, line-height, paragraph/break spacing), article list density/borders/spacing/section order, sidebar width/collapse, articles-per-page, infinite-scroll mode, sort order/direction, show/hide read, auto-mark-read, related excerpts, reading-time display, learning knobs (bounce threshold, recency weight/decay, low-relevance visibility), and per-user LLM/embedding config.
+- **FR-UX-2 (P0):** Extensive user preferences (30+ fields): theme (8 shipped themes incl. system and Rusty), font sizes, reading typography (family, size, line-height, paragraph/break spacing), article list density/borders/spacing/section order, sidebar width/collapse, articles-per-page, infinite-scroll mode, sort order/direction, show/hide read, auto-mark-read, related excerpts, reading-time display, learning knobs (bounce threshold, recency weight/decay, low-relevance visibility), and per-user LLM/embedding config.
 - **FR-UX-3 (P0):** Preferences applied server-side to rendered pages (theme/typography) and persisted.
 - **FR-UX-4 (P1):** "Seen" state (card viewed) distinct from "read".
 - **FR-UX-5 (P0):** Configurable keyboard shortcuts with server-side conflict validation, safe editable-control/IME/modifier guards, and an easy preference capture/reset UI. Default commands cover next/previous article, save for later, mark unread, and next/previous feed.

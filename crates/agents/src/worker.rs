@@ -95,6 +95,10 @@ pub struct WorkerConfig {
     pub extraction_config: rusty_feed_extract::ExtractConfig,
     /// Enqueue embedding jobs for new/extracted articles.
     pub embed_on_ingest: bool,
+    /// Master switch for every embedding use case (`EMBEDDINGS_ENABLED`).
+    /// `false` keeps `saved_search_match` keyword-only and never calls the
+    /// (disabled) embedder.
+    pub embeddings_enabled: bool,
     pub auto_summarize: bool,
     /// Proactively backfill public-page extraction on feed ingest. When false,
     /// pages are extracted lazily on first reader access via the interactive lane.
@@ -136,6 +140,7 @@ impl Default for WorkerConfig {
                 .unwrap_or_else(|_| unreachable!("static cron is valid")),
             extraction_config: rusty_feed_extract::ExtractConfig::default(),
             embed_on_ingest: false,
+            embeddings_enabled: true,
             auto_summarize: false,
             eager_extraction: true,
             tracking_url_policy: TrackingUrlPolicy::default(),
@@ -185,7 +190,10 @@ impl Worker {
         );
         registry.register(
             "saved_search_match",
-            Arc::new(SavedSearchMatchAgent::new(embedder)),
+            Arc::new(SavedSearchMatchAgent::new(
+                embedder,
+                config.embeddings_enabled,
+            )),
         );
         registry.register(
             "summarize_article",

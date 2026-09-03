@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>Rusty Feed — your RSS reader, but it understands what you read</title>
-    <meta name="description" content="A self-hosted, AI-augmented RSS reader: semantic search, personalized ranking that learns from your reading, optional LLM summaries, GReader & Fever APIs, and a fast server-rendered UI." />
-    <meta property="og:title" content="Rusty Feed — an RSS reader that understands what you read" />
-    <meta property="og:description" content="Semantic search, personalized ranking, optional AI summaries, GReader & Fever APIs — self-hostable." />
+    <title>Rusty Feed — a self-hosted RSS reader built like infrastructure</title>
+    <meta name="description" content="A Rust-native, self-hosted RSS reader with shared-content deduplication, semantic search, durable workers, optional AI summaries, GReader and Fever APIs, and a server-rendered interface." />
+    <meta property="og:title" content="Rusty Feed — own the feed, keep the signal" />
+    <meta property="og:description" content="Rust-native RSS infrastructure with a fast reader on top: shared ingestion, personal state, semantic search, durable jobs, and optional AI." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/static/screenshots/library.webp" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -16,85 +16,219 @@
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body class="landing">
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <header class="landing-nav">
-      <a class="auth-brand" href="/"><span class="brand-mark">R</span><span>Rusty Feed</span></a>
-      <nav><a href="/login">Sign in</a> <a class="btn primary" href="/register">Create free account</a></nav>
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">R</span><span>Rusty Feed</span></a>
+      <nav aria-label="Primary navigation">
+        <a class="landing-nav-detail" href="#architecture">Architecture</a>
+        <a class="landing-nav-detail" href="#interface">Interface</a>
+        <a href="/login">Sign in</a>
+        {% if registration_open %}<a class="btn primary" href="/register">Create account</a>{% endif %}
+      </nav>
     </header>
 
-    <main>
+    <main id="main-content">
       <section class="landing-hero">
-        <h1>Your RSS reader, but it actually understands what you read.</h1>
-        <p class="lede">Rusty Feed is a self-hosted, AI-augmented reader: find articles by meaning, get a feed that learns what you care about, and (optionally, with your own key) summarize the long ones.</p>
+        <div class="landing-hero-copy">
+          <p class="eyebrow">RSS, compiled differently</p>
+          <h1>Own the feed.<br />Keep the signal.</h1>
+          <p class="lede">Rusty Feed is a multi-user RSS reader built in Rust for people who want modern discovery without handing their reading history to an algorithmic platform.</p>
+          <p class="landing-hero-detail">It fetches shared content once, keeps every reader's state private, and layers in full-text extraction, semantic search, learned ranking, and optional summaries — all on infrastructure you control.</p>
+          <div class="landing-cta">
+            {% if registration_open %}<a class="btn primary" href="/register">Create your account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
+            {% if demo_mode %}
+            <form method="post" action="/demo/start" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <button type="submit" class="btn">Try the live demo</button>
+            </form>
+            {% endif %}
+          </div>
+          {% if demo_mode %}<p class="landing-demo-note">No sign-up. Isolated demo account. Reset daily.</p>{% endif %}
+        </div>
+
+        <aside class="runtime-card" aria-label="Rusty Feed architecture snapshot">
+          <div class="runtime-card-head">
+            <span>rusty-feed / runtime</span>
+            <span class="runtime-live"><span aria-hidden="true"></span>ready</span>
+          </div>
+          <div class="runtime-pipeline" aria-label="Fetch, extract, enrich, and read pipeline">
+            <span>fetch</span><i aria-hidden="true">→</i><span>extract</span><i aria-hidden="true">→</i><span>enrich</span><i aria-hidden="true">→</i><span>read</span>
+          </div>
+          <dl class="runtime-spec">
+            <div><dt>http</dt><dd>Axum + Tokio</dd></div>
+            <div><dt>ui</dt><dd>Askama HTML / no SPA</dd></div>
+            <div><dt>data</dt><dd>PostgreSQL 17 + pgvector</dd></div>
+            <div><dt>jobs</dt><dd>durable SKIP LOCKED queue</dd></div>
+            <div><dt>search</dt><dd>keyword / hybrid / semantic</dd></div>
+            <div><dt>optional</dt><dd>Redis · Chromium · LLM</dd></div>
+          </dl>
+          <div class="runtime-rule"><span>north_star</span><strong>content: shared once</strong><strong>state: personal</strong></div>
+        </aside>
+      </section>
+
+      <section class="landing-proof" aria-label="Technical highlights">
+        <div><strong>O(1)</strong><span>fetch / extract / embed per shared article</span></div>
+        <div><strong>3</strong><span>client surfaces: native, GReader, Fever</span></div>
+        <div><strong>0</strong><span>required frontend frameworks or CDNs</span></div>
+        <div><strong>MIT</strong><span>open source, self-hosted, inspectable</span></div>
+      </section>
+
+      <section class="landing-principles" id="architecture">
+        <div class="landing-section-heading">
+          <p class="eyebrow">Architecture with opinions</p>
+          <h2>Built around constraints, not slogans.</h2>
+          <p>Rusty Feed treats an RSS reader as durable personal infrastructure. The design starts with what must remain true when one feed has one subscriber — or ten thousand.</p>
+        </div>
+        <div class="principle-grid">
+          <article class="principle">
+            <span class="tech-sigil">01 / dedup</span>
+            <h3>One article. One expensive pipeline.</h3>
+            <p>Feeds, articles, extracted bodies, embeddings, and summaries are shared. Read state, folders, bookmarks, feedback, and preferences stay per-user. More subscribers do not mean more publisher fetches or LLM calls.</p>
+          </article>
+          <article class="principle">
+            <span class="tech-sigil">02 / durable</span>
+            <h3>Postgres is the queue, not just the database.</h3>
+            <p>Background work runs through an inspectable <code>SKIP LOCKED</code> queue with retries, leases, heartbeats, cron schedules, and a transactional outbox. A restart loses no job and invents no duplicate.</p>
+          </article>
+          <article class="principle">
+            <span class="tech-sigil">03 / optional</span>
+            <h3>Intelligence is a layer, not a dependency.</h3>
+            <p>Run local BGE embeddings or an OpenAI-compatible endpoint. Bring your own key for summaries. Disable embeddings and search becomes keyword-only. Lose Redis, Chromium, or an LLM and reading still works.</p>
+          </article>
+          <article class="principle">
+            <span class="tech-sigil">04 / boundary</span>
+            <h3>The hostile web stays outside.</h3>
+            <p>Publisher requests go through SSRF-guarded fetches and tracking cleanup. Article HTML is sanitized. Mutations are CSRF-protected. The interface ships under a strict CSP with no runtime CDN.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="landing-stack" aria-labelledby="stack-heading">
+        <div>
+          <p class="eyebrow">The actual stack</p>
+          <h2 id="stack-heading">A server-rendered reader with infrastructure-grade internals.</h2>
+        </div>
+        <ul>
+          <li><span>runtime</span>Rust + Tokio</li>
+          <li><span>web</span>Axum + Tower</li>
+          <li><span>templates</span>Askama</li>
+          <li><span>database</span>PostgreSQL + pgvector</li>
+          <li><span>cache</span>Moka + optional Redis</li>
+          <li><span>extract</span>Readability + optional Chromium</li>
+          <li><span>observe</span>tracing + Prometheus</li>
+          <li><span>ship</span>embedded migrations + assets</li>
+        </ul>
+      </section>
+
+      <section class="landing-interface" id="interface">
+        <div class="landing-section-heading">
+          <p class="eyebrow">The machinery gets out of the way</p>
+          <h2>Fast HTML when you read. Deep tooling when you need it.</h2>
+          <p>Three reading modes, eight themes, keyboard navigation, installable PWA support, and normal links/forms that keep core flows usable without JavaScript.</p>
+        </div>
+        <div class="landing-shots" aria-label="Product screenshots">
+          <figure class="shot-frame shot-frame-wide">
+            <span class="shot-chrome" aria-hidden="true"><span></span><span></span><span></span><code>/articles</code></span>
+            <img src="/static/screenshots/library.webp" alt="The Rusty Feed library with folders, article list, and side-by-side reader" loading="lazy" width="1100" height="688" />
+            <figcaption><strong>Library</strong><span>Personal folders, tags, ranking, unread state, and a fixed reader pane.</span></figcaption>
+          </figure>
+          <figure class="shot-frame">
+            <span class="shot-chrome" aria-hidden="true"><span></span><span></span><span></span><code>/discover</code></span>
+            <img src="/static/screenshots/discover.webp" alt="Feed discovery and semantic search in Rusty Feed" loading="lazy" width="1100" height="688" />
+            <figcaption><strong>Discover</strong><span>A curated catalog plus keyword, hybrid, and meaning search.</span></figcaption>
+          </figure>
+          <figure class="shot-frame">
+            <span class="shot-chrome" aria-hidden="true"><span></span><span></span><span></span><code>/articles/:id</code></span>
+            <img src="/static/screenshots/article.webp" alt="A full article with an optional AI summary" loading="lazy" width="1100" height="688" />
+            <figcaption><strong>Reader</strong><span>Sanitized full text, media controls, sharing, feedback, and optional summaries.</span></figcaption>
+          </figure>
+          <figure class="shot-frame">
+            <span class="shot-chrome" aria-hidden="true"><span></span><span></span><span></span><code>/admin</code></span>
+            <img src="/static/screenshots/admin-overview.webp" alt="Rusty Feed administration dashboard" loading="lazy" width="1100" height="688" />
+            <figcaption><strong>Operations</strong><span>Queue health, feed failures, storage, users, AI cost, and worker activity.</span></figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="landing-capabilities">
+        <div class="landing-section-heading">
+          <p class="eyebrow">Not a toy reader</p>
+          <h2>Use the web UI — or plug into the system.</h2>
+        </div>
+        <div class="capability-grid">
+          <article><span class="tech-sigil">search/*</span><h3>Meaning with an escape hatch</h3><p>Hybrid PostgreSQL full-text + vector ranking, semantic-only search, saved searches, related articles, and a complete keyword-only mode when embeddings are disabled.</p></article>
+          <article><span class="tech-sigil">reader/*</span><h3>Content, not publisher chrome</h3><p>RSS/Atom/JSON Feed ingestion, conditional GET, readability extraction, per-feed selectors, tracking-pixel removal, media proxying, and isolated Live View.</p></article>
+          <article><span class="tech-sigil">api/v1</span><h3>Your clients are welcome</h3><p>A native scoped-token API plus GReader and Fever compatibility for Reeder, NetNewsWire, and the clients you already use. OPML moves your subscriptions in and out.</p></article>
+          <article><span class="tech-sigil">ops/*</span><h3>Observable by default</h3><p>Readiness and liveness endpoints, Prometheus metrics, structured tracing, durable run history, feed-health backoff, cost ledgers, quotas, and a read-only admin role.</p></article>
+          <article><span class="tech-sigil">auth/*</span><h3>Multi-user without blurred boundaries</h3><p>Local login, OAuth, passkeys, invitations, reverse-proxy identity, scoped API tokens, and tenant-aware queries. Shared content never turns into shared reading state.</p></article>
+          <article><span class="tech-sigil">deploy/*</span><h3>One primary binary, explicit dependencies</h3><p>Migrations and static assets are embedded. Run the worker in-process or separately. Compose ships Postgres, optional Redis, optional Chromium, and immutable GHCR images.</p></article>
+        </div>
+      </section>
+
+      <section class="landing-runbook">
+        <div>
+          <p class="eyebrow">Boot sequence</p>
+          <h2>Clone. Configure. Bring it up.</h2>
+          <p>Rusty Feed validates typed configuration at startup and refuses to boot with an unsafe or incompatible setup.</p>
+        </div>
+        <pre aria-label="Docker Compose startup"><code><b># after creating and validating .env</b>
+<span>$</span> docker compose --env-file .env \
+    -f docker/compose.yaml up -d
+<span>$</span> curl localhost:8080/api/health/ready
+{"data":{"cache":"connected","database":"ok","status":"ready"}}</code></pre>
+      </section>
+
+      <section class="landing-compare">
+        <p class="eyebrow">A straight comparison</p>
+        <h2>Rusty Feed vs Miniflux</h2>
+        <p class="muted">Miniflux is the mature, minimal benchmark. Rusty Feed deliberately takes on a larger stack to add semantic and personalized capabilities. Compared as of {{ comparison_date }}.</p>
+        <div class="table-scroll compare-card">
+          <table>
+            <thead><tr><th>Capability</th><th>Rusty Feed</th><th>Miniflux</th></tr></thead>
+            <tbody>
+              <tr><td>Feeds / OPML / categories, keyboard-driven reading</td><td><span class="pip pip-yes">Yes</span></td><td><span class="pip pip-yes">Yes</span></td></tr>
+              <tr><td>GReader &amp; Fever client APIs</td><td><span class="pip pip-yes">Yes</span></td><td><span class="pip pip-yes">Yes</span></td></tr>
+              <tr><td>Full-text extraction, per-feed rewrite rules</td><td><span class="pip pip-yes">Yes</span></td><td><span class="pip pip-yes">Yes</span></td></tr>
+              <tr><td>Integrations / webhooks to save &amp; notify</td><td><span class="pip pip-yes">Yes</span></td><td>Yes (large built-in list)</td></tr>
+              <tr class="row-highlight"><td><strong>Semantic (vector) search — find by meaning</strong></td><td><span class="pip pip-yes">Yes</span></td><td><span class="pip pip-no">No</span></td></tr>
+              <tr class="row-highlight"><td><strong>Personalized ranking that learns from your reading</strong></td><td><span class="pip pip-yes">Yes</span></td><td><span class="pip pip-no">No</span></td></tr>
+              <tr class="row-highlight"><td><strong>LLM article summaries (bring your own key)</strong></td><td><span class="pip pip-yes">Yes</span></td><td><span class="pip pip-no">No</span></td></tr>
+              <tr class="row-highlight"><td><strong>Saved semantic searches + related alerts</strong></td><td><span class="pip pip-yes">Yes</span></td><td><span class="pip pip-no">No</span></td></tr>
+              <tr><td>Reading modes (side-panel / inline / standalone) + 8 themes</td><td><span class="pip pip-yes">Yes</span></td><td>Single clean reader</td></tr>
+              <tr><td>Maturity and minimal footprint</td><td>Newer; larger optional stack</td><td>Very mature; tiny footprint</td></tr>
+              <tr><td>Language</td><td>Rust</td><td>Go</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">Choose Miniflux when minimum operational surface wins. Choose Rusty Feed when search, personalization, APIs, and control over the intelligence layer matter more.</p>
+      </section>
+
+      <section class="landing-final-cta">
+        <p class="eyebrow">No feed algorithm. Your feed infrastructure.</p>
+        <h2>Read on your terms.</h2>
+        <p>Start empty and choose your sources, import an OPML archive, or inspect the isolated demo before creating an account.</p>
         <div class="landing-cta">
-          {% if registration_open %}<a class="btn primary" href="/register">Create free account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
+          {% if registration_open %}<a class="btn primary" href="/register">Create your account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
           {% if demo_mode %}
           <form method="post" action="/demo/start" class="inline-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <button type="submit" class="btn">Try the live demo</button>
           </form>
           {% endif %}
+          {% if demo_mode && demo_admin_readonly %}
+          <form method="post" action="/demo/start" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="admin" value="1" />
+            <button type="submit" class="button-quiet">Inspect admin view</button>
+          </form>
+          {% endif %}
         </div>
-        {% if demo_mode %}<p class="muted">Demo accounts reset daily. No sign-up required.</p>{% endif %}
-      </section>
-
-      <section class="landing-shots">
-        <img src="/static/screenshots/library.webp" alt="The Rusty Feed reading library" loading="lazy" width="1100" />
-        <img src="/static/screenshots/discover.webp" alt="Semantic discovery and search" loading="lazy" width="1100" />
-        <img src="/static/screenshots/article.webp" alt="An article with an AI summary" loading="lazy" width="1100" />
-      </section>
-
-      <section class="landing-features">
-        <h2>What you get</h2>
-        <div class="feature-grid">
-          <div class="feature"><h3>Semantic search</h3><p>Find articles by meaning with vector search, not just keywords.</p></div>
-          <div class="feature"><h3>Ranking that learns</h3><p>Per-user relevance ranking adapts to what you actually read.</p></div>
-          <div class="feature"><h3>AI summaries</h3><p>Optional LLM summaries — bring your own key; your key, your quota.</p></div>
-          <div class="feature"><h3>Saved semantic searches</h3><p>Alerts and “more like this” for topics you follow.</p></div>
-          <div class="feature"><h3>Three reading modes + 14 themes</h3><p>Side-panel, inline, or standalone; make it yours.</p></div>
-          <div class="feature"><h3>OPML, GReader &amp; Fever</h3><p>Import/export and connect Reeder, NetNewsWire, and more.</p></div>
-          <div class="feature"><h3>Full-text extraction</h3><p>Readable full content with per-feed rewrite rules.</p></div>
-          <div class="feature"><h3>Self-hostable</h3><p>A single binary; you own your data.</p></div>
-        </div>
-      </section>
-
-      <section class="landing-compare">
-        <h2>Rusty Feed vs Miniflux</h2>
-        <p class="muted">Everything you expect from Miniflux, plus it understands what you read. Compared as of {{ comparison_date }}; verify the Miniflux column against current docs.</p>
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Capability</th><th>Rusty Feed</th><th>Miniflux</th></tr></thead>
-            <tbody>
-              <tr><td>Feeds / OPML / categories, keyboard-driven reading</td><td>Yes</td><td>Yes</td></tr>
-              <tr><td>GReader &amp; Fever client APIs</td><td>Yes</td><td>Yes</td></tr>
-              <tr><td>Full-text extraction, per-feed rewrite rules</td><td>Yes</td><td>Yes</td></tr>
-              <tr><td>Integrations / webhooks to save &amp; notify</td><td>Yes</td><td>Yes (large built-in list)</td></tr>
-              <tr><td><strong>Semantic (vector) search — find by meaning</strong></td><td>Yes</td><td>No</td></tr>
-              <tr><td><strong>Personalized ranking that learns from your reading</strong></td><td>Yes</td><td>No</td></tr>
-              <tr><td><strong>LLM article summaries (bring your own key)</strong></td><td>Yes</td><td>No</td></tr>
-              <tr><td><strong>Saved semantic searches + “more like this” alerts</strong></td><td>Yes</td><td>No</td></tr>
-              <tr><td>Reading modes (side-panel / inline / standalone) + 14 themes</td><td>Yes</td><td>Single clean reader</td></tr>
-              <tr><td>Maturity, install base, minimal footprint</td><td>Newer; heavier (Postgres+pgvector, Redis, optional Chromium, embeddings)</td><td>Very mature, tiny footprint</td></tr>
-              <tr><td>Language</td><td>Rust</td><td>Go</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="muted">Miniflux is more mature, lighter, and simpler to run; Rusty Feed adds AI/semantic capabilities at a higher resource floor. Pick what fits your needs.</p>
-      </section>
-
-      <section class="landing-final-cta">
-        {% if registration_open %}<a class="btn primary" href="/register">Create your free account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
-        {% if demo_mode && demo_admin_readonly %}
-        <form method="post" action="/demo/start" class="inline-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-          <input type="hidden" name="admin" value="1" />
-          <button type="submit" class="btn">Try the admin demo (read-only)</button>
-        </form>
-        {% endif %}
       </section>
     </main>
 
-    <footer class="site-footer">
-      <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/abuse">Abuse</a> · <a href="https://github.com/madpin/rusty-feed" rel="noopener noreferrer">Source</a>
+    <footer class="site-footer landing-footer">
+      <span>Rusty Feed · MIT licensed · built in Rust</span>
+      <span><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/abuse">Abuse</a> · <a href="https://github.com/madpin/rusty-feed" rel="noopener noreferrer">Source</a></span>
     </footer>
   </body>
 </html>

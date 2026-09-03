@@ -33,6 +33,7 @@ export default defineConfig({
           EMBEDDING_PROVIDER: "local",
           EMBEDDING_MODEL: "hash-placeholder-v1",
           RUN_EMBEDDED_WORKER: "false",
+          DEMO_MODE: "true",
           LOG_LEVEL: "warn",
         },
       },

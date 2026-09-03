@@ -67,6 +67,24 @@ fn unique_email() -> String {
 }
 
 #[tokio::test]
+async fn login_page_uses_the_rust_technical_surface() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let response = router(state)
+        .oneshot(Request::get("/login").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    assert!(body.contains("login-page"));
+    assert!(body.contains("Return to your signal"));
+    assert!(body.contains("rusty-feed / auth"));
+    assert!(body.contains("Rust · Axum · PostgreSQL"));
+}
+
+#[tokio::test]
 async fn reverse_proxy_auth_requires_a_trusted_immediate_peer() {
     let Some(base_state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
@@ -582,7 +600,7 @@ async fn admin_extractor_enforces_role() {
 }
 
 #[tokio::test]
-async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
+async fn invitation_is_one_use_and_new_user_starts_without_subscriptions() {
     let Some(mut state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -649,13 +667,10 @@ async fn invitation_is_one_use_and_new_user_gets_featured_defaults() {
             .fetch_one(state.db.pool())
             .await
             .unwrap();
-    let featured_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM feed_catalog_entries WHERE published AND featured",
-    )
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap();
-    assert_eq!(subscription_count, featured_count);
+    assert_eq!(
+        subscription_count, 0,
+        "featured defaults are reserved for demo accounts"
+    );
     assert!(!rusty_feed_db::invitations::is_valid(
         state.db.pool(),
         &invitation.hash,

@@ -298,6 +298,12 @@ pub struct AppConfig {
     pub oauth_provider_name: Option<String>,
 
     // ── Embeddings (one model per instance) ──
+    /// Master switch for every embedding use case (semantic/hybrid search,
+    /// auto-embedding on ingest, saved-search semantic ranking). `false` skips
+    /// loading/downloading a model entirely and forces keyword-only behavior;
+    /// see the coercion applied in [`AppConfig::from_figment`].
+    #[serde(default = "defaults::bool_true")]
+    pub embeddings_enabled: bool,
     #[serde(default)]
     pub embedding_provider: EmbeddingProvider,
     #[serde(default = "defaults::embedding_model")]
@@ -567,10 +573,17 @@ impl AppConfig {
 
     /// Build from an arbitrary figment (used by tests to inject values).
     pub fn from_figment(figment: Figment) -> Result<Self, ConfigError> {
-        let cfg: AppConfig = figment
+        let mut cfg: AppConfig = figment
             .extract()
             .map_err(|e| ConfigError::Load(e.to_string()))?;
         cfg.validate()?;
+        // EMBEDDINGS_ENABLED=false is the single switch for every embedding use
+        // case: force the dependent knobs consistent rather than requiring the
+        // operator to also remember SEARCH_MODE/EMBEDDING_AUTO_GENERATE.
+        if !cfg.embeddings_enabled {
+            cfg.search_mode = SearchMode::Keyword;
+            cfg.embedding_auto_generate = false;
+        }
         Ok(cfg)
     }
 
@@ -748,9 +761,12 @@ impl AppConfig {
             .map_err(|error| ConfigError::Invalid(format!("FEED_REFRESH_SCHEDULE: {error}")))?;
         CronSchedule::parse(&self.cleanup_schedule)
             .map_err(|error| ConfigError::Invalid(format!("CLEANUP_SCHEDULE: {error}")))?;
-        if self.embedding_provider == EmbeddingProvider::Openai && self.openai_api_key.is_none() {
+        if self.embeddings_enabled
+            && self.embedding_provider == EmbeddingProvider::Openai
+            && self.openai_api_key.is_none()
+        {
             return Err(ConfigError::Invalid(
-                "OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai".into(),
+                "OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai (unless EMBEDDINGS_ENABLED=false)".into(),
             ));
         }
         if !(1_048_576..=536_870_912).contains(&self.media_proxy_max_bytes) {
@@ -966,6 +982,7 @@ impl AppConfig {
                 "reverse_proxy_logout_configured": self.reverse_proxy_auth_logout_url.is_some(),
             },
             "embeddings": {
+                "enabled": self.embeddings_enabled,
                 "provider": self.embedding_provider.as_str(),
                 "model": self.embedding_model,
                 "batch_size": self.embedding_batch_size,
@@ -1318,6 +1335,7 @@ mod tests {
         assert_eq!(cfg.public_share_default_lifetime_days, 30);
         assert_eq!(cfg.public_share_max_lifetime_days, 3_650);
         assert!(cfg.public_share_allow_infinite);
+        assert!(cfg.embeddings_enabled);
         assert_eq!(cfg.embedding_model, "BAAI/bge-small-en-v1.5");
         assert_eq!(cfg.embedding_batch_size, 10);
         assert_eq!(cfg.search_mode, SearchMode::Hybrid);
@@ -1347,6 +1365,40 @@ mod tests {
         assert_eq!(
             cfg.media_proxy_cache_budget_bytes,
             2 * 1_024 * 1_024 * 1_024
+        );
+    }
+
+    #[test]
+    fn embeddings_disabled_forces_keyword_search_and_no_auto_generate() {
+        // EMBEDDINGS_ENABLED=false is one switch for every use case: it must
+        // not be possible to leave a stray SEARCH_MODE=hybrid/semantic or
+        // EMBEDDING_AUTO_GENERATE=true half-enabling embeddings anyway.
+        let cfg = AppConfig::from_figment(base().merge(Serialized::defaults(serde_json::json!({
+            "embeddings_enabled": false,
+            "search_mode": "hybrid",
+            "embedding_auto_generate": true,
+        }))))
+        .expect("disabling embeddings should still load");
+        assert!(!cfg.embeddings_enabled);
+        assert_eq!(cfg.search_mode, SearchMode::Keyword);
+        assert!(!cfg.embedding_auto_generate);
+    }
+
+    #[test]
+    fn embeddings_disabled_does_not_require_an_openai_key() {
+        let missing_key = base().merge(Serialized::defaults(serde_json::json!({
+            "embedding_provider": "openai",
+        })));
+        assert!(
+            AppConfig::from_figment(missing_key.clone()).is_err(),
+            "an active openai embedding provider still needs a key"
+        );
+        let disabled = missing_key.merge(Serialized::defaults(serde_json::json!({
+            "embeddings_enabled": false,
+        })));
+        assert!(
+            AppConfig::from_figment(disabled).is_ok(),
+            "a disabled embedding provider should never require credentials"
         );
     }
 

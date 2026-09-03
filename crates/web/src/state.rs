@@ -168,6 +168,10 @@ pub struct AppSettings {
     pub env_llm: Option<EnvLlmProvider>,
     /// Whether newly-ingested articles should be enqueued for embedding.
     pub auto_embed: bool,
+    /// Master switch for every embedding use case (`EMBEDDINGS_ENABLED`).
+    /// `false` forces `search_mode` to keyword-only regardless of instance or
+    /// personal preference, and hides the semantic/hybrid options in the UI.
+    pub embeddings_enabled: bool,
     /// Instance default for keyword, semantic, or blended interactive search.
     pub search_mode: SearchMode,
     /// Instance default PostgreSQL text dictionary.
@@ -261,6 +265,7 @@ impl Default for AppSettings {
             summarization_enabled: false,
             env_llm: None,
             auto_embed: false,
+            embeddings_enabled: true,
             search_mode: SearchMode::Hybrid,
             search_text_config: SearchTextConfig::Simple,
             search_semantic_weight_percent: 60,

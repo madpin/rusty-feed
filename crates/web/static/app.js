@@ -300,6 +300,18 @@
     });
   }
 
+  // Whether finishing this job will show the actual summary right on this
+  // view (a panel refresh, or the standalone article reloading into "At a
+  // glance") rather than just swapping in a "View AI summary" link (the list
+  // card case, where the content itself stays off-screen). Used to skip a
+  // redundant "ready" toast when the summary is already visible in place.
+  function summaryShowsInPlace(form) {
+    var panel = form.closest(".article-inline") || form.closest(".reading-pane");
+    var panelUrl = form.getAttribute("data-panel-url");
+    if (panel && panelUrl) return true;
+    return !form.closest("[data-article-card]");
+  }
+
   function finishSummary(form) {
     var panel = form.closest(".article-inline") || form.closest(".reading-pane");
     var panelUrl = form.getAttribute("data-panel-url");
@@ -324,12 +336,22 @@
     return new Promise(function () {});
   }
 
+  // The live status text lives outside the summarize form itself (so a long
+  // message never resizes the compact action row): the reader's reserved
+  // "AI summary" slot, or the list card's status line below its action row.
+  function summaryProgressElement(form) {
+    var inline = form.querySelector("[data-summary-progress]");
+    if (inline) return inline;
+    var scope = form.closest("[data-reader-surface]") || form.closest("[data-article-card]");
+    return scope ? scope.querySelector("[data-summary-progress]") : null;
+  }
+
   function startSummaryPolling(form, options) {
     options = options || {};
     if (form._rustyFeedSummaryPromise) return form._rustyFeedSummaryPromise;
     var statusUrl = form.getAttribute("data-summary-status-url");
     if (!statusUrl) return Promise.resolve();
-    var progress = form.querySelector("[data-summary-progress]");
+    var progress = summaryProgressElement(form);
     var deadline = Date.now() + (5 * 60 * 1000);
     var attempts = 0;
     // Resuming on page load stays silent until we confirm a job is actually in
@@ -380,7 +402,11 @@
             }
             if (result.state === "ready") {
               activate();
-              announce("AI summary ready.", false);
+              // If the summary is about to appear right here (reader/panel),
+              // showing it is enough — a toast would just repeat the news.
+              if (!summaryShowsInPlace(form)) {
+                announce("AI summary ready.", false);
+              }
               finishSummary(form).then(resolve, function () {
                 finish("The summary is ready, but this view could not refresh. Reload the page.", true);
               });
@@ -2184,7 +2210,9 @@
 })();
 
 // First-run wizard interest filter (P8 §8.4): checking topic chips narrows the
-// curated feed suggestions to matching categories. CSP-safe (no inline JS).
+// curated feed suggestions to matching categories. Explains every change with
+// a live count + topic names (data-wizard-suggestions-status) instead of just
+// letting cards silently appear/disappear. CSP-safe (no inline JS).
 (function () {
   var grid = document.querySelector("[data-wizard-suggestions]");
   if (!grid) return;
@@ -2194,15 +2222,17 @@
   if (!interests.length) return;
   var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-wizard-feed]"));
   var empty = grid.querySelector("[data-wizard-suggestions-empty]");
+  var status = grid.querySelector("[data-wizard-suggestions-status]");
   function apply() {
+    var names = [];
     var selected = Object.create(null);
-    var any = false;
     interests.forEach(function (input) {
       if (input.checked) {
         selected[input.value] = true;
-        any = true;
+        names.push(input.value);
       }
     });
+    var any = names.length > 0;
     var visible = 0;
     cards.forEach(function (card) {
       var show = !any || selected[card.getAttribute("data-category")] === true;
@@ -2210,6 +2240,11 @@
       if (show) visible += 1;
     });
     if (empty) empty.hidden = visible !== 0;
+    if (status) {
+      status.textContent = any
+        ? "Showing " + visible + " of " + cards.length + " curated feeds for " + names.join(", ") + "."
+        : "Showing all " + cards.length + " curated feeds.";
+    }
   }
   interests.forEach(function (input) {
     input.addEventListener("change", apply);

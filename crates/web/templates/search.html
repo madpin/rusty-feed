@@ -13,6 +13,7 @@
   <label>Search your subscriptions
     <input type="search" name="q" value="{{ query }}" maxlength="512" placeholder="What is new in async Rust?" autofocus />
   </label>
+  {% if embeddings_enabled %}
   <label>Search with
     <select name="mode">
       <option value="preferred"{% if requested_mode == "preferred" %} selected{% endif %}>My preferred mode</option>
@@ -21,6 +22,9 @@
       <option value="semantic"{% if requested_mode == "semantic" %} selected{% endif %}>Meaning only</option>
     </select>
   </label>
+  {% else %}
+  <p class="muted">Meaning-based search is disabled by the instance administrator; searches use exact PostgreSQL matching.</p>
+  {% endif %}
   <div class="form-actions"><button type="submit" class="primary">Search</button></div>
   <p class="muted">Exact search supports <code>"quoted phrases"</code>, uppercase <code>OR</code>, and <code>-excluded</code> terms. Current settings: {{ effective_mode }}, {{ effective_text_config }} text{% if effective_mode == "hybrid" %}, {{ semantic_weight_percent }}% meaning{% endif %}. <a href="/settings/preferences#search">Customize</a></p>
 </form>

@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/static/app.js" defer></script>
   </head>
-  <body class="auth-page">
+  <body class="auth-page {% block body_class %}{% endblock %}">
     <main class="auth-card">
       <a class="auth-brand" href="/"><span class="brand-mark">R</span><span>Rusty Feed</span></a>
       {% block content %}{% endblock %}

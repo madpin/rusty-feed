@@ -6,14 +6,29 @@ test("anonymous landing page shows the pitch, CTA, and Miniflux comparison", asy
 }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "understand",
+    "Own the feed",
   );
   await expect(
-    page.getByRole("link", { name: "Create free account" }).first(),
+    page.getByRole("link", { name: "Create your account" }).first(),
   ).toBeVisible();
+  await expect(page.getByText("content: shared once")).toBeVisible();
+  await expect(page.getByText("state: personal")).toBeVisible();
+  await expect(page.getByText("Postgres is the queue")).toBeVisible();
   await expect(page.getByText("Rusty Feed vs Miniflux")).toBeVisible();
   // Optimized screenshots are lazy-loaded.
   await expect(page.locator("img[loading='lazy']").first()).toBeVisible();
+});
+
+test("the isolated demo starts in Rusty with organized showcase feeds", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try the live demo" }).first().click();
+  await expect(page).toHaveURL(/\/articles/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "rusty");
+  await expect(
+    page.locator("#library-sidebar .folder-tree-node:not(.folder-tree-unfiled)").first(),
+  ).toBeVisible();
 });
 
 test("robots.txt disallows the app and points at the sitemap", async ({
@@ -54,8 +69,8 @@ test("first-run wizard live-previews theme & typography without CSP violations",
   await register(page, `${Date.now()}-${testInfo.parallelIndex}`);
 
   // Selecting a theme swaps <html data-theme> live — no reload, no inline style.
-  await page.getByRole("radio", { name: /Ocean/ }).check();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "ocean");
+  await page.getByRole("radio", { name: /Rusty/ }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "rusty");
   await page.getByRole("radio", { name: "Serif", exact: true }).check();
   await expect(page.locator("html")).toHaveAttribute(
     "data-font-family",
@@ -65,6 +80,7 @@ test("first-run wizard live-previews theme & typography without CSP violations",
   // Finish persists the selections and lands in the reader.
   await page.getByRole("button", { name: "Finish" }).click();
   await expect(page).toHaveURL(/\/articles/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "rusty");
 
   expect(cspViolations, cspViolations.join("\n")).toHaveLength(0);
 });

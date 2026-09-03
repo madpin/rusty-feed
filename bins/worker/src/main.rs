@@ -14,6 +14,13 @@ use tokio::sync::watch;
 #[path = "../../systemd.rs"]
 mod systemd;
 
+// glibc's default allocator fragments badly across the per-thread arenas this
+// process creates under concurrent HTML parsing/sanitization; jemalloc
+// decays and returns freed arena memory to the OS instead. See docs/FINDINGS.md.
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = AppConfig::load().context("failed to load configuration")?;
@@ -51,17 +58,25 @@ async fn main() -> anyhow::Result<()> {
         http1_only: config.outbound_http1_only,
     })
     .context("failed to build HTTP client")?;
-    let embedder = rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
-        provider: config.embedding_provider,
-        model: embedding_model,
-        openai_api_key: config
-            .openai_api_key
-            .as_ref()
-            .map(|s| s.expose().to_string()),
-        openai_base_url: config.openai_base_url.clone(),
-        model_cache_dir: config.model_cache_dir.clone(),
-    })
-    .context("failed to build embedder")?;
+    // EMBEDDINGS_ENABLED=false skips building a real embedder entirely (no
+    // model download, no OpenAI credential requirement); embed_article stays
+    // unscheduled and saved_search_match falls back to keyword-only matching.
+    let embedder: std::sync::Arc<dyn rusty_feed_embed::Embedder> = if config.embeddings_enabled {
+        rusty_feed_embed::build_embedder(rusty_feed_embed::EmbedConfig {
+            provider: config.embedding_provider,
+            model: embedding_model,
+            openai_api_key: config
+                .openai_api_key
+                .as_ref()
+                .map(|s| s.expose().to_string()),
+            openai_base_url: config.openai_base_url.clone(),
+            model_cache_dir: config.model_cache_dir.clone(),
+        })
+        .context("failed to build embedder")?
+    } else {
+        tracing::info!("embeddings disabled (EMBEDDINGS_ENABLED=false): worker skips model load");
+        std::sync::Arc::new(rusty_feed_embed::DisabledEmbedder)
+    };
     let llm = rusty_feed_llm::build_client(rusty_feed_llm::LlmConfig {
         provider: config.llm_provider,
         model: config.llm_summary_model.clone(),
@@ -95,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|error| anyhow::anyhow!("invalid CLEANUP_SCHEDULE: {error}"))?,
             extraction_config: extraction_config(&config),
             embed_on_ingest: config.embedding_auto_generate,
+            embeddings_enabled: config.embeddings_enabled,
             auto_summarize: config.llm_auto_summarize,
             eager_extraction: config.article_page_eager_extraction,
             tracking_url_policy,

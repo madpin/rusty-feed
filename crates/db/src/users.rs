@@ -3,6 +3,10 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use rusty_feed_core::feed_content::{
+    CATALOG_ARTICLE_PAGE_RECOMMENDATIONS, DEFAULT_CONTENT_LIFETIME_DAYS,
+};
+
 use crate::error::Result;
 use crate::models::User;
 
@@ -35,39 +39,11 @@ pub async fn create(
     Ok(user)
 }
 
-/// Create a user and idempotently subscribe them to the administrator-curated
-/// featured catalog feeds in one transaction. Featured catalog entries are the
-/// customizable new-user defaults; shared feed/article rows are never copied.
-pub async fn create_with_default_feeds(
-    pool: &PgPool,
-    email: &str,
-    name: Option<&str>,
-    image: Option<&str>,
-    role: &str,
-    password_hash: Option<&str>,
-) -> Result<User> {
-    let mut transaction = pool.begin().await?;
-    let sql = format!(
-        "INSERT INTO users (id, email, name, image, role, password_hash) \
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING {USER_COLUMNS}"
-    );
-    let user = sqlx::query_as::<_, User>(&sql)
-        .bind(Uuid::now_v7())
-        .bind(email)
-        .bind(name)
-        .bind(image)
-        .bind(role)
-        .bind(password_hash)
-        .fetch_one(&mut *transaction)
-        .await?;
-    subscribe_featured_catalog(&mut transaction, user.id).await?;
-    transaction.commit().await?;
-    Ok(user)
-}
-
-/// Create an ephemeral demo account (§7): flagged `is_demo`, no password, seeded
-/// with the featured catalog. `role` is `user` or `admin_readonly` (never a
-/// full admin).
+/// Create an ephemeral demo account (§7): flagged `is_demo`, no password, and
+/// seeded with the featured catalog organized into personal folders/tags by
+/// catalog category. Featured feeds are demo showcase content only; regular
+/// accounts start empty and choose feeds in the wizard/catalog. `role` is
+/// `user` or `admin_readonly` (never a full admin).
 pub async fn create_demo(pool: &PgPool, email: &str, name: &str, role: &str) -> Result<User> {
     let mut transaction = pool.begin().await?;
     let sql = format!(
@@ -81,7 +57,17 @@ pub async fn create_demo(pool: &PgPool, email: &str, name: &str, role: &str) -> 
         .bind(role)
         .fetch_one(&mut *transaction)
         .await?;
-    subscribe_featured_catalog(&mut transaction, user.id).await?;
+    seed_demo_catalog(&mut transaction, user.id).await?;
+    sqlx::query(
+        "INSERT INTO user_preferences (user_id, preferences) \
+         VALUES ($1, '{\"theme\":\"rusty\"}'::jsonb) \
+         ON CONFLICT (user_id) DO UPDATE SET \
+           preferences = user_preferences.preferences || EXCLUDED.preferences, \
+           updated_at = now()",
+    )
+    .bind(user.id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
     Ok(user)
 }
@@ -104,9 +90,9 @@ pub async fn delete_all_demo(pool: &PgPool) -> Result<u64> {
     Ok(deleted)
 }
 
-/// Atomically consume an invitation, create its user, and apply the shared
-/// featured-feed defaults. Returns `None` when the token is expired, revoked,
-/// already used, or restricted to a different email address.
+/// Atomically consume an invitation and create its user. Returns `None` when
+/// the token is expired, revoked, already used, or restricted to a different
+/// email address. Regular invited accounts start without subscriptions.
 pub async fn create_with_invitation(
     pool: &PgPool,
     invitation_hash: &str,
@@ -140,7 +126,6 @@ pub async fn create_with_invitation(
         .bind(password_hash)
         .fetch_one(&mut *transaction)
         .await?;
-    subscribe_featured_catalog(&mut transaction, user.id).await?;
     sqlx::query(
         "UPDATE registration_invitations SET accepted_by = $2, accepted_at = now() WHERE id = $1",
     )
@@ -152,27 +137,63 @@ pub async fn create_with_invitation(
     Ok(Some(user))
 }
 
-async fn subscribe_featured_catalog(
+/// Seed one new demo account with every published featured feed, then mirror
+/// each feed's catalog category into a personal folder and tag. All writes use
+/// the account-creation transaction so a demo never becomes visible half-seeded.
+async fn seed_demo_catalog(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: Uuid,
 ) -> Result<()> {
-    let feed_ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT feed_id FROM feed_catalog_entries WHERE published AND featured \
-         ORDER BY sort_order, title",
+    sqlx::query(
+        "INSERT INTO user_feeds (id, user_id, feed_id, settings) \
+         SELECT gen_random_uuid(), $1, c.feed_id, CASE WHEN f.url = ANY($2) \
+           THEN jsonb_build_object('content_mode', 'article_page', 'content_lifetime_days', $3::int) \
+           ELSE NULL END \
+         FROM feed_catalog_entries c JOIN feeds f ON f.id = c.feed_id \
+         WHERE c.published AND c.featured ORDER BY c.sort_order, c.title \
+         ON CONFLICT (user_id, feed_id) DO NOTHING",
     )
-    .fetch_all(&mut **transaction)
+    .bind(user_id)
+    .bind(CATALOG_ARTICLE_PAGE_RECOMMENDATIONS)
+    .bind(i32::from(DEFAULT_CONTENT_LIFETIME_DAYS))
+    .execute(&mut **transaction)
     .await?;
-    for feed_id in feed_ids {
-        sqlx::query(
-            "INSERT INTO user_feeds (id, user_id, feed_id) VALUES ($1, $2, $3) \
-             ON CONFLICT (user_id, feed_id) DO NOTHING",
-        )
-        .bind(Uuid::now_v7())
-        .bind(user_id)
-        .bind(feed_id)
-        .execute(&mut **transaction)
-        .await?;
-    }
+
+    sqlx::query(
+        "INSERT INTO user_categories (id, user_id, name, parent_id) \
+         SELECT gen_random_uuid(), $1, category, NULL FROM ( \
+           SELECT DISTINCT left(trim(category), 40) AS category \
+           FROM feed_catalog_entries WHERE published AND featured \
+         ) categories WHERE category <> '' \
+         ON CONFLICT (user_id, parent_id, name) DO NOTHING",
+    )
+    .bind(user_id)
+    .execute(&mut **transaction)
+    .await?;
+
+    sqlx::query(
+        "UPDATE user_feeds uf SET tags = ARRAY[left(trim(c.category), 40)], updated_at = now() \
+         FROM feed_catalog_entries c \
+         WHERE uf.user_id = $1 AND uf.feed_id = c.feed_id \
+           AND c.published AND c.featured AND trim(c.category) <> ''",
+    )
+    .bind(user_id)
+    .execute(&mut **transaction)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO user_feed_categories (id, user_feed_id, user_category_id) \
+         SELECT gen_random_uuid(), uf.id, category.id \
+         FROM user_feeds uf \
+         JOIN feed_catalog_entries c ON c.feed_id = uf.feed_id AND c.published AND c.featured \
+         JOIN user_categories category \
+           ON category.user_id = uf.user_id AND category.name = left(trim(c.category), 40) \
+         WHERE uf.user_id = $1 AND trim(c.category) <> '' \
+         ON CONFLICT (user_feed_id, user_category_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .execute(&mut **transaction)
+    .await?;
     Ok(())
 }
 

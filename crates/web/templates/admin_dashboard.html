@@ -92,7 +92,7 @@
       <div><dt title="Total on-disk size of the PostgreSQL database.">PostgreSQL total</dt><dd>{{ stats.database_size }}</dd></div>
       <div><dt title="Resident set size (RSS) of this web/worker process right now.">Process memory (RSS)</dt><dd>{{ stats.process_memory }}</dd></div>
     </dl>
-    <p class="muted">A typical loaded process sits around 250–300&nbsp;MB. The largest resident consumers are the local embedding model and ONNX runtime (loaded once into RAM), the SQLx/Redis connection pools, and template/asset buffers. Headless Chromium runs as a <strong>separate</strong> container, so it does not count toward this figure. To trim memory, use a hosted embedding provider (<code>EMBEDDING_PROVIDER=openai</code>) or lower <code>FEED_REFRESH_CONCURRENCY</code>. Historical/container memory is also exported via <a href="/metrics">Prometheus metrics</a>.</p>
+    <p class="muted">A typical loaded process sits around 250–300&nbsp;MB. The largest resident consumers are the local embedding model and ONNX runtime (loaded once into RAM), the SQLx/Redis connection pools, and template/asset buffers. Headless Chromium runs as a <strong>separate</strong> container, so it does not count toward this figure. To trim memory, set <code>EMBEDDINGS_ENABLED=false</code> if you don't need semantic/hybrid search or saved-search ranking (skips the model/ONNX runtime entirely), use a hosted embedding provider instead (<code>EMBEDDING_PROVIDER=openai</code>), or lower <code>FEED_REFRESH_CONCURRENCY</code>. Historical/container memory is also exported via <a href="/metrics">Prometheus metrics</a>.</p>
   </section>
 
   <section class="panel">

@@ -12,9 +12,11 @@ This guide covers the v1 web application. Administrators should also keep the
 
 Open the Rusty Feed address supplied by your administrator. You can sign in with a
 local email/password or an enabled OAuth provider. On an open instance, the
-first registered account becomes the administrator; later accounts receive the
-instance's featured starter subscriptions. Invitation-only instances require a
-one-use invite.
+first registered account becomes the administrator. Regular accounts start with
+an empty library and choose sources in the setup wizard, Discover catalog, OPML
+import, or direct-add flow. Only temporary demo accounts receive the instance's
+featured showcase feeds; those are pre-organized into topic folders. Invitation-only
+instances require a one-use invite.
 
 The main navigation contains:
 
@@ -36,6 +38,7 @@ The Library sidebar is stable navigation, independent of the current article
 filter. Use it to switch between:
 
 - **Most recent**, **Unread only**, or **Personalized** ranking;
+- **Unread AI summaries** — jump straight to the summaries that finished generating while you moved on to other articles, skipping ones you've already read or that don't have a summary yet;
 - a folder and all of its nested sources;
 - **Unfiled feeds**;
 - one source;
@@ -59,8 +62,8 @@ Choose a mode under **Account → Reading & display**:
 - **Standalone** opens a focused article page.
 
 All modes use the same sanitized content, personal state, summary, sharing, and
-media controls. Seven color palettes—including live system light/dark—combine
-with sans-serif or serif typography. Font family, size, line height, article
+media controls. Eight color palettes—including Rusty's warm oxide palette and
+live system light/dark—combine with sans-serif or serif typography. Font family, size, line height, article
 density, sidebar width, and reader-panel width are personal settings rendered
 before JavaScript loads.
 

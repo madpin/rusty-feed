@@ -111,7 +111,7 @@ async fn load_proxy_user(state: &AppState, parts: &Parts) -> Result<Option<User>
     } else {
         "user"
     };
-    match users::create_with_default_feeds(state.db.pool(), &email, name, None, role, None).await {
+    match users::create(state.db.pool(), &email, name, None, role, None).await {
         Ok(user) => Ok(Some(user)),
         Err(create_error) => {
             // Concurrent requests for a newly-provisioned identity race safely
