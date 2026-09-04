@@ -122,13 +122,21 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: optional_registries
+        name: Detect optional registry credentials
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
+        run: |
+          if [[ -n "$DOCKERHUB_TOKEN" ]]; then echo "dockerhub=true" >> "$GITHUB_OUTPUT"; else echo "dockerhub=false" >> "$GITHUB_OUTPUT"; fi
+          if [[ -n "$QUAY_TOKEN" ]]; then echo "quay=true" >> "$GITHUB_OUTPUT"; else echo "quay=false" >> "$GITHUB_OUTPUT"; fi
       - uses: docker/login-action@v3
-        if: vars.DOCKERHUB_IMAGE != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: vars.DOCKERHUB_IMAGE != '' && steps.optional_registries.outputs.dockerhub == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/login-action@v3
-        if: vars.QUAY_IMAGE != '' && secrets.QUAY_TOKEN != ''
+        if: vars.QUAY_IMAGE != '' && steps.optional_registries.outputs.quay == 'true'
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_USERNAME }}
@@ -165,7 +173,7 @@ jobs:
             cosign sign --yes "${image%@*}@${DIGEST}"
           done <<< "$TAGS"
       - name: Publish optional Docker Hub aliases
-        if: vars.DOCKERHUB_IMAGE != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: vars.DOCKERHUB_IMAGE != '' && steps.optional_registries.outputs.dockerhub == 'true'
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           SOURCE: ghcr.io/${{ github.repository_owner }}/rusty-feed
@@ -180,7 +188,7 @@ jobs:
           done
           cosign sign --yes "$TARGET@$DIGEST"
       - name: Publish optional Quay aliases
-        if: vars.QUAY_IMAGE != '' && secrets.QUAY_TOKEN != ''
+        if: vars.QUAY_IMAGE != '' && steps.optional_registries.outputs.quay == 'true'
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           SOURCE: ghcr.io/${{ github.repository_owner }}/rusty-feed
