@@ -204,7 +204,7 @@ pub async fn demo_start(
         session::login_with_ttl(jar, &state.db, user.id, state.settings.cookie_secure, ttl).await?;
     // A readable (non-HttpOnly) marker so the client shows the demo banner.
     let jar = jar.add(
-        axum_extra::extract::cookie::Cookie::build(("rusty_feed_demo", "1"))
+        axum_extra::extract::cookie::Cookie::build((session::DEMO_COOKIE, "1"))
             .path("/")
             .same_site(axum_extra::extract::cookie::SameSite::Lax)
             .secure(state.settings.cookie_secure)

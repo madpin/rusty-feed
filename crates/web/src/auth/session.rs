@@ -10,6 +10,8 @@ use crate::auth::token;
 
 /// Name of the session cookie.
 pub const SESSION_COOKIE: &str = "rusty_feed_sid";
+/// Name of the readable marker used by the demo banner.
+pub const DEMO_COOKIE: &str = "rusty_feed_demo";
 /// Session lifetime.
 pub const SESSION_TTL_DAYS: i64 = 30;
 
@@ -43,7 +45,11 @@ pub async fn login_with_ttl(
         .path("/")
         .max_age(ttl)
         .build();
-    Ok(jar.add(cookie))
+    Ok(clear_demo_marker(jar).add(cookie))
+}
+
+fn clear_demo_marker(jar: CookieJar) -> CookieJar {
+    jar.remove(Cookie::build((DEMO_COOKIE, "")).path("/").build())
 }
 
 /// Destroy the current session (if any) and return the jar with the cookie
@@ -54,5 +60,5 @@ pub async fn logout(jar: CookieJar, db: &Db) -> CookieJar {
             rusty_feed_db::sessions::delete_by_token_hash(db.pool(), &token::hash(cookie.value()))
                 .await;
     }
-    jar.remove(Cookie::build((SESSION_COOKIE, "")).path("/").build())
+    clear_demo_marker(jar.remove(Cookie::build((SESSION_COOKIE, "")).path("/").build()))
 }

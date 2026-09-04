@@ -567,7 +567,7 @@ impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         // Best-effort: load `.env` for local development. Missing file is fine.
         let _ = dotenvy::dotenv();
-        let config_file = std::env::var_os("RUSTY_FEED_CONFIG_FILE").map(PathBuf::from);
+        let config_file = nonempty_path(std::env::var_os("RUSTY_FEED_CONFIG_FILE"));
         Self::from_figment(figment_for_sources(config_file.as_deref())?)
     }
 
@@ -576,6 +576,7 @@ impl AppConfig {
         let mut cfg: AppConfig = figment
             .extract()
             .map_err(|e| ConfigError::Load(e.to_string()))?;
+        cfg.normalize_empty_optional_values();
         cfg.validate()?;
         // EMBEDDINGS_ENABLED=false is the single switch for every embedding use
         // case: force the dependent knobs consistent rather than requiring the
@@ -585,6 +586,51 @@ impl AppConfig {
             cfg.embedding_auto_generate = false;
         }
         Ok(cfg)
+    }
+
+    fn normalize_empty_optional_values(&mut self) {
+        for value in [
+            &mut self.base_url,
+            &mut self.redis_url,
+            &mut self.reverse_proxy_auth_logout_url,
+            &mut self.google_client_id,
+            &mut self.github_client_id,
+            &mut self.oauth_client_id,
+            &mut self.oauth_auth_url,
+            &mut self.oauth_token_url,
+            &mut self.oauth_userinfo_url,
+            &mut self.oauth_provider_name,
+            &mut self.openai_base_url,
+            &mut self.chromium_cdp_url,
+            &mut self.smtp_from,
+            &mut self.captcha_provider,
+            &mut self.captcha_site_key,
+            &mut self.legal_contact_email,
+            &mut self.legal_entity_name,
+        ] {
+            if value
+                .as_deref()
+                .is_some_and(|value| value.trim().is_empty())
+            {
+                *value = None;
+            }
+        }
+        for value in [
+            &mut self.redis_password,
+            &mut self.google_client_secret,
+            &mut self.github_client_secret,
+            &mut self.oauth_client_secret,
+            &mut self.openai_api_key,
+            &mut self.smtp_url,
+            &mut self.captcha_secret,
+        ] {
+            if value
+                .as_ref()
+                .is_some_and(|value| value.expose().trim().is_empty())
+            {
+                *value = None;
+            }
+        }
     }
 
     /// Enforce cross-field/semantic rules not expressible in the type system.
@@ -1035,6 +1081,12 @@ impl AppConfig {
     }
 }
 
+fn nonempty_path(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    value
+        .filter(|value| !value.to_string_lossy().trim().is_empty())
+        .map(PathBuf::from)
+}
+
 fn figment_for_sources(config_file: Option<&Path>) -> Result<Figment, ConfigError> {
     let figment = match config_file {
         Some(path) => {
@@ -1369,6 +1421,62 @@ mod tests {
     }
 
     #[test]
+    fn empty_optional_values_are_unset() {
+        let cfg = AppConfig::from_figment(base().merge(Serialized::defaults(serde_json::json!({
+            "base_url": "",
+            "redis_url": " ",
+            "redis_password": "",
+            "reverse_proxy_auth_logout_url": " ",
+            "google_client_id": "",
+            "google_client_secret": " ",
+            "github_client_id": "",
+            "github_client_secret": " ",
+            "oauth_client_id": "",
+            "oauth_client_secret": " ",
+            "oauth_auth_url": "",
+            "oauth_token_url": " ",
+            "oauth_userinfo_url": "",
+            "oauth_provider_name": " ",
+            "openai_api_key": "",
+            "openai_base_url": " ",
+            "chromium_cdp_url": "",
+            "smtp_url": " ",
+            "smtp_from": "",
+            "captcha_provider": " ",
+            "captcha_site_key": "",
+            "captcha_secret": " ",
+            "legal_contact_email": "",
+            "legal_entity_name": " ",
+        }))))
+        .expect("empty optional values should load as unset");
+
+        assert!(cfg.base_url.is_none());
+        assert!(cfg.redis_url.is_none());
+        assert!(cfg.redis_password.is_none());
+        assert!(cfg.reverse_proxy_auth_logout_url.is_none());
+        assert!(cfg.google_client_id.is_none());
+        assert!(cfg.google_client_secret.is_none());
+        assert!(cfg.github_client_id.is_none());
+        assert!(cfg.github_client_secret.is_none());
+        assert!(cfg.oauth_client_id.is_none());
+        assert!(cfg.oauth_client_secret.is_none());
+        assert!(cfg.oauth_auth_url.is_none());
+        assert!(cfg.oauth_token_url.is_none());
+        assert!(cfg.oauth_userinfo_url.is_none());
+        assert!(cfg.oauth_provider_name.is_none());
+        assert!(cfg.openai_api_key.is_none());
+        assert!(cfg.openai_base_url.is_none());
+        assert!(cfg.chromium_cdp_url.is_none());
+        assert!(cfg.smtp_url.is_none());
+        assert!(cfg.smtp_from.is_none());
+        assert!(cfg.captcha_provider.is_none());
+        assert!(cfg.captcha_site_key.is_none());
+        assert!(cfg.captcha_secret.is_none());
+        assert!(cfg.legal_contact_email.is_none());
+        assert!(cfg.legal_entity_name.is_none());
+    }
+
+    #[test]
     fn embeddings_disabled_forces_keyword_search_and_no_auto_generate() {
         // EMBEDDINGS_ENABLED=false is one switch for every use case: it must
         // not be possible to leave a stray SEARCH_MODE=hybrid/semantic or
@@ -1646,6 +1754,17 @@ mod tests {
             "tracking_pixel_blocked_hosts": "https://metrics.example.com",
         })));
         assert!(AppConfig::from_figment(invalid).is_err());
+    }
+
+    #[test]
+    fn empty_config_file_path_is_unset() {
+        assert!(nonempty_path(None).is_none());
+        assert!(nonempty_path(Some("".into())).is_none());
+        assert!(nonempty_path(Some("  ".into())).is_none());
+        assert_eq!(
+            nonempty_path(Some("config.toml".into())),
+            Some(PathBuf::from("config.toml"))
+        );
     }
 
     #[test]

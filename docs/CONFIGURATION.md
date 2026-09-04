@@ -28,6 +28,9 @@ registration_mode = "closed"
 
 An explicitly configured TOML path must exist. Relative paths are resolved from
 the process working directory. `RUSTY_FEED_CONFIG_FILE` itself is environment-only.
+Empty or whitespace-only values for optional application settings—including
+credentials, provider URLs, and `RUSTY_FEED_CONFIG_FILE`—are treated as unset;
+required settings still reject empty values.
 
 Run this before starting a production instance:
 
@@ -424,8 +427,13 @@ feed adds are all disabled — they subscribe from the curated catalog only).
 ## Docker Compose-only variables
 
 These values configure containers or port publishing and are not fields in
-`AppConfig`: `APP_PORT`, `POSTGRES_PORT`, `REDIS_PORT`, `CHROMIUM_PORT`, and
-`AUTO_MIGRATE`. Always invoke Compose with the project env file:
+`AppConfig`: `APP_PORT`, `POSTGRES_PORT`, `REDIS_PORT`, `CHROMIUM_PORT`,
+`AUTO_MIGRATE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and
+`RUSTY_FEED_IMAGE`. The last four are used by the Dokploy stack; its app service
+forwards every `AppConfig` environment variable with the documented default.
+Optional values without defaults use an explicit empty-string fallback, which
+the typed loader treats exactly like an omitted value. Always invoke Compose with
+the project env file:
 
 ```bash
 docker compose --env-file .env -f docker/compose.yaml config --quiet

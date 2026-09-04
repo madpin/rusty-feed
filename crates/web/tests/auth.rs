@@ -224,7 +224,10 @@ async fn register_login_logout_flow() {
         .oneshot(
             Request::post("/register")
                 .header("content-type", "application/x-www-form-urlencoded")
-                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
+                .header(
+                    "cookie",
+                    cookie_header(&[("rusty_feed_csrf", &csrf), ("rusty_feed_demo", "1")]),
+                )
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -235,8 +238,13 @@ async fn register_login_logout_flow() {
         StatusCode::SEE_OTHER,
         "register should redirect"
     );
-    let sid = set_cookies(&resp);
-    let sid = find_cookie(&sid, "rusty_feed_sid")
+    let response_cookies = set_cookies(&resp);
+    assert_eq!(
+        find_cookie(&response_cookies, "rusty_feed_demo"),
+        Some(""),
+        "regular registration clears a stale demo marker"
+    );
+    let sid = find_cookie(&response_cookies, "rusty_feed_sid")
         .expect("session cookie")
         .to_string();
 
@@ -284,7 +292,11 @@ async fn register_login_logout_flow() {
                 .header("content-type", "application/x-www-form-urlencoded")
                 .header(
                     "cookie",
-                    cookie_header(&[("rusty_feed_sid", &sid), ("rusty_feed_csrf", &home_csrf)]),
+                    cookie_header(&[
+                        ("rusty_feed_sid", &sid),
+                        ("rusty_feed_csrf", &home_csrf),
+                        ("rusty_feed_demo", "1"),
+                    ]),
                 )
                 .body(Body::from(format!("csrf_token={home_csrf}")))
                 .unwrap(),
@@ -292,6 +304,11 @@ async fn register_login_logout_flow() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        find_cookie(&set_cookies(&resp), "rusty_feed_demo"),
+        Some(""),
+        "logout clears the demo marker"
+    );
 
     // 5. The old session cookie no longer authenticates (session was deleted).
     let resp = app

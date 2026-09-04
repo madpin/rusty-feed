@@ -271,6 +271,11 @@ BASE_URL=https://your-domain          # your real public URL
 # RUSTY_FEED_IMAGE=ghcr.io/you/rusty-feed:main   # your fork, or pin a commit/tag
 ```
 
+The Dokploy Compose file forwards every application variable documented in
+`docs/CONFIGURATION.md` and uses the documented defaults. Optional credentials
+and provider URLs use explicit empty defaults; Rusty Feed treats those exactly
+like omitted values until you set them in the Environment editor.
+
 ### 4. Expose the app
 - Open the **Domains** tab, add your domain, and select service **`app`**,
   container port **8080**. Dokploy adds the Traefik route and issues the
