@@ -50,7 +50,7 @@
     <p class="sidebar-label">Tags</p>
     <div class="feed-nav-list">
       {% for tag in tags %}
-      <a href="{{ tag.href }}"{% if tag.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ tag.name }}"><span class="sidebar-nav-icon" aria-hidden="true">#</span><span class="sidebar-text">{{ tag.name }}</span><span class="sidebar-count">{{ tag.feed_count }}</span></a>
+      <a href="{{ tag.href }}" data-library-tag-nav{% if tag.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ tag.name }}"><span class="sidebar-nav-icon" aria-hidden="true">#</span><span class="sidebar-text">{{ tag.name }}</span><span class="sidebar-count">{{ tag.feed_count }}</span></a>
       {% endfor %}
     </div>
   </div>

@@ -9,7 +9,7 @@
 //! queries, so tests can share one database and run in parallel.
 
 use rusty_feed_core::feed_content::{
-    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+    ContentLifetime, SubscriptionContentMode, SubscriptionContentSettings,
 };
 use rusty_feed_db::models::{NewArticle, NewArticleEnclosure};
 use rusty_feed_db::{articles, bookmarks, feeds, jobs, subscriptions, users, Db, UpsertAction};
@@ -647,7 +647,7 @@ async fn subscriber_page_requests_merge_to_one_longest_shared_lifetime() {
         first.id,
         feed.id,
         SubscriptionContentSettings {
-            mode: FeedContentMode::ArticlePage,
+            mode: SubscriptionContentMode::ArticlePage,
             lifetime: ContentLifetime::Days(7),
         },
     )
@@ -658,7 +658,7 @@ async fn subscriber_page_requests_merge_to_one_longest_shared_lifetime() {
         second.id,
         feed.id,
         SubscriptionContentSettings {
-            mode: FeedContentMode::ArticlePage,
+            mode: SubscriptionContentMode::ArticlePage,
             lifetime: ContentLifetime::Infinite,
         },
     )
@@ -675,7 +675,10 @@ async fn subscriber_page_requests_merge_to_one_longest_shared_lifetime() {
         pool,
         second.id,
         feed.id,
-        SubscriptionContentSettings::default(),
+        SubscriptionContentSettings {
+            mode: SubscriptionContentMode::Live,
+            lifetime: ContentLifetime::Infinite,
+        },
     )
     .await
     .unwrap();
@@ -684,6 +687,23 @@ async fn subscriber_page_requests_merge_to_one_longest_shared_lifetime() {
             .await
             .unwrap(),
         Some(ContentLifetime::Days(7))
+    );
+    subscriptions::update_content_settings(
+        pool,
+        first.id,
+        feed.id,
+        SubscriptionContentSettings {
+            mode: SubscriptionContentMode::Live,
+            lifetime: ContentLifetime::Days(7),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        subscriptions::requested_article_page_lifetime(pool, feed.id)
+            .await
+            .unwrap(),
+        None
     );
 }
 

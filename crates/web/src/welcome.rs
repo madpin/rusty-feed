@@ -14,7 +14,12 @@ use axum_extra::extract::cookie::CookieJar;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use rusty_feed_db::{catalog, feed_icons, subscriptions, user_preferences, users, User};
+use rusty_feed_core::feed_content::{
+    ContentLifetime, SubscriptionContentMode, SubscriptionContentSettings,
+};
+use rusty_feed_db::{
+    articles, catalog, feed_icons, jobs, subscriptions, user_preferences, users, User,
+};
 use rusty_feed_feeds::enqueue_fetch_feed;
 
 use crate::auth::csrf;
@@ -29,6 +34,7 @@ const WIZARD_SUGGESTIONS_TOTAL: usize = 48;
 const WIZARD_SUGGESTIONS_PER_CATEGORY: usize = 6;
 /// Cap on feeds a user can subscribe to from a single wizard submission.
 const WIZARD_MAX_SUBSCRIPTIONS: usize = 30;
+const WIZARD_CONTENT_BACKFILL: usize = 5_000;
 
 /// A curated feed suggestion rendered as a selectable card in the wizard.
 struct WizardFeedView {
@@ -216,7 +222,12 @@ pub async fn page(
 /// Subscribe the user to the feeds picked in the wizard. Best-effort: the same
 /// verification/quota/demo guards as the catalog apply, but a failure here never
 /// aborts onboarding (the user still lands in the reader and can subscribe later).
-async fn subscribe_wizard_feeds(state: &AppState, user: &User, feed_ids: &BTreeSet<Uuid>) {
+async fn subscribe_wizard_feeds(
+    state: &AppState,
+    user: &User,
+    feed_ids: &BTreeSet<Uuid>,
+    mode: SubscriptionContentMode,
+) {
     if feed_ids.is_empty() {
         return;
     }
@@ -247,9 +258,37 @@ async fn subscribe_wizard_feeds(state: &AppState, user: &User, feed_ids: &BTreeS
     if ids.is_empty() {
         return;
     }
-    if let Ok(result) = catalog::subscribe_published_many(state.db.pool(), user.id, &ids).await {
+    let lifetime = ContentLifetime::default();
+    let choices = ids
+        .iter()
+        .map(|feed_id| catalog::CatalogSubscriptionChoice {
+            feed_id: *feed_id,
+            content: SubscriptionContentSettings { mode, lifetime },
+        })
+        .collect::<Vec<_>>();
+    if let Ok(result) =
+        catalog::subscribe_published_many_with_content(state.db.pool(), user.id, &choices).await
+    {
         for feed_id in &ids {
             let _ = enqueue_fetch_feed(&state.db, *feed_id).await;
+            if mode.fetches_article_pages() {
+                if let Ok(shared_lifetime) =
+                    subscriptions::requested_article_page_lifetime(state.db.pool(), *feed_id).await
+                {
+                    let _ = articles::apply_article_page_lifetime(
+                        state.db.pool(),
+                        *feed_id,
+                        shared_lifetime,
+                    )
+                    .await;
+                    let _ = jobs::enqueue_extractions_for_feed(
+                        state.db.pool(),
+                        *feed_id,
+                        WIZARD_CONTENT_BACKFILL,
+                    )
+                    .await;
+                }
+            }
         }
         // Best-effort: file each newly subscribed feed under a folder/tag named
         // for its catalog category, so its already-shared articles show up
@@ -275,6 +314,7 @@ pub async fn submit(
     let mut reading_mode = String::new();
     let mut font_family = String::new();
     let mut article_density = String::new();
+    let mut content_mode = SubscriptionContentMode::Rss;
     let mut interests: Vec<String> = Vec::new();
     let mut feed_ids: BTreeSet<Uuid> = BTreeSet::new();
     for (key, value) in values {
@@ -285,6 +325,9 @@ pub async fn submit(
             "reading_mode" => reading_mode = value,
             "font_family" => font_family = value,
             "article_density" => article_density = value,
+            "content_mode" => {
+                content_mode = SubscriptionContentMode::parse(&value).unwrap_or_default()
+            }
             "interest" => interests.push(value),
             "feed_id" => {
                 if let Ok(id) = Uuid::parse_str(value.trim()) {
@@ -329,7 +372,7 @@ pub async fn submit(
         if !patch.is_empty() {
             user_preferences::upsert(state.db.pool(), user.id, &Value::Object(patch)).await?;
         }
-        subscribe_wizard_feeds(&state, &user, &feed_ids).await;
+        subscribe_wizard_feeds(&state, &user, &feed_ids, content_mode).await;
     }
 
     users::mark_onboarded(state.db.pool(), user.id).await?;

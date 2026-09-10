@@ -31,6 +31,10 @@
         <input type="radio" name="content_mode" value="article_page"{% if feed.content_mode == "article_page" %} checked{% endif %} />
         <span><strong>Public article page</strong><small>Use one anonymously fetched, shared page copy, with RSS as the immediate fallback.</small></span>
       </label>
+      <label class="radio-row">
+        <input type="radio" name="content_mode" value="live"{% if feed.content_mode == "live" %} checked{% endif %} />
+        <span><strong>Live publisher view</strong><small>Fetch the current publisher page when you open an article and run it in Rusty Feed’s isolated sandbox. RSS remains the no-JavaScript and failure fallback.</small></span>
+      </label>
     </fieldset>
     <label>Public-page content lifetime
       <select name="content_lifetime">

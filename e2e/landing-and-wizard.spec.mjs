@@ -71,11 +71,28 @@ test("first-run wizard live-previews theme & typography without CSP violations",
   // Selecting a theme swaps <html data-theme> live — no reload, no inline style.
   await page.getByRole("radio", { name: /Rusty/ }).check();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "rusty");
+  await expect(page.locator("[data-theme-preview-name]")).toHaveText("Rusty");
+  await expect(page.locator("[data-theme-live-preview]")).toHaveCSS("background-color", "rgb(255, 250, 246)");
   await page.getByRole("radio", { name: "Serif", exact: true }).check();
   await expect(page.locator("html")).toHaveAttribute(
     "data-font-family",
     "serif",
   );
+
+  const interests = page.locator("[data-wizard-interest]");
+  const firstInterest = interests.nth(0);
+  const secondInterest = interests.nth(1);
+  await firstInterest.check();
+  const visibleSuggestion = page.locator("[data-wizard-feed]:visible input[name='feed_id']").first();
+  const selectedFeedId = await visibleSuggestion.getAttribute("value");
+  const selectedSuggestion = page.locator(`input[name='feed_id'][value='${selectedFeedId}']`);
+  await selectedSuggestion.check();
+  await firstInterest.uncheck();
+  await secondInterest.check();
+  await expect(selectedSuggestion).toBeChecked();
+  await expect(selectedSuggestion.locator("xpath=..")).toBeHidden();
+  await expect(page.locator("[data-wizard-selection-count]")).toContainText("1 selected");
+  await page.getByRole("radio", { name: "Live", exact: true }).check();
 
   // Finish persists the selections and lands in the reader.
   await page.getByRole("button", { name: "Finish" }).click();

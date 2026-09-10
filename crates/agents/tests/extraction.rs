@@ -10,7 +10,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use rusty_feed_agents::{Agent, AgentContext, ExtractContentAgent, FetchFeedAgent};
 use rusty_feed_core::feed_content::{
-    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+    ContentLifetime, SubscriptionContentMode, SubscriptionContentSettings,
 };
 use rusty_feed_db::{articles, domain_state, feeds, jobs, subscriptions, users, Db};
 use rusty_feed_extract::{ExtractConfig, ExtractOutcome, ExtractionService};
@@ -25,6 +25,7 @@ const ARTICLE_HTML: &str = r#"<html><head><title>Full Article</title></head><bod
        as the main content rather than the navigation or footer boilerplate around it.</p>
     <p>A second paragraph continues the story with more than enough additional prose to keep
        the extracted text well above threshold, plus a <a href="https://x.ex">link</a>.</p>
+    <figure class="wp-block-embed is-type-video is-provider-youtube"><iframe title="You Can See Everything | Official Teaser HD | A24" src="https://www.youtube.com/embed/GGJSRFWALTI?feature=oembed"></iframe></figure>
   </article>
   <footer>copyright</footer>
 </body></html>"#;
@@ -74,7 +75,7 @@ async fn request_article_pages(db: &Db, feed_id: uuid::Uuid) {
         user.id,
         feed_id,
         SubscriptionContentSettings {
-            mode: FeedContentMode::ArticlePage,
+            mode: SubscriptionContentMode::ArticlePage,
             lifetime: ContentLifetime::Days(30),
         },
     )
@@ -138,6 +139,10 @@ async fn extract_content_agent_enriches_article() {
         .unwrap();
     assert_eq!(stored.extraction_status, "success");
     assert!(stored.content.contains("complete article body"));
+    assert!(stored
+        .content
+        .contains("https://www.youtube.com/watch?v=GGJSRFWALTI"));
+    assert!(!stored.content.contains("<iframe"));
     assert!(!stored.content.contains("bad()"), "must be sanitized");
 
     // Idempotent: a second run is a no-op (already processed).
@@ -146,6 +151,84 @@ async fn extract_content_agent_enriches_article() {
         .await
         .unwrap();
     assert_eq!(out2["skipped"], "public-page content is current");
+}
+
+#[tokio::test]
+async fn on_demand_extraction_runs_without_changing_subscription_demand() {
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/article"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ARTICLE_HTML))
+        .mount(&server)
+        .await;
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("{}/feed.xml?{}", server.uri(), uuid::Uuid::now_v7()),
+        "On-demand",
+        None,
+    )
+    .await
+    .unwrap();
+    let user = users::create(
+        db.pool(),
+        &format!("on-demand-{}@example.com", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+    let (article, _) = articles::upsert(
+        db.pool(),
+        &rusty_feed_db::models::NewArticle {
+            feed_id: feed.id,
+            url: format!("{}/article?{}", server.uri(), uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: "Temporary page view".into(),
+            author: None,
+            content: "summary only".into(),
+            excerpt: Some("summary only".into()),
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let out = fast_extract_agent()
+        .run(
+            &ctx(db.clone()),
+            json!({
+                "article_id": article.id,
+                "content_revision": article.content_revision,
+                "on_demand_lifetime_days": 1,
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out["status"], "success");
+    assert!(
+        subscriptions::requested_article_page_lifetime(db.pool(), feed.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let stored = articles::find_by_id(db.pool(), article.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(stored.article_page_content.is_some());
+    assert!(stored.article_page_expires_at.is_some());
 }
 
 #[tokio::test]

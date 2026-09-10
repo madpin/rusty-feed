@@ -4,7 +4,9 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rusty_feed_cache::Cache;
-use rusty_feed_core::feed_content::CATALOG_ARTICLE_PAGE_RECOMMENDATIONS;
+use rusty_feed_core::feed_content::{
+    SubscriptionContentMode, CATALOG_ARTICLE_PAGE_RECOMMENDATIONS,
+};
 use rusty_feed_db::models::NewArticle;
 use rusty_feed_db::{
     api_tokens, articles, catalog, categories, feeds, subscriptions, user_preferences, users, Db,
@@ -392,6 +394,8 @@ async fn wizard_suggests_and_subscribes_curated_feeds() {
         page.contains(&format!("value=\"{}\"", feed.id)),
         "the suggested feed is selectable"
     );
+    assert!(page.contains("Default article content for selected feeds"));
+    assert!(page.contains("name=\"content_mode\" value=\"live\""));
 
     // Finishing with a picked feed + interest subscribes and records the interest.
     let finish = app
@@ -400,7 +404,7 @@ async fn wizard_suggests_and_subscribes_curated_feeds() {
                 .header("cookie", &welcome_cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
-                    "csrf_token={csrf}&theme=ocean&reading_mode=inline&font_family=serif&article_density=compact&interest={category}&feed_id={}",
+                    "csrf_token={csrf}&theme=ocean&reading_mode=inline&font_family=serif&article_density=compact&content_mode=live&interest={category}&feed_id={}",
                     feed.id
                 )))
                 .unwrap(),
@@ -414,6 +418,21 @@ async fn wizard_suggests_and_subscribes_curated_feeds() {
             .await
             .unwrap(),
         "wizard subscribes to the selected curated feed"
+    );
+    assert_eq!(
+        subscriptions::content_settings_for_user(state.db.pool(), user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        SubscriptionContentMode::Live
+    );
+    assert!(
+        subscriptions::requested_article_page_lifetime(state.db.pool(), feed.id)
+            .await
+            .unwrap()
+            .is_none(),
+        "Live View must not request shared page extraction"
     );
     // The already-shared feed lands pre-organized: a personal folder named for
     // its catalog category, tagged the same way, instead of "Unfiled".

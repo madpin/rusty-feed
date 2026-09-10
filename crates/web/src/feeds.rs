@@ -19,7 +19,7 @@ use rusty_feed_core::content_rules::{
     validate_rewrite_rules, EntryFilter, RewriteRule,
 };
 use rusty_feed_core::feed_content::{
-    ContentLifetime, FeedContentMode, FeedContentSettings, SubscriptionContentSettings,
+    ContentLifetime, FeedContentSettings, SubscriptionContentMode, SubscriptionContentSettings,
     SubscriptionEnclosureDelivery, SubscriptionEnclosureLoad, SubscriptionEnclosureSettings,
 };
 use rusty_feed_core::youtube::SubscriptionYouTubeMode;
@@ -443,7 +443,10 @@ async fn queue_refreshes(state: &AppState, feed_ids: &[Uuid]) -> RefreshQueueOut
     outcome
 }
 
-async fn queue_page_extractions(state: &AppState, feed_id: Uuid) -> Result<usize, AppError> {
+pub(crate) async fn queue_page_extractions(
+    state: &AppState,
+    feed_id: Uuid,
+) -> Result<usize, AppError> {
     let queued =
         jobs::enqueue_extractions_for_feed(state.db.pool(), feed_id, MAX_CONTENT_BACKFILL).await?;
     Ok(queued as usize)
@@ -1437,7 +1440,7 @@ pub async fn bulk_content(
         .await;
     };
     // Validate the selection once so an invalid choice fails fast and cleanly.
-    if FeedContentMode::parse(content_mode).is_none()
+    if SubscriptionContentMode::parse(content_mode).is_none()
         || ContentLifetime::parse(content_lifetime).is_none()
     {
         return render_page(
@@ -1655,7 +1658,7 @@ async fn save_personal_content_settings(
     youtube_mode: Option<SubscriptionYouTubeMode>,
     enclosure_settings: Option<SubscriptionEnclosureSettings>,
 ) -> Result<usize, AppError> {
-    let mode = FeedContentMode::parse(content_mode)
+    let mode = SubscriptionContentMode::parse(content_mode)
         .ok_or_else(|| AppError::Validation("Choose a valid content source.".to_string()))?;
     let lifetime = ContentLifetime::parse(content_lifetime)
         .ok_or_else(|| AppError::Validation("Choose a valid content lifetime.".to_string()))?;

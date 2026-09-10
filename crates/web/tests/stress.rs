@@ -15,7 +15,7 @@ use rusty_feed_agents::{
 };
 use rusty_feed_cache::{Cache, CacheConfig};
 use rusty_feed_core::feed_content::{
-    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+    ContentLifetime, SubscriptionContentMode, SubscriptionContentSettings,
 };
 use rusty_feed_db::models::NewArticle;
 use rusty_feed_db::{
@@ -349,7 +349,7 @@ async fn full_stack_mixed_workload() {
         user_ids[0],
         feed_ids[0],
         SubscriptionContentSettings {
-            mode: FeedContentMode::ArticlePage,
+            mode: SubscriptionContentMode::ArticlePage,
             lifetime: ContentLifetime::Days(30),
         },
     )

@@ -125,6 +125,10 @@ tikv-jemallocator = "0.7"
 # Keep source locations for backtraces without retaining full debug information.
 debug = "line-tables-only"
 
+[profile.test]
+debug = "line-tables-only"
+incremental = false
+
 [profile.release]
 # Optimize for the low-footprint, self-hosted target.
 opt-level = 3

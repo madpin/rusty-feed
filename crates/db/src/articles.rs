@@ -875,7 +875,9 @@ pub async fn list_for_user(
                 WHERE ufc.user_feed_id = uf.id)) \
            AND (NOT $4 OR NOT EXISTS (SELECT 1 FROM user_feed_categories ufc \
                 WHERE ufc.user_feed_id = uf.id)) \
-           AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[]) \
+           AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[] \
+               OR EXISTS (SELECT 1 FROM unnest(uf.tags) stored_tag \
+                  WHERE lower(stored_tag) = lower($5))) \
            AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) {read_filter} \
          ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
          LIMIT $6 OFFSET $7",

@@ -546,7 +546,7 @@ async fn reading_actions_and_detail_work() {
     assert!(body.contains("https://ex.com/cover.png"));
     assert!(body.contains("Tracking images removed by Rusty Feed: 1."));
     assert!(!body.contains("open.gif"));
-    assert!(body.contains("data-live-view-toggle"));
+    assert!(body.contains("data-content-live-control"));
     assert!(body.contains("data-reader-surface"));
     assert!(body.contains("class=\"reader-view\""));
     assert!(body.contains("class=\"reader-toolbar\""));
@@ -759,7 +759,7 @@ async fn reading_actions_and_detail_work() {
     assert!(panel.contains("Hello World Article"));
     assert!(panel.contains("Open comments"));
     assert!(!panel.contains("AI summary unavailable"));
-    assert!(panel.contains("data-live-view-toggle"));
+    assert!(panel.contains("data-content-live-control"));
     assert!(panel.contains("data-reader-surface"));
     assert!(panel.contains("class=\"reader-view\""));
     assert!(panel.contains("class=\"reader-toolbar\""));
@@ -788,10 +788,8 @@ async fn reading_actions_and_detail_work() {
 }
 
 #[tokio::test]
-async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() {
-    use rusty_feed_core::feed_content::{
-        ContentLifetime, FeedContentMode, SubscriptionContentSettings,
-    };
+async fn temporary_missing_public_page_queues_once_and_serves_rss_until_ready() {
+    use rusty_feed_core::feed_content::ContentLifetime;
     use rusty_feed_db::models::NewArticle;
     use rusty_feed_db::{articles, feeds, jobs, subscriptions};
 
@@ -814,17 +812,6 @@ async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() 
     subscriptions::subscribe(pool, user.id, feed.id, None)
         .await
         .unwrap();
-    subscriptions::update_content_settings(
-        pool,
-        user.id,
-        feed.id,
-        SubscriptionContentSettings {
-            mode: FeedContentMode::ArticlePage,
-            lifetime: ContentLifetime::Days(7),
-        },
-    )
-    .await
-    .unwrap();
     let (article, _) = articles::upsert(
         pool,
         &NewArticle {
@@ -848,7 +835,7 @@ async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() 
         let response = app
             .clone()
             .oneshot(
-                Request::get(format!("/articles/{}", article.id))
+                Request::get(format!("/articles/{}?content=article_page", article.id))
                     .header("cookie", format!("rusty_feed_sid={sid}"))
                     .body(Body::empty())
                     .unwrap(),
@@ -866,6 +853,23 @@ async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() 
         1,
         "access refresh must stay deduplicated"
     );
+    let on_demand_days: Option<i32> = sqlx::query_scalar(
+        "SELECT (payload->>'on_demand_lifetime_days')::int FROM job_queue WHERE dedup_key = $1",
+    )
+    .bind(&dedup)
+    .fetch_optional(pool)
+    .await
+    .unwrap()
+    .flatten();
+    assert_eq!(on_demand_days, Some(1));
+    assert_eq!(
+        subscriptions::content_settings_for_user(pool, user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        rusty_feed_core::feed_content::SubscriptionContentMode::Rss
+    );
 
     articles::set_extraction_failed(pool, article.id, article.content_revision, "reader_failed")
         .await
@@ -879,10 +883,13 @@ async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() 
     let failed_response = app
         .clone()
         .oneshot(
-            Request::get(format!("/articles/{}/content", article.id))
-                .header("cookie", format!("rusty_feed_sid={sid}"))
-                .body(Body::empty())
-                .unwrap(),
+            Request::get(format!(
+                "/articles/{}/content?content=article_page",
+                article.id
+            ))
+            .header("cookie", format!("rusty_feed_sid={sid}"))
+            .body(Body::empty())
+            .unwrap(),
         )
         .await
         .unwrap();
@@ -912,10 +919,13 @@ async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() 
     let response = app
         .clone()
         .oneshot(
-            Request::get(format!("/articles/{}/content", article.id))
-                .header("cookie", format!("rusty_feed_sid={sid}"))
-                .body(Body::empty())
-                .unwrap(),
+            Request::get(format!(
+                "/articles/{}/content?content=article_page",
+                article.id
+            ))
+            .header("cookie", format!("rusty_feed_sid={sid}"))
+            .body(Body::empty())
+            .unwrap(),
         )
         .await
         .unwrap();
@@ -937,7 +947,7 @@ async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() 
         .unwrap();
     let stale_response = app
         .oneshot(
-            Request::get(format!("/articles/{}", article.id))
+            Request::get(format!("/articles/{}?content=article_page", article.id))
                 .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -950,7 +960,307 @@ async fn missing_requested_public_page_queues_once_and_serves_rss_until_ready() 
 }
 
 #[tokio::test]
+async fn article_content_mode_switches_are_temporary_until_made_default() {
+    use rusty_feed_core::feed_content::{ContentLifetime, SubscriptionContentMode};
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{articles, feeds, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://content-modes.example/{}.xml", uuid::Uuid::now_v7()),
+        "Content modes",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let (article, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://content-modes.example/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: "Three content modes".into(),
+            author: None,
+            content: "<p>RSS MODE SENTINEL</p>".into(),
+            excerpt: None,
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    articles::set_extracted_content(
+        pool,
+        article.id,
+        article.content_revision,
+        "<p>PAGE MODE SENTINEL</p>",
+        None,
+        ContentLifetime::Days(30),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{}", article.id))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&response), "rusty_feed_csrf")
+        .unwrap()
+        .to_string();
+    let body = body_string(response).await;
+    assert!(body.contains("RSS MODE SENTINEL"));
+    assert!(body.contains("data-content-mode-current=\"rss\""));
+    assert!(body.contains(">Page content</a>"));
+    assert!(body.contains(">Live</a>"));
+    assert!(!body.contains("Make default for this feed"));
+
+    let temporary_page = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{}?content=article_page", article.id))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let temporary_page = body_string(temporary_page).await;
+    assert!(temporary_page.contains("PAGE MODE SENTINEL"));
+    assert!(temporary_page.contains("data-content-mode-current=\"article_page\""));
+    assert!(temporary_page.contains("Make default for this feed"));
+    assert_eq!(
+        subscriptions::content_settings_for_user(pool, user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        SubscriptionContentMode::Rss
+    );
+    assert!(
+        subscriptions::requested_article_page_lifetime(pool, feed.id)
+            .await
+            .unwrap()
+            .is_none(),
+        "temporary Page Content must not change durable extraction demand"
+    );
+
+    let temporary_live = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{}?content=live", article.id))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let temporary_live = body_string(temporary_live).await;
+    assert!(temporary_live.contains("RSS MODE SENTINEL"));
+    assert!(temporary_live.contains("data-content-mode-current=\"live\""));
+    assert!(temporary_live.contains("Make default for this feed"));
+    assert_eq!(
+        subscriptions::content_settings_for_user(pool, user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        SubscriptionContentMode::Rss
+    );
+
+    let make_live_default = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{}/content-mode", article.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&content_mode=live&next=/articles/{}",
+                    article.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(make_live_default.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        subscriptions::content_settings_for_user(pool, user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        SubscriptionContentMode::Live
+    );
+
+    let temporary_rss = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{}?content=rss", article.id))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let temporary_rss = body_string(temporary_rss).await;
+    assert!(temporary_rss.contains("RSS MODE SENTINEL"));
+    assert!(temporary_rss.contains("Make default for this feed"));
+    assert_eq!(
+        subscriptions::content_settings_for_user(pool, user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        SubscriptionContentMode::Live
+    );
+
+    let make_page_default = app
+        .oneshot(
+            Request::post(format!("/articles/{}/content-mode", article.id))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&content_mode=article_page&next=/articles/{}",
+                    article.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(make_page_default.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        subscriptions::content_settings_for_user(pool, user.id, feed.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .mode,
+        SubscriptionContentMode::ArticlePage
+    );
+    assert!(
+        subscriptions::requested_article_page_lifetime(pool, feed.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        rusty_feed_db::jobs::count_active_by_dedup(
+            pool,
+            &format!("extract:{}:{}", article.id, article.content_revision),
+        )
+        .await
+        .unwrap(),
+        0,
+        "current shared page content must not be re-extracted"
+    );
+}
+
+#[tokio::test]
+async fn youtube_from_shared_page_content_renders_in_every_reader_mode() {
+    use rusty_feed_core::feed_content::ContentLifetime;
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{articles, feeds, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://youtube-page.example/{}.xml", uuid::Uuid::now_v7()),
+        "YouTube page content",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let (article, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://youtube-page.example/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: "YouTube in shared page content".into(),
+            author: None,
+            content: "<p>RSS body without a video link</p>".into(),
+            excerpt: None,
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    articles::set_extracted_content(
+        pool,
+        article.id,
+        article.content_revision,
+        "<p><a href=\"https://www.youtube.com/watch?v=GGJSRFWALTI\">Watch video on YouTube</a></p>",
+        None,
+        ContentLifetime::Days(30),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    for endpoint in [
+        format!("/articles/{}", article.id),
+        format!("/articles/{}?content=article_page", article.id),
+        format!("/articles/{}/panel", article.id),
+        format!("/articles/{}/panel?content=article_page", article.id),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(endpoint)
+                    .header("cookie", format!("rusty_feed_sid={sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response).await;
+        assert!(body.contains("data-youtube-loader"));
+        assert!(body.contains("GGJSRFWALTI"));
+    }
+}
+
+#[tokio::test]
 async fn article_detail_omits_unsafe_original_urls() {
+    use rusty_feed_core::feed_content::{ContentLifetime, SubscriptionContentMode};
     use rusty_feed_db::models::NewArticle;
     use rusty_feed_db::{articles, feeds, subscriptions};
 
@@ -992,6 +1302,17 @@ async fn article_detail_omits_unsafe_original_urls() {
     )
     .await
     .unwrap();
+    subscriptions::update_content_settings(
+        pool,
+        user.id,
+        feed.id,
+        rusty_feed_core::feed_content::SubscriptionContentSettings {
+            mode: SubscriptionContentMode::Live,
+            lifetime: ContentLifetime::Days(30),
+        },
+    )
+    .await
+    .unwrap();
 
     for endpoint in [
         format!("/articles/{}", article.id),
@@ -1010,17 +1331,21 @@ async fn article_detail_omits_unsafe_original_urls() {
         assert_eq!(response.status(), StatusCode::OK);
         let body = body_string(response).await;
         assert!(body.contains("Original link unavailable"));
+        assert!(body.contains("data-content-mode-current=\"live\""));
+        assert!(body.contains("Live unavailable"));
+        assert!(body.contains("Showing its stored RSS content instead"));
         assert!(!body.contains(&unsafe_url));
         assert!(!body.contains("data-live-view-toggle"));
+        assert!(!body.contains("data-content-live-control"));
         assert!(!body.contains("data-live-view-frame"));
     }
 }
 
 #[tokio::test]
 async fn sidebar_keeps_all_feeds_visible_and_exposes_unfiled_scope() {
-    use rusty_feed_core::feed_content::{ContentLifetime, FeedContentMode};
+    use rusty_feed_core::feed_content::{ContentLifetime, SubscriptionContentMode};
     use rusty_feed_db::models::NewArticle;
-    use rusty_feed_db::{articles, categories, feeds, subscriptions};
+    use rusty_feed_db::{articles, categories, feeds, read_articles, subscriptions};
 
     let Some(state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
@@ -1063,9 +1388,24 @@ async fn sidebar_keeps_all_feeds_visible_and_exposes_unfiled_scope() {
             .await
             .unwrap();
     }
-    subscriptions::update_organization(pool, user.id, filed_feed.id, &[], Some(folder.id))
-        .await
-        .unwrap();
+    subscriptions::update_organization(
+        pool,
+        user.id,
+        filed_feed.id,
+        &["Reader-Tag".to_string()],
+        Some(folder.id),
+    )
+    .await
+    .unwrap();
+    subscriptions::update_organization(
+        pool,
+        user.id,
+        unfiled_feed.id,
+        &["Reader-Tag".to_string()],
+        None,
+    )
+    .await
+    .unwrap();
     for (feed_id, title) in [
         (filed_feed.id, "Visible only in folder scope"),
         (unfiled_feed.id, "Visible only in unfiled scope"),
@@ -1123,6 +1463,39 @@ async fn sidebar_keeps_all_feeds_visible_and_exposes_unfiled_scope() {
     assert!(body.contains("data-content-settings-dialog"));
     assert!(body.contains("data-tags-settings-dialog"));
     assert!(body.contains("data-move-feed-dialog"));
+    assert!(body.contains("href=\"/articles?tag=Reader-Tag\" data-library-tag-nav"));
+    assert!(!body.contains(&format!("category={}&amp;tag=Reader-Tag", folder.id)));
+    let filed_article = articles::list_for_feed(pool, filed_feed.id, 1)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    read_articles::mark_read(pool, user.id, filed_article.id)
+        .await
+        .unwrap();
+    user_preferences::upsert(
+        pool,
+        user.id,
+        &serde_json::json!({ "show_read_articles": false }),
+    )
+    .await
+    .unwrap();
+
+    let tagged = app
+        .clone()
+        .oneshot(
+            Request::get("/articles?tag=reader-tag")
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tagged.status(), StatusCode::OK);
+    let tagged = body_string(tagged).await;
+    assert!(tagged.contains("Tag: #reader-tag"));
+    assert!(tagged.contains("Visible only in folder scope"));
+    assert!(tagged.contains("Visible only in unfiled scope"));
 
     let response = app
         .clone()
@@ -1146,7 +1519,7 @@ async fn sidebar_keeps_all_feeds_visible_and_exposes_unfiled_scope() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(settings.mode, FeedContentMode::ArticlePage);
+    assert_eq!(settings.mode, SubscriptionContentMode::ArticlePage);
     assert_eq!(settings.lifetime, ContentLifetime::Infinite);
 
     let response = app

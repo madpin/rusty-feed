@@ -43,19 +43,22 @@
   </fieldset>
   <fieldset>
     <legend>Appearance</legend>
+    <p class="muted">Choose a theme to preview it instantly. It remains temporary until you save Preferences.</p>
+    <div class="theme-picker" role="radiogroup" aria-label="Color theme">
+      <label class="theme-option"><input type="radio" name="theme" value="system" data-theme-preview-control data-theme-name="System"{% if prefs_theme == "system" %} checked{% endif %}> <span class="theme-swatch theme-swatch--system" aria-hidden="true"></span><span><strong>System</strong><small>Follow this device</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="light" data-theme-preview-control data-theme-name="Light"{% if prefs_theme == "light" %} checked{% endif %}> <span class="theme-swatch theme-swatch--light" aria-hidden="true"></span><span><strong>Light</strong><small>Clean and bright</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="dark" data-theme-preview-control data-theme-name="Dark"{% if prefs_theme == "dark" %} checked{% endif %}> <span class="theme-swatch theme-swatch--dark" aria-hidden="true"></span><span><strong>Dark</strong><small>Low-light reading</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="rusty" data-theme-preview-control data-theme-name="Rusty"{% if prefs_theme == "rusty" %} checked{% endif %}> <span class="theme-swatch theme-swatch--rusty" aria-hidden="true"></span><span><strong>Rusty</strong><small>Warm clay tones</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="ocean" data-theme-preview-control data-theme-name="Ocean"{% if prefs_theme == "ocean" %} checked{% endif %}> <span class="theme-swatch theme-swatch--ocean" aria-hidden="true"></span><span><strong>Ocean</strong><small>Cool blue focus</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="forest" data-theme-preview-control data-theme-name="Forest"{% if prefs_theme == "forest" %} checked{% endif %}> <span class="theme-swatch theme-swatch--forest" aria-hidden="true"></span><span><strong>Forest</strong><small>Natural green calm</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="plum" data-theme-preview-control data-theme-name="Plum"{% if prefs_theme == "plum" %} checked{% endif %}> <span class="theme-swatch theme-swatch--plum" aria-hidden="true"></span><span><strong>Plum</strong><small>Soft violet contrast</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="sunset" data-theme-preview-control data-theme-name="Sunset"{% if prefs_theme == "sunset" %} checked{% endif %}> <span class="theme-swatch theme-swatch--sunset" aria-hidden="true"></span><span><strong>Sunset</strong><small>Warm orange energy</small></span></label>
+    </div>
+    <div class="theme-live-preview" data-theme-live-preview>
+      <div class="theme-live-toolbar"><span aria-hidden="true"><i></i><i></i><i></i></span><strong><span data-theme-preview-name>{% if prefs_theme == "system" %}System{% else if prefs_theme == "light" %}Light{% else if prefs_theme == "dark" %}Dark{% else if prefs_theme == "rusty" %}Rusty{% else if prefs_theme == "ocean" %}Ocean{% else if prefs_theme == "forest" %}Forest{% else if prefs_theme == "plum" %}Plum{% else %}Sunset{% endif %}</span> preview</strong></div>
+      <div class="theme-live-layout"><span class="theme-live-sidebar" aria-hidden="true"></span><article><span class="eyebrow">Today</span><h3>A calmer way to follow the web</h3><p>Theme colors update here as soon as you make a choice.</p><span class="theme-live-action">Read article</span></article></div>
+    </div>
     <div class="form-grid">
-      <label>Color theme
-        <select name="theme">
-          <option value="system"{% if prefs_theme == "system" %} selected{% endif %}>System</option>
-          <option value="light"{% if prefs_theme == "light" %} selected{% endif %}>Light</option>
-          <option value="dark"{% if prefs_theme == "dark" %} selected{% endif %}>Dark</option>
-          <option value="rusty"{% if prefs_theme == "rusty" %} selected{% endif %}>Rusty</option>
-          <option value="ocean"{% if prefs_theme == "ocean" %} selected{% endif %}>Ocean</option>
-          <option value="forest"{% if prefs_theme == "forest" %} selected{% endif %}>Forest</option>
-          <option value="plum"{% if prefs_theme == "plum" %} selected{% endif %}>Plum</option>
-          <option value="sunset"{% if prefs_theme == "sunset" %} selected{% endif %}>Sunset</option>
-        </select>
-      </label>
       <label>Article density
         <select name="article_density">
           <option value="compact"{% if prefs_density == "compact" %} selected{% endif %}>Compact</option>

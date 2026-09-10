@@ -106,6 +106,7 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}", get(reader::read))
         .route("/articles/{id}/panel", get(reader::side_panel))
         .route("/articles/{id}/content", get(reader::content_fragment))
+        .route("/articles/{id}/content-mode", post(reader::set_content_mode))
         .route("/articles/{id}/live-ticket", get(live_view::ticket))
         .route("/articles/{id}/live", get(live_view::page))
         .route("/articles/{id}/live/resource", get(live_view::resource))

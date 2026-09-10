@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use rusty_feed_core::ai_budget::AiBudget;
 use rusty_feed_core::feed_content::{
-    FeedContentMode, SubscriptionContentSettings, SubscriptionEnclosureDelivery,
+    SubscriptionContentMode, SubscriptionContentSettings, SubscriptionEnclosureDelivery,
     SubscriptionEnclosureLoad, SubscriptionEnclosureSettings,
 };
 use rusty_feed_core::html::{
@@ -42,6 +42,7 @@ use crate::state::AppState;
 const RELEVANCE_CANDIDATES: i64 = 120;
 /// Default implicit bounce threshold (ARCH §11.2).
 const BOUNCE_THRESHOLD: f64 = 0.25;
+const TEMPORARY_PAGE_LIFETIME_DAYS: u16 = 1;
 
 struct ArticleView {
     id: String,
@@ -183,6 +184,10 @@ struct ArticleTemplate {
     alternate_url: Option<String>,
     alternate_url_label: String,
     live_view_url: Option<String>,
+    content_mode: String,
+    default_content_mode: String,
+    content_mode_return_url: String,
+    content_mode_panel_url: String,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
@@ -217,6 +222,10 @@ struct ArticlePanelTemplate {
     alternate_url: Option<String>,
     alternate_url_label: String,
     live_view_url: Option<String>,
+    content_mode: String,
+    default_content_mode: String,
+    content_mode_return_url: String,
+    content_mode_panel_url: String,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
@@ -247,6 +256,10 @@ struct ReaderView {
     alternate_url: Option<String>,
     alternate_url_label: String,
     live_view_url: Option<String>,
+    content_mode: String,
+    default_content_mode: String,
+    content_mode_return_url: String,
+    content_mode_panel_url: String,
     comments_url: Option<String>,
     published: Option<String>,
     image_url: Option<String>,
@@ -285,9 +298,18 @@ impl ContentAvailability {
     }
 }
 
+fn article_page_is_current(article: &rusty_feed_db::Article) -> bool {
+    article.article_page_content.is_some()
+        && article.article_page_processing_version >= ARTICLE_PAGE_PROCESSING_VERSION
+        && article
+            .article_page_expires_at
+            .is_none_or(|expires_at| expires_at > OffsetDateTime::now_utc())
+}
+
 async fn enqueue_article_page_on_access(
     state: &AppState,
     article: &rusty_feed_db::Article,
+    temporary: bool,
 ) -> Result<(), AppError> {
     let dedup = format!("extract:{}:{}", article.id, article.content_revision);
     // A user is actively waiting on this page, so use the reserved interactive
@@ -300,6 +322,7 @@ async fn enqueue_article_page_on_access(
         serde_json::json!({
             "article_id": article.id,
             "content_revision": article.content_revision,
+            "on_demand_lifetime_days": temporary.then_some(TEMPORARY_PAGE_LIFETIME_DAYS),
         }),
         Some(&dedup),
         None,
@@ -311,20 +334,24 @@ async fn enqueue_article_page_on_access(
 
 async fn selected_content(
     state: &AppState,
-    user_id: Uuid,
     article: &rusty_feed_db::Article,
+    mode: SubscriptionContentMode,
+    temporary: bool,
 ) -> Result<(String, Option<String>, ContentAvailability, u32), AppError> {
-    let settings =
-        subscriptions::content_settings_for_user(state.db.pool(), user_id, article.feed_id)
-            .await?
-            .unwrap_or_default();
-    if settings.mode == FeedContentMode::Rss {
+    if mode != SubscriptionContentMode::ArticlePage {
         return Ok((
             article
                 .feed_content
                 .clone()
                 .unwrap_or_else(|| article.content.clone()),
-            None,
+            (mode == SubscriptionContentMode::Live).then(|| {
+                if safe_external_url(Some(&article.url)).is_some() {
+                    "Live View is selected for this feed. Stored RSS content remains available when Live View cannot run."
+                } else {
+                    "Live View is selected for this feed, but this item has no public publisher page. Showing its stored RSS content instead."
+                }
+                .to_string()
+            }),
             ContentAvailability::Ready,
             article.feed_blocked_tracking_pixels.max(0) as u32,
         ));
@@ -345,12 +372,7 @@ async fn selected_content(
         ));
     }
 
-    let current = article.article_page_content.is_some()
-        && article.article_page_processing_version >= ARTICLE_PAGE_PROCESSING_VERSION
-        && article
-            .article_page_expires_at
-            .is_none_or(|expires_at| expires_at > OffsetDateTime::now_utc());
-    if current {
+    if article_page_is_current(article) {
         return Ok((
             article.article_page_content.clone().unwrap_or_default(),
             None,
@@ -376,7 +398,7 @@ async fn selected_content(
         ));
     }
 
-    enqueue_article_page_on_access(state, article).await?;
+    enqueue_article_page_on_access(state, article, temporary).await?;
     Ok((
         article
             .feed_content
@@ -427,6 +449,28 @@ pub struct FeedbackForm {
 #[derive(Deserialize)]
 pub struct ActionForm {
     csrf_token: String,
+    #[serde(default)]
+    next: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct ContentViewQuery {
+    #[serde(default)]
+    content: Option<String>,
+}
+
+impl ContentViewQuery {
+    fn mode(&self) -> Option<SubscriptionContentMode> {
+        self.content
+            .as_deref()
+            .and_then(SubscriptionContentMode::parse)
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ContentModeForm {
+    csrf_token: String,
+    content_mode: String,
     #[serde(default)]
     next: Option<String>,
 }
@@ -496,7 +540,7 @@ fn normalized_tag(value: Option<String>) -> Result<Option<String>, String> {
     let Some(tag) = value else {
         return Ok(None);
     };
-    let tag = tag.trim().to_lowercase();
+    let tag = tag.trim().to_string();
     if tag.is_empty() || tag.chars().count() > 40 || tag.chars().any(char::is_control) {
         return Err("Tag filters must be between 1 and 40 printable characters.".to_string());
     }
@@ -670,7 +714,8 @@ pub async fn list(
     // "show read articles" preference, the same way the plain "Unread only"
     // link already overrides it.
     let summary_only = q.summary.as_deref() == Some("1");
-    let unread_only = unread_param || !prefs.show_read_articles || summary_only;
+    let tag = normalized_tag(q.tag).map_err(AppError::Validation)?;
+    let unread_only = unread_param || (tag.is_none() && !prefs.show_read_articles) || summary_only;
     let offset = q.offset.unwrap_or(0).max(0);
     let feed_id = q.feed;
     let unfiled = q.unfiled.as_deref() == Some("1");
@@ -680,7 +725,6 @@ pub async fn list(
             return Err(AppError::NotFound);
         }
     }
-    let tag = normalized_tag(q.tag).map_err(AppError::Validation)?;
     let sort = if q.sort.as_deref() == Some("relevance") {
         "relevance"
     } else {
@@ -814,16 +858,18 @@ pub async fn list(
         .map(|tag_record| {
             let href = articles_url(
                 None,
-                category_id,
+                None,
                 false,
                 Some(&tag_record.name),
-                unread_param,
-                sort,
+                false,
+                "recent",
                 None,
-                summary_only,
+                false,
             );
             TagNav {
-                active: tag.as_deref() == Some(tag_record.name.as_str()),
+                active: tag
+                    .as_deref()
+                    .is_some_and(|selected| selected.eq_ignore_ascii_case(&tag_record.name)),
                 name: tag_record.name,
                 feed_count: tag_record.feed_count,
                 href,
@@ -1579,6 +1625,7 @@ async fn reader_view(
     user_id: Uuid,
     id: Uuid,
     preferences: &prefs::Preferences,
+    requested_mode: Option<SubscriptionContentMode>,
 ) -> Result<ReaderView, AppError> {
     if !articles::user_can_access(state.db.pool(), user_id, id).await? {
         return Err(AppError::NotFound);
@@ -1598,8 +1645,16 @@ async fn reader_view(
         .filter(|name| !name.trim().is_empty())
         .or_else(|| feed.as_ref().map(|feed| feed.name.clone()))
         .unwrap_or_default();
+    let subscription_content = subscription
+        .as_ref()
+        .map(|subscription| SubscriptionContentSettings::from_json(subscription.settings.as_ref()))
+        .unwrap_or_default();
+    let canonical_url = state.settings.tracking_url_policy.clean(&article.url);
+    let clean_url = safe_external_url(Some(&canonical_url));
+    let content_mode = requested_mode.unwrap_or(subscription_content.mode);
+    let temporary = content_mode != subscription_content.mode;
     let (content, content_notice, content_availability, stored_blocked_tracking_pixels) =
-        selected_content(state, user_id, &article).await?;
+        selected_content(state, &article, content_mode, temporary).await?;
     let content_report = sanitize_article_html_with_policies(
         &content,
         &article.url,
@@ -1618,8 +1673,6 @@ async fn reader_view(
         .await?
         .map(|record| record.feedback_value);
 
-    let canonical_url = state.settings.tracking_url_policy.clean(&article.url);
-    let clean_url = safe_external_url(Some(&canonical_url));
     let original_url = safe_external_url(Some(&article.original_url));
     let original_differs = original_url != clean_url;
     let prefer_original = preferences.external_link_mode == "original";
@@ -1687,10 +1740,17 @@ async fn reader_view(
         SubscriptionYouTubeMode::Privacy => (true, "privacy"),
         SubscriptionYouTubeMode::LinksOnly => (false, "privacy"),
     };
+    let mut youtube_detection_html = content_report.html.clone();
+    if let Some(feed_content) = article.feed_content.as_deref() {
+        youtube_detection_html.push_str(feed_content);
+    }
+    if let Some(article_page_content) = article.article_page_content.as_deref() {
+        youtube_detection_html.push_str(article_page_content);
+    }
     let detected_youtube_videos = state
         .settings
         .youtube_policy
-        .videos(youtube_urls, &content_report.html);
+        .videos(youtube_urls, &youtube_detection_html);
     let video_ids: Vec<_> = detected_youtube_videos
         .iter()
         .map(|video| video.id.clone())
@@ -1749,11 +1809,12 @@ async fn reader_view(
         enclosure_load_mode,
         &state.settings.media_proxy_extra_inline_mime_types,
     );
-    let default_share_source = subscription
-        .as_ref()
-        .map(|subscription| SubscriptionContentSettings::from_json(subscription.settings.as_ref()))
-        .filter(|settings| settings.mode == FeedContentMode::ArticlePage)
-        .map_or("rss", |_| "article_page");
+    let default_share_source = if subscription_content.mode == SubscriptionContentMode::ArticlePage
+    {
+        "article_page"
+    } else {
+        "rss"
+    };
     let share =
         public_shares::controls(state, user_id, id, &article.title, default_share_source).await?;
     Ok(ReaderView {
@@ -1773,6 +1834,10 @@ async fn reader_view(
         alternate_url,
         alternate_url_label,
         live_view_url,
+        content_mode: content_mode.as_str().to_string(),
+        default_content_mode: subscription_content.mode.as_str().to_string(),
+        content_mode_return_url: format!("/articles/{id}"),
+        content_mode_panel_url: format!("/articles/{id}/panel"),
         comments_url: article
             .comments_url
             .as_deref()
@@ -1807,10 +1872,11 @@ pub async fn read(
     AuthUser(user): AuthUser,
     jar: CookieJar,
     Path(id): Path<Uuid>,
+    Query(query): Query<ContentViewQuery>,
 ) -> Result<Response, AppError> {
     let prefs = prefs::load(&state.db, user.id).await;
     let is_admin = user.role == "admin";
-    let article = reader_view(&state, user.id, id, &prefs).await?;
+    let article = reader_view(&state, user.id, id, &prefs, query.mode()).await?;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = ArticleTemplate {
         theme: prefs.theme.clone(),
@@ -1826,6 +1892,10 @@ pub async fn read(
         alternate_url: article.alternate_url,
         alternate_url_label: article.alternate_url_label,
         live_view_url: article.live_view_url,
+        content_mode: article.content_mode,
+        default_content_mode: article.default_content_mode,
+        content_mode_return_url: article.content_mode_return_url,
+        content_mode_panel_url: article.content_mode_panel_url,
         comments_url: article.comments_url,
         published: article.published,
         image_url: article.image_url,
@@ -1862,9 +1932,10 @@ pub async fn side_panel(
     AuthUser(user): AuthUser,
     jar: CookieJar,
     Path(id): Path<Uuid>,
+    Query(query): Query<ContentViewQuery>,
 ) -> Result<Response, AppError> {
     let prefs = prefs::load(&state.db, user.id).await;
-    let article = reader_view(&state, user.id, id, &prefs).await?;
+    let article = reader_view(&state, user.id, id, &prefs, query.mode()).await?;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = ArticlePanelTemplate {
         csrf_token,
@@ -1877,6 +1948,10 @@ pub async fn side_panel(
         alternate_url: article.alternate_url,
         alternate_url_label: article.alternate_url_label,
         live_view_url: article.live_view_url,
+        content_mode: article.content_mode,
+        default_content_mode: article.default_content_mode,
+        content_mode_return_url: article.content_mode_return_url,
+        content_mode_panel_url: article.content_mode_panel_url,
         comments_url: article.comments_url,
         published: article.published,
         image_url: article.image_url,
@@ -1908,6 +1983,7 @@ pub async fn content_fragment(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
+    Query(query): Query<ContentViewQuery>,
 ) -> Result<Response, AppError> {
     if !articles::user_can_access(state.db.pool(), user.id, id).await? {
         return Err(AppError::NotFound);
@@ -1919,8 +1995,14 @@ pub async fn content_fragment(
     if prefs.auto_mark_read {
         read_articles::mark_read(state.db.pool(), user.id, id).await?;
     }
+    let settings =
+        subscriptions::content_settings_for_user(state.db.pool(), user.id, article.feed_id)
+            .await?
+            .unwrap_or_default();
+    let content_mode = query.mode().unwrap_or(settings.mode);
+    let temporary = content_mode != settings.mode;
     let (content, _, availability, stored_blocked_tracking_pixels) =
-        selected_content(&state, user.id, &article).await?;
+        selected_content(&state, &article, content_mode, temporary).await?;
     let report = sanitize_article_html_with_policies(
         &content,
         &article.url,
@@ -1944,6 +2026,56 @@ pub async fn content_fragment(
         Html(format!("{notice}{content}")),
     )
         .into_response())
+}
+
+pub async fn set_content_mode(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Ajax(is_ajax): Ajax,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<ContentModeForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    authorize_action(&state, user.id, id).await?;
+    let article = articles::find_by_id(state.db.pool(), id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let mode = SubscriptionContentMode::parse(&form.content_mode).ok_or_else(|| {
+        AppError::Validation("Choose RSS, page content, or Live View.".to_string())
+    })?;
+    if mode == SubscriptionContentMode::Live && safe_external_url(Some(&article.url)).is_none() {
+        return Err(AppError::Validation(
+            "This feed item has no public page for Live View.".to_string(),
+        ));
+    }
+    let settings =
+        subscriptions::content_settings_for_user(state.db.pool(), user.id, article.feed_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+    subscriptions::update_content_settings(
+        state.db.pool(),
+        user.id,
+        article.feed_id,
+        SubscriptionContentSettings {
+            mode,
+            lifetime: settings.lifetime,
+        },
+    )
+    .await?;
+    let shared_lifetime =
+        subscriptions::requested_article_page_lifetime(state.db.pool(), article.feed_id).await?;
+    articles::apply_article_page_lifetime(state.db.pool(), article.feed_id, shared_lifetime)
+        .await?;
+    if mode == SubscriptionContentMode::ArticlePage {
+        if !article_page_is_current(&article) {
+            enqueue_article_page_on_access(&state, &article, false).await?;
+        }
+        crate::feeds::queue_page_extractions(&state, article.feed_id).await?;
+    }
+    Ok(action_response(is_ajax, form.next))
 }
 
 async fn authorize_action(state: &AppState, user_id: Uuid, id: Uuid) -> Result<(), AppError> {

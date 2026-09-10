@@ -292,7 +292,7 @@ async fn upsert_oauth_user(
     let user = match users::find_by_email(pool, &email).await? {
         Some(existing) => existing,
         None => {
-            let bootstrap = users::count(pool).await? == 0;
+            let bootstrap = users::count_non_demo(pool).await? == 0;
             if !bootstrap
                 && !matches!(
                     state.settings.registration_mode,

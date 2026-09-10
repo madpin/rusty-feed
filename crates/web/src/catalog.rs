@@ -10,9 +10,10 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use rusty_feed_core::feed_content::{
-    recommended_catalog_content_mode, ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+    recommended_catalog_content_mode, ContentLifetime, FeedContentMode, SubscriptionContentMode,
+    SubscriptionContentSettings,
 };
-use rusty_feed_core::html::sanitize_article_html;
+use rusty_feed_core::html::sanitize_article_preview_html;
 use rusty_feed_db::{articles, catalog, feed_icons, jobs, subscriptions, User};
 use rusty_feed_feeds::enqueue_fetch_feed;
 
@@ -25,6 +26,9 @@ use crate::state::AppState;
 
 const MAX_CATALOG_SELECTION: usize = 30;
 const MAX_CONTENT_BACKFILL: usize = 5_000;
+const PREVIEW_INITIAL_ARTICLES: usize = 3;
+const PREVIEW_ARTICLE_STEP: usize = 3;
+const PREVIEW_MAX_ARTICLES: usize = 30;
 
 struct Facet {
     value: String,
@@ -83,11 +87,16 @@ struct CatalogPreviewView {
     category: String,
     country: String,
     language: String,
+    subscribed: bool,
+    article_page_recommended: bool,
     show_processed: bool,
+    article_limit: usize,
     rss_url: String,
     processed_url: String,
     stats: Option<PreviewStatsView>,
     articles: Vec<PreviewArticleView>,
+    has_more_articles: bool,
+    more_articles_url: String,
     needs_analysis: bool,
     analysis_message: Option<String>,
 }
@@ -101,6 +110,7 @@ struct CatalogTemplate {
     ui: prefs::Preferences,
     is_admin: bool,
     entries: Vec<CatalogView>,
+    selection_key: String,
     categories: Vec<Facet>,
     countries: Vec<Facet>,
     languages: Vec<Facet>,
@@ -116,6 +126,7 @@ struct CatalogPreviewTemplate {
     csrf_token: String,
     ui: prefs::Preferences,
     is_admin: bool,
+    selection_key: String,
     preview: CatalogPreviewView,
 }
 
@@ -135,6 +146,8 @@ pub struct PreviewQuery {
     view: Option<String>,
     #[serde(default)]
     analysis: Option<String>,
+    #[serde(default)]
+    articles: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -182,9 +195,15 @@ fn view(entry: catalog::CatalogEntry, has_icon: bool) -> CatalogView {
     }
 }
 
-fn preview_url(feed_id: Uuid, show_processed: bool) -> String {
+fn preview_article_limit(requested: Option<usize>) -> usize {
+    requested
+        .unwrap_or(PREVIEW_INITIAL_ARTICLES)
+        .clamp(PREVIEW_INITIAL_ARTICLES, PREVIEW_MAX_ARTICLES)
+}
+
+fn preview_url(feed_id: Uuid, show_processed: bool, article_limit: usize) -> String {
     let view = if show_processed { "processed" } else { "rss" };
-    format!("/catalog/{feed_id}/preview?view={view}")
+    format!("/catalog/{feed_id}/preview?view={view}&articles={article_limit}")
 }
 
 fn safe_preview_url(value: &str) -> Option<String> {
@@ -200,37 +219,13 @@ fn safe_preview_url(value: &str) -> Option<String> {
     Some(url.to_string())
 }
 
-fn plain_preview_text(content: &str, base_url: &str) -> String {
-    let content = sanitize_article_html(content, base_url);
-    let mut output = String::with_capacity(content.len());
-    let mut in_tag = false;
-    for character in content.chars() {
-        match character {
-            '<' => in_tag = true,
-            '>' => {
-                in_tag = false;
-                output.push(' ');
-            }
-            _ if !in_tag => output.push(character),
-            _ => {}
-        }
-    }
-    output
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(3_000)
-        .collect()
-}
-
 fn preview_article(article: catalog::CatalogPreviewArticle) -> PreviewArticleView {
     let url = safe_preview_url(&article.url);
     let published = article.published_at.map(|date| date.date().to_string());
     let rss_content = article
         .feed_content
         .as_deref()
-        .map(|content| plain_preview_text(content, &article.url));
+        .map(|content| sanitize_article_preview_html(content, &article.url));
     PreviewArticleView {
         title: article.title,
         url,
@@ -367,6 +362,7 @@ async fn render_page(
         ui,
         is_admin: user.role == "admin",
         entries,
+        selection_key: user.id.to_string(),
         categories,
         countries,
         languages,
@@ -403,8 +399,8 @@ fn parse_subscription_form(
                     .strip_prefix("content_mode.")
                     .and_then(|value| Uuid::parse_str(value).ok())
                     .ok_or_else(|| "A content-source choice was invalid.".to_string())?;
-                let mode = FeedContentMode::parse(&value)
-                    .ok_or_else(|| "Choose RSS or public article page content.".to_string())?;
+                let mode = SubscriptionContentMode::parse(&value)
+                    .ok_or_else(|| "Choose RSS, public article page, or Live View.".to_string())?;
                 if content_modes.insert(feed_id, mode).is_some() {
                     return Err("Choose one content source for each feed.".to_string());
                 }
@@ -461,14 +457,23 @@ async fn render_preview_page(
     query: PreviewQuery,
 ) -> Result<Response, AppError> {
     let show_processed = query.view.as_deref() == Some("processed");
-    let (feed, articles, stats, needs_analysis) = tokio::try_join!(
+    let article_limit = preview_article_limit(query.articles);
+    let (feed, articles, stats, needs_analysis, subscribed) = tokio::try_join!(
         catalog::preview_feed(state.db.pool(), feed_id),
-        catalog::preview_articles(state.db.pool(), feed_id),
+        catalog::preview_articles(state.db.pool(), feed_id, article_limit as i64 + 1),
         catalog::content_probe_stats(state.db.pool(), feed_id),
         catalog::probe_needs_refresh(state.db.pool(), feed_id),
+        subscriptions::is_subscribed(state.db.pool(), user.id, feed_id),
     )?;
     let feed = feed.ok_or(AppError::NotFound)?;
-    let articles: Vec<_> = articles.into_iter().map(preview_article).collect();
+    let article_page_recommended =
+        recommended_catalog_content_mode(&feed.url) == FeedContentMode::ArticlePage;
+    let has_more_articles = articles.len() > article_limit && article_limit < PREVIEW_MAX_ARTICLES;
+    let articles: Vec<_> = articles
+        .into_iter()
+        .take(article_limit)
+        .map(preview_article)
+        .collect();
     let needs_analysis = needs_analysis && !articles.is_empty();
     let ui = prefs::load(&state.db, user.id).await;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
@@ -478,6 +483,7 @@ async fn render_preview_page(
         csrf_token,
         ui,
         is_admin: user.role == "admin",
+        selection_key: user.id.to_string(),
         preview: CatalogPreviewView {
             feed_id: feed_id.to_string(),
             title: feed.title,
@@ -485,11 +491,20 @@ async fn render_preview_page(
             category: feed.category,
             country: feed.country,
             language: feed.language,
+            subscribed,
+            article_page_recommended,
             show_processed,
-            rss_url: preview_url(feed_id, false),
-            processed_url: preview_url(feed_id, true),
+            article_limit,
+            rss_url: preview_url(feed_id, false, article_limit),
+            processed_url: preview_url(feed_id, true, article_limit),
             stats: stats.map(preview_stats),
             articles,
+            has_more_articles,
+            more_articles_url: preview_url(
+                feed_id,
+                false,
+                (article_limit + PREVIEW_ARTICLE_STEP).min(PREVIEW_MAX_ARTICLES),
+            ),
             needs_analysis,
             analysis_message: analysis_message(query.analysis.as_deref()),
         },
@@ -534,7 +549,8 @@ pub async fn analyze_preview(
     } else {
         "rss"
     };
-    let analysis = if catalog::preview_articles(state.db.pool(), feed_id)
+    let article_limit = preview_article_limit(query.articles);
+    let analysis = if catalog::preview_articles(state.db.pool(), feed_id, 1)
         .await?
         .is_empty()
     {
@@ -557,7 +573,7 @@ pub async fn analyze_preview(
     Ok((
         jar,
         Redirect::to(&format!(
-            "/catalog/{feed_id}/preview?view={view}&analysis={analysis}"
+            "/catalog/{feed_id}/preview?view={view}&articles={article_limit}&analysis={analysis}"
         )),
     )
         .into_response())
@@ -697,6 +713,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bounds_preview_article_expansion() {
+        assert_eq!(preview_article_limit(None), 3);
+        assert_eq!(preview_article_limit(Some(1)), 3);
+        assert_eq!(preview_article_limit(Some(12)), 12);
+        assert_eq!(preview_article_limit(Some(usize::MAX)), 30);
+    }
+
+    #[test]
+    fn parses_live_catalog_choice_without_page_acquisition() {
+        let id = Uuid::now_v7();
+        let form = parse_subscription_form(vec![
+            ("csrf_token".to_string(), "token".to_string()),
+            ("feed_id".to_string(), id.to_string()),
+            (format!("content_mode.{id}"), "live".to_string()),
+        ])
+        .unwrap();
+        assert_eq!(form.choices[0].content.mode, SubscriptionContentMode::Live);
+        assert!(!form.choices[0].content.mode.fetches_article_pages());
+    }
+
+    #[test]
     fn parses_deduplicated_catalog_choices() {
         let id = Uuid::now_v7();
         let form = parse_subscription_form(vec![
@@ -709,6 +746,9 @@ mod tests {
         assert_eq!(form.csrf_token, "token");
         assert_eq!(form.choices.len(), 1);
         assert_eq!(form.choices[0].feed_id, id);
-        assert_eq!(form.choices[0].content.mode, FeedContentMode::ArticlePage);
+        assert_eq!(
+            form.choices[0].content.mode,
+            SubscriptionContentMode::ArticlePage
+        );
     }
 }

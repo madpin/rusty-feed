@@ -42,12 +42,13 @@
   <p>Try a broader filter, or <a href="/feeds">add a feed URL yourself</a>.</p>
 </div>
 {% else %}
-<form method="post" action="/catalog/subscribe" class="catalog-selection">
+<form method="post" action="/catalog/subscribe" class="catalog-selection" data-catalog-storage-key="{{ selection_key }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
   <div class="catalog-selection-bar">
-    <div><strong>{{ entries.len() }} sources</strong><span>Matching your current filters. Choose RSS or public-page content for each new subscription.</span></div>
+    <div><strong>{{ entries.len() }} sources</strong><span data-catalog-selection-count>No sources selected. Double-click a card to subscribe immediately.</span></div>
     <div class="catalog-selection-actions">
       <label class="catalog-select-all"><input type="checkbox" data-catalog-select-all /> <span data-catalog-select-all-label>Select all</span></label>
+      <button type="button" class="button-quiet" data-catalog-clear>Clear selection</button>
       <button type="submit" class="primary">Subscribe to selected</button>
     </div>
   </div>
@@ -80,6 +81,7 @@
         <legend>Reading content</legend>
         <label><input type="radio" name="content_mode.{{ entry.feed_id }}" value="rss"{% if !entry.article_page_recommended %} checked{% endif %} /> <span><strong>RSS</strong><small>Stored feed body</small></span></label>
         <label><input type="radio" name="content_mode.{{ entry.feed_id }}" value="article_page"{% if entry.article_page_recommended %} checked{% endif %} /> <span><strong>Public article page</strong><small>Shared readable copy with RSS fallback</small></span>{% if entry.article_page_recommended %} <span class="badge">Recommended</span>{% endif %}</label>
+        <label><input type="radio" name="content_mode.{{ entry.feed_id }}" value="live" /> <span><strong>Live publisher view</strong><small>Fetch the current page when opened; isolated with RSS fallback</small></span></label>
       </fieldset>
       {% endif %}
       <label class="catalog-choice">

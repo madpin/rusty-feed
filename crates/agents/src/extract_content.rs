@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use rusty_feed_core::{
     content_rules::apply_rewrite_rules,
-    feed_content::FeedContentSettings,
+    feed_content::{ContentLifetime, FeedContentSettings, MAX_CONTENT_LIFETIME_DAYS},
     html::{sanitize_article_html_with_policies, ARTICLE_PAGE_PROCESSING_VERSION},
 };
 use rusty_feed_db::{articles, feeds, subscriptions};
@@ -23,6 +23,8 @@ struct Payload {
     article_id: Uuid,
     #[serde(default)]
     content_revision: Option<i64>,
+    #[serde(default)]
+    on_demand_lifetime_days: Option<u16>,
 }
 
 pub struct ExtractContentAgent {
@@ -73,6 +75,7 @@ impl Agent for ExtractContentAgent {
         let Payload {
             article_id,
             content_revision,
+            on_demand_lifetime_days,
         } = serde_json::from_value(payload)?;
         let pool = ctx.db.pool();
 
@@ -86,10 +89,17 @@ impl Agent for ExtractContentAgent {
         let Some(feed) = feeds::find_by_id(pool, article.feed_id).await? else {
             return Ok(json!({ "skipped": "feed gone" }));
         };
-        let Some(lifetime) =
-            subscriptions::requested_article_page_lifetime(pool, article.feed_id).await?
-        else {
-            return Ok(json!({ "skipped": "no subscriber requests public-page content" }));
+        let subscriber_lifetime =
+            subscriptions::requested_article_page_lifetime(pool, article.feed_id).await?;
+        let on_demand_lifetime = on_demand_lifetime_days
+            .filter(|days| (1..=MAX_CONTENT_LIFETIME_DAYS).contains(days))
+            .map(ContentLifetime::Days);
+        let lifetime = match (subscriber_lifetime, on_demand_lifetime) {
+            (Some(left), Some(right)) => left.merge(right),
+            (Some(lifetime), None) | (None, Some(lifetime)) => lifetime,
+            (None, None) => {
+                return Ok(json!({ "skipped": "no subscriber requests public-page content" }));
+            }
         };
         let page_is_current = article.article_page_content.is_some()
             && article.article_page_processing_version >= ARTICLE_PAGE_PROCESSING_VERSION

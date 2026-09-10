@@ -1,4 +1,25 @@
 <div class="reader-document" data-reader-view-content>
+  <nav class="reader-content-switch" aria-label="Article content source" data-reader-content-switch>
+    <span class="reader-content-switch-label">Content</span>
+    <a href="/articles/{{ id }}?content=rss" data-content-view-link data-content-panel-url="/articles/{{ id }}/panel?content=rss"{% if content_mode == "rss" %} class="active" aria-current="true"{% endif %}>RSS</a>
+    <a href="/articles/{{ id }}?content=article_page" data-content-view-link data-content-panel-url="/articles/{{ id }}/panel?content=article_page"{% if content_mode == "article_page" %} class="active" aria-current="true"{% endif %}>Page content</a>
+    {% if live_view_url.is_some() %}
+    <a href="/articles/{{ id }}?content=live" data-content-view-link data-content-live-control data-content-panel-url="/articles/{{ id }}/panel?content=live" aria-controls="live-view-{{ id }}"{% if content_mode == "live" %} class="active" aria-current="true" aria-expanded="true"{% else %} aria-expanded="false"{% endif %}>Live</a>
+    {% else if content_mode == "live" %}
+    <span class="active" aria-current="true" aria-disabled="true">Live unavailable</span>
+    {% endif %}
+    {% if content_mode != default_content_mode %}
+    <form method="post" action="/articles/{{ id }}/content-mode" data-content-default-form data-content-panel-url="{{ content_mode_panel_url }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="content_mode" value="{{ content_mode }}" />
+      <input type="hidden" name="next" value="{{ content_mode_return_url }}" />
+      <button type="submit" class="reader-content-default">Make default for this feed</button>
+    </form>
+    {% else %}
+    <small>Feed default</small>
+    {% endif %}
+  </nav>
+  <div data-stored-content>
   {% if let Some(text) = summary %}
   <section class="reader-summary" aria-labelledby="summary-heading-{{ id }}">
     <header class="reader-section-heading">
@@ -29,8 +50,26 @@
   {% include "article_enclosures.html" %}
 
   <section class="reader-article-copy" aria-label="Article content">
-    <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}"{% if content_pending %} data-content-pending="true" data-content-url="/articles/{{ id }}/content"{% endif %}>
+    <div class="article-body" data-track-reading="/articles/{{ id }}/feedback" data-csrf="{{ csrf_token }}"{% if content_pending %} data-content-pending="true" data-content-url="/articles/{{ id }}/content?content={{ content_mode }}"{% endif %}>
       {{ content|safe }}
     </div>
   </section>
+  </div>
+
+  {% if let Some(live_url) = live_view_url %}
+  <section class="live-view" id="live-view-{{ id }}" data-live-view aria-label="Live publisher view" hidden>
+    <div class="live-view-toolbar">
+      <div>
+        <strong>Live publisher view</strong>
+        <p id="live-view-note-{{ id }}">Fetched through Rusty Feed so publisher frame restrictions do not block the page. Scripts run without Rusty Feed cookies in an isolated sandbox.</p>
+      </div>
+      <div class="live-view-actions">
+        {% if let Some(url) = url %}<a href="{{ url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ url_label }}</a>{% endif %}
+        <button type="button" class="button-quiet" data-live-view-close>Stored content</button>
+      </div>
+    </div>
+    <div class="live-view-status" data-live-view-status role="status">Loading the current publisher page…</div>
+    <iframe class="live-view-frame" data-live-view-frame data-live-ticket-url="{{ live_url }}" title="Live publisher view: {{ title }}" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads" referrerpolicy="no-referrer" credentialless loading="lazy" aria-describedby="live-view-note-{{ id }}"></iframe>
+  </section>
+  {% endif %}
 </div>

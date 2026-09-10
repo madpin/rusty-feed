@@ -1,4 +1,4 @@
-<article class="panel-reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" data-panel-article="{{ id }}" data-panel-read="{% if is_read %}true{% else %}false{% endif %}" data-panel-bookmarked="{% if is_bookmarked %}true{% else %}false{% endif %}" data-panel-feedback="{% if is_liked %}up{% else if is_disliked %}down{% endif %}" data-reader-surface>
+<article class="panel-reader{% if is_read %} read{% endif %}{% if is_bookmarked %} bookmarked{% endif %}{% if is_liked %} rated rated-positive{% endif %}{% if is_disliked %} rated rated-negative{% endif %}" data-panel-article="{{ id }}" data-panel-read="{% if is_read %}true{% else %}false{% endif %}" data-panel-bookmarked="{% if is_bookmarked %}true{% else %}false{% endif %}" data-panel-feedback="{% if is_liked %}up{% else if is_disliked %}down{% endif %}" data-reader-surface data-content-mode-current="{{ content_mode }}">
   <div class="reader-view">
   <header class="reader-header">
     <p class="eyebrow">{{ feed_name }}</p>
@@ -8,7 +8,6 @@
       {% if let Some(url) = url %}
       <a href="{{ url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ url_label }}</a>
       {% if let Some(alternate_url) = alternate_url %}<a href="{{ alternate_url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ alternate_url_label }}</a>{% endif %}
-      <button type="button" class="button-quiet live-view-toggle" data-live-view-toggle aria-controls="live-view-{{ id }}" aria-expanded="false">{{ ui.text("live_view") }}</button>
       {% else %}
       <span>Original link unavailable</span>
       {% endif %}
@@ -82,23 +81,4 @@
 
     {% include "article_reader_content.html" %}
   </div>
-
-  {% if let Some(url) = url %}
-  {% if let Some(live_url) = live_view_url %}
-  <section class="live-view" id="live-view-{{ id }}" data-live-view aria-label="Live publisher view" hidden>
-    <div class="live-view-toolbar">
-      <div>
-        <strong>Live publisher view</strong>
-        <p id="live-view-note-{{ id }}">Fetched through Rusty Feed so publisher frame restrictions do not block the page. Scripts run without Rusty Feed cookies in an isolated sandbox.</p>
-      </div>
-      <div class="live-view-actions">
-        <a href="{{ url }}"{% if external_new_tab %} target="_blank"{% endif %} rel="noopener noreferrer" referrerpolicy="no-referrer">{{ url_label }}</a>
-        <button type="button" class="button-quiet" data-live-view-close>{{ ui.text("reader_view") }}</button>
-      </div>
-    </div>
-    <div class="live-view-status" data-live-view-status role="status">Loading the current publisher page…</div>
-    <iframe class="live-view-frame" data-live-view-frame data-live-ticket-url="{{ live_url }}" title="Live publisher view: {{ title }}" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads" referrerpolicy="no-referrer" credentialless loading="lazy" aria-describedby="live-view-note-{{ id }}"></iframe>
-  </section>
-  {% endif %}
-  {% endif %}
 </article>

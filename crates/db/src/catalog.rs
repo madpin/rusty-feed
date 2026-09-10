@@ -152,6 +152,7 @@ pub struct CatalogPreviewFeed {
     pub category: String,
     pub country: String,
     pub language: String,
+    pub url: String,
 }
 
 const CATALOG_COLUMNS: &str =
@@ -193,8 +194,9 @@ pub async fn is_published_feed(pool: &PgPool, feed_id: Uuid) -> Result<bool> {
 
 pub async fn preview_feed(pool: &PgPool, feed_id: Uuid) -> Result<Option<CatalogPreviewFeed>> {
     Ok(sqlx::query_as(
-        "SELECT title, description, category, country, language \
-         FROM feed_catalog_entries WHERE feed_id = $1 AND published",
+        "SELECT entry.title, entry.description, entry.category, entry.country, entry.language, feed.url \
+         FROM feed_catalog_entries entry JOIN feeds feed ON feed.id = entry.feed_id \
+         WHERE entry.feed_id = $1 AND entry.published",
     )
     .bind(feed_id)
     .fetch_optional(pool)
@@ -234,13 +236,18 @@ pub async fn content_probe_stats(
     .await?)
 }
 
-pub async fn preview_articles(pool: &PgPool, feed_id: Uuid) -> Result<Vec<CatalogPreviewArticle>> {
+pub async fn preview_articles(
+    pool: &PgPool,
+    feed_id: Uuid,
+    limit: i64,
+) -> Result<Vec<CatalogPreviewArticle>> {
     Ok(sqlx::query_as(
         "SELECT id, title, url, left(feed_content, 16000) AS feed_content, published_at \
          FROM articles WHERE feed_id = $1 \
-         ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT 3",
+         ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT $2",
     )
     .bind(feed_id)
+    .bind(limit.clamp(1, 31))
     .fetch_all(pool)
     .await?)
 }

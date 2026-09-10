@@ -138,7 +138,7 @@ DoD commit: `feat(cache): moka L1 + redis L2 with SCAN invalidation`.
 
 Tasks:
 - [x] Secure opaque-token sessions backed by PostgreSQL. This deliberate, documented implementation replaces `tower-sessions` (FND-116).
-- [x] Local accounts: register/login, Argon2id, open/invite/closed policy, first-user-admin bootstrap, one-use invitation issuance/acceptance, and CLI admin creation.
+- [x] Local accounts: register/login, Argon2id, open/invite/closed policy, first-persistent-user-admin bootstrap that ignores demo rows, one-use invitation issuance/acceptance, and CLI admin creation.
 - [x] Google, GitHub, and Generic OIDC authorization-code flow with PKCE/state plus account linking. Direct `reqwest` is a documented deviation (FND-117).
 - [x] RBAC extractor and admin-route guard.
 - [x] CSRF protection for cookie-auth mutations and per-IP auth rate limiting.
@@ -213,7 +213,7 @@ Tasks:
 - [x] Local Mozilla-Readability-compatible extraction via `dom_smoothie`, with configurable CSS selection and a density-scored malformed-document fallback.
 - [x] Chromium via `chromiumoxide` (separate compose service, semaphore-bounded, `CHROMIUM_ENABLED`): renders a CSP-isolated copy of HTML already fetched through `SafeFetchClient`, then reruns extraction; it never navigates Chromium around the SSRF boundary and degrades to local extraction.
 - [x] Per-domain limiter with shared state, robots.txt crawl delay/Disallow, bounded caches, adaptive failure backoff, and `Retry-After` handling.
-- [x] Per-subscription content choice and finite/infinite public-page lifetime, aggregated into one shared acquisition; admin-owned selector/robots/delay/rewrite controls plus separately audited host/path-pinned encrypted acquisition profiles for explicitly authorized cookie/proxy/certificate cases.
+- [x] Per-subscription RSS/shared-page/isolated-Live default and finite/infinite public-page lifetime; only page mode contributes to the one aggregated shared acquisition. Admin-owned selector/robots/delay/rewrite controls plus separately audited host/path-pinned encrypted acquisition profiles cover explicitly authorized cookie/proxy/certificate cases.
 - [x] Media-type-aware feed normalization plus `ammonia` sanitization before store and at render; semantic HTML/Markdown fidelity, lazy/responsive media handling, article-specific typography, and configurable no-network tracking-image removal with shared source-specific reports.
 - [x] Bounded no-network YouTube recognition plus a reversible on-demand `youtube-nocookie.com` player with linked-time preservation, explicit connection state, instance/user/subscription policy, and link-only fallback.
 - [x] **ExtractContentAgent** (event/access-driven, absent-or-expired public pages only, once per shared article revision) plus RSS fallback and access-triggered fast refresh.

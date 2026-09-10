@@ -1,5 +1,5 @@
 use rusty_feed_core::feed_content::{
-    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+    ContentLifetime, SubscriptionContentMode, SubscriptionContentSettings,
 };
 use rusty_feed_core::youtube::SubscriptionYouTubeMode;
 use rusty_feed_db::{
@@ -85,7 +85,7 @@ async fn youtube_override_is_tenant_scoped_and_preserves_content_settings() {
         user.id,
         feed.id,
         SubscriptionContentSettings {
-            mode: FeedContentMode::ArticlePage,
+            mode: SubscriptionContentMode::ArticlePage,
             lifetime: ContentLifetime::Infinite,
         },
         SubscriptionYouTubeMode::LinksOnly,
@@ -109,7 +109,7 @@ async fn youtube_override_is_tenant_scoped_and_preserves_content_settings() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(content.mode, FeedContentMode::ArticlePage);
+    assert_eq!(content.mode, SubscriptionContentMode::ArticlePage);
     assert_eq!(content.lifetime, ContentLifetime::Infinite);
 }
 

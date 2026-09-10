@@ -175,7 +175,9 @@ async fn catalog_probe_samples_three_public_pages_without_changing_article_polic
     assert!(requests.iter().all(|request| {
         !request.headers.contains_key("cookie") && !request.headers.contains_key("authorization")
     }));
-    let previews = catalog::preview_articles(db.pool(), feed.id).await.unwrap();
+    let previews = catalog::preview_articles(db.pool(), feed.id, 3)
+        .await
+        .unwrap();
     assert_eq!(previews.len(), 3);
     assert!(previews
         .iter()

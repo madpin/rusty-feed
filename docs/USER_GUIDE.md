@@ -42,7 +42,7 @@ filter. Use it to switch between:
 - a folder and all of its nested sources;
 - **Unfiled feeds**;
 - one source;
-- one tag, or a folder and tag together.
+- one tag across every subscribed feed.
 
 Article cards expose read/unread, save, AI summary, and thumbs-up/down actions.
 Thumbs feedback is private and trains your personal relevance model. A bookmark
@@ -77,23 +77,38 @@ appear on a public link.
 
 ### RSS, processed content, and Live View
 
-Each subscription chooses its preferred reading source:
+Each subscription chooses its preferred reading source. The article reader's
+**RSS / Page content / Live** switch changes only the current article. When that
+temporary view differs from the subscription, choose **Make default for this
+feed** to persist it for later articles from that feed. Opening the next or
+previous article always resolves that article's saved feed default instead of
+carrying the temporary override forward:
 
 - **RSS content** is always stored and remains the fallback.
-- **Public article page** asks Rusty Feed to fetch and extract the publisher's public
+- **Page content** asks Rusty Feed to fetch and extract the publisher's public
   page once for everyone who requests it. Choose a finite lifetime or **No
   expiration**. The longest subscriber request controls the one shared copy.
+- **Live** fetches the current publisher document when an article opens and
+  displays it through an article-scoped, credentialless sandbox. It creates no
+  durable page-extraction demand and falls back to RSS without JavaScript or on
+  failure.
 
-If processed content is missing or expired, opening the article immediately
-queues a fast refresh and shows RSS content until it is ready.
-
-**Live View** is an explicit, sandboxed publisher view. Rusty Feed obtains the
-publisher document through its SSRF-safe fetcher and rewrites required static
-resources through article-scoped tickets, avoiding the publisher iframe blocks
-that break ordinary embedding. The frame is not loaded until you ask for it,
-can be cleared instantly, and falls back to stored reader content when the
-publisher is unavailable. It is less private than Reader View, so use it when
-the original layout or interactive presentation matters.
+If page content is missing or expired, opening the article immediately queues a
+priority, revision-deduplicated refresh and shows RSS content until it is ready.
+A temporary Page Content view retains that shared copy for one day without
+changing the feed default; a permanent feed default uses its configured
+lifetime. Choosing Live uses the
+same SSRF-safe fetcher and rewrites required static resources through scoped
+tickets, avoiding publisher iframe blocks while keeping Rusty Feed cookies out
+of the frame. Live replaces only the article body, so the article header,
+actions, and RSS/Page/Live switch stay in the same place as Page Content. Its
+window uses the browser's available dynamic viewport height, allowing the
+publisher document to scroll inside a full-screen reading area. Close
+Live View at any time to return to stored reader content. An attachment-only
+item without a public page remains visibly in the feed's Live mode but explains
+that it is showing RSS as the required fallback. Live is less private than
+Reader View, so use it when the original layout or interactive presentation
+matters.
 
 ## 3. Organize feeds without leaving the Library
 
@@ -126,7 +141,10 @@ version creates a new audit version rather than rewriting history.
 The Library sidebar has a **Quick feed tools** switch. When enabled, compact
 buttons open content and tag dialogs without navigating away. Folders can be
 collapsed and the whole sidebar can be reduced; both states follow your account
-across browsers.
+across browsers. Selecting a tag clears feed/folder/unread/summary intersections and the implicit
+hide-read preference, matches catalog and personal tag casing consistently,
+loads all read and unread subscribed articles under that tag, and updates only the article-results
+region so the sidebar itself is not rebuilt or repositioned.
 
 To move a feed while reading, drag the article's source handle onto a sidebar
 folder. Keyboard and touch users can activate the same handle to open an
@@ -263,8 +281,10 @@ Rusty Feed URL with an 8 MiB ceiling and a passive raster-image MIME allow-list,
 the browser never contacts the publisher. **Mixed content** proxies only HTTP
 images; **direct** mode may contact the publisher and still sends no referrer.
 
-Recognized YouTube links stay iframe-free in stored content. When enabled, an
-explicit **Load player** action creates the selected validated player frame,
+Recognized YouTube links stay iframe-free in stored content. If a publisher
+supplies only an official YouTube iframe, Rusty Feed preserves its validated
+video identity as an inert watch link before removing the active iframe. When
+enabled, an explicit **Load player** action creates the selected validated player frame,
 preserves the linked start time, and offers unload/retry. The built-in choice
 uses only `youtube-nocookie.com`, and no player request is made before consent.
 If the administrator configures a named

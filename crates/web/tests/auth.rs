@@ -85,6 +85,48 @@ async fn login_page_uses_the_rust_technical_surface() {
 }
 
 #[tokio::test]
+async fn demo_accounts_do_not_consume_the_admin_bootstrap_slot() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let before = users::count_non_demo(state.db.pool()).await.unwrap();
+    let demo = users::create_demo(
+        state.db.pool(),
+        &format!("demo-{}@demo.invalid", uuid::Uuid::now_v7()),
+        "Bootstrap demo",
+        "user",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        users::count_non_demo(state.db.pool()).await.unwrap(),
+        before
+    );
+
+    let persistent = users::create(
+        state.db.pool(),
+        &format!("persistent-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        users::count_non_demo(state.db.pool()).await.unwrap(),
+        before + 1
+    );
+
+    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+        .bind(vec![demo.id, persistent.id])
+        .execute(state.db.pool())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn reverse_proxy_auth_requires_a_trusted_immediate_peer() {
     let Some(base_state) = test_state().await else {
         eprintln!("skipping: TEST_DATABASE_URL not set");

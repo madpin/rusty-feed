@@ -176,7 +176,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 ```
 
-The first registered account becomes the administrator. `create-admin`,
+The first registered persistent (non-demo) account becomes the administrator. `create-admin`,
 `fetch-model`, `reindex`, `backfill`, `migrate`, and `config-check` support
 bootstrap and maintenance workflows; use `--help` for their current arguments.
 

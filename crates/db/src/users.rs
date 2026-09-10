@@ -215,11 +215,19 @@ pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>> {
         .await?)
 }
 
-/// Total number of users (used for the "first user becomes admin" bootstrap).
+/// Total number of users across persistent and demo accounts.
 pub async fn count(pool: &PgPool) -> Result<i64> {
     Ok(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users")
         .fetch_one(pool)
         .await?)
+}
+
+pub async fn count_non_demo(pool: &PgPool) -> Result<i64> {
+    Ok(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE is_demo = false")
+            .fetch_one(pool)
+            .await?,
+    )
 }
 
 pub async fn list(pool: &PgPool, limit: i64) -> Result<Vec<User>> {

@@ -5,7 +5,7 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use rusty_feed_cache::Cache;
-use rusty_feed_core::feed_content::{ContentLifetime, FeedContentMode};
+use rusty_feed_core::feed_content::{ContentLifetime, SubscriptionContentMode};
 use rusty_feed_db::{
     agent_runs, articles, catalog, feed_icons, feeds, jobs, subscriptions, users, Db, NewArticle,
 };
@@ -242,7 +242,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
             .unwrap()
             .unwrap()
             .mode,
-        FeedContentMode::ArticlePage
+        SubscriptionContentMode::ArticlePage
     );
     assert_eq!(
         subscriptions::content_settings_for_user(state.db.pool(), user.id, second_feed.id)
@@ -250,7 +250,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
             .unwrap()
             .unwrap()
             .mode,
-        FeedContentMode::Rss
+        SubscriptionContentMode::Rss
     );
 
     let response = app
@@ -607,9 +607,13 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
     let mut articles_created = Vec::new();
     let article_run = uuid::Uuid::now_v7();
     for (index, content) in [
-        "<p>RSS preview body one</p><script>CATALOG_SCRIPT_SENTINEL</script>",
+        "<p>RSS preview body one</p>",
         "<p>RSS preview body two</p>",
         "<p>RSS preview body three</p>",
+        "<p>RSS preview body four</p>",
+        "<p>RSS preview body five</p>",
+        "<p>RSS preview body six</p>",
+        "<p>RSS preview <strong>body seven</strong></p><img src=\"https://catalog-preview.example/leak.jpg\" alt=\"Remote image\"><script>CATALOG_SCRIPT_SENTINEL</script>",
     ]
     .iter()
     .enumerate()
@@ -719,13 +723,34 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         .unwrap()
         .to_string();
     let page = body_string(response).await;
-    assert!(page.contains("RSS preview body one"));
+    assert!(page.contains("RSS preview <strong>body seven</strong>"));
+    assert_eq!(page.matches("class=\"preview-article\"").count(), 3);
+    assert!(page.contains("Load more articles"));
+    assert!(page.contains("articles=6"));
     assert!(page.contains("RSS preview"));
     assert!(page.contains("/preview?view=processed"));
     assert!(page.contains("aria-current=\"page\""));
     assert!(page.contains("Analyze up to 3 articles"));
+    assert!(page.contains("Add to my library"));
+    assert!(!page.contains("leak.jpg"));
     assert!(!page.contains("CATALOG_SCRIPT_SENTINEL"));
     assert!(!page.contains("CATALOG_PRIVATE_PAGE_SENTINEL"));
+
+    let expanded = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/catalog/{}/preview?articles=6", feed.id))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(expanded.status(), StatusCode::OK);
+    let expanded = body_string(expanded).await;
+    assert_eq!(expanded.matches("class=\"preview-article\"").count(), 6);
+    assert!(expanded.contains("Showing 6 recent articles"));
+    assert!(expanded.contains("articles=9"));
 
     let response = app
         .clone()
@@ -764,7 +789,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
         assert_eq!(
             response.headers()["location"],
             format!(
-                "/catalog/{}/preview?view=processed&analysis=queued",
+                "/catalog/{}/preview?view=processed&articles=3&analysis=queued",
                 feed.id
             )
         );

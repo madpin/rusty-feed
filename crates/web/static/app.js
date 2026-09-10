@@ -668,38 +668,43 @@
     sync();
   }
 
+  var draggingFeedId = null;
+  var draggingFeedRow = null;
+  function clearFeedDragTargets() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-feed-drop]"), function (target) {
+      target.classList.remove("drag-over");
+      target.removeAttribute("aria-busy");
+    });
+  }
+
   function initializeFeedDragAndDrop() {
     var csrf = document.documentElement.getAttribute("data-csrf-token");
     var handles = document.querySelectorAll("[data-feed-drag]");
     var targets = document.querySelectorAll("[data-feed-drop]");
     if (!csrf || !handles.length || !targets.length) return;
-    var draggingId = null;
-    var draggingRow = null;
-    function clearTargets() {
-      Array.prototype.forEach.call(targets, function (target) {
-        target.classList.remove("drag-over");
-        target.removeAttribute("aria-busy");
-      });
-    }
     Array.prototype.forEach.call(handles, function (handle) {
+      if (handle.dataset.feedDragInitialized === "true") return;
+      handle.dataset.feedDragInitialized = "true";
       handle.addEventListener("dragstart", function (event) {
-        draggingId = handle.getAttribute("data-feed-id");
-        draggingRow = handle.closest("[data-feed-row],[data-article-card]");
-        if (!draggingId || !event.dataTransfer) return;
+        draggingFeedId = handle.getAttribute("data-feed-id");
+        draggingFeedRow = handle.closest("[data-feed-row],[data-article-card]");
+        if (!draggingFeedId || !event.dataTransfer) return;
         event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", draggingId);
-        if (draggingRow) draggingRow.classList.add("dragging");
+        event.dataTransfer.setData("text/plain", draggingFeedId);
+        if (draggingFeedRow) draggingFeedRow.classList.add("dragging");
       });
       handle.addEventListener("dragend", function () {
-        if (draggingRow) draggingRow.classList.remove("dragging");
-        draggingId = null;
-        draggingRow = null;
-        clearTargets();
+        if (draggingFeedRow) draggingFeedRow.classList.remove("dragging");
+        draggingFeedId = null;
+        draggingFeedRow = null;
+        clearFeedDragTargets();
       });
     });
     Array.prototype.forEach.call(targets, function (target) {
+      if (target.dataset.feedDropInitialized === "true") return;
+      target.dataset.feedDropInitialized = "true";
       target.addEventListener("dragover", function (event) {
-        if (!draggingId) return;
+        if (!draggingFeedId) return;
         event.preventDefault();
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
         target.classList.add("drag-over");
@@ -709,7 +714,7 @@
       });
       target.addEventListener("drop", function (event) {
         event.preventDefault();
-        var feedId = draggingId || (event.dataTransfer && event.dataTransfer.getData("text/plain"));
+        var feedId = draggingFeedId || (event.dataTransfer && event.dataTransfer.getData("text/plain"));
         if (!feedId) return;
         var body = new URLSearchParams();
         body.set("csrf_token", csrf);
@@ -730,7 +735,7 @@
             target.removeAttribute("aria-busy");
             announce("Could not move that feed. Please try the folder picker.", true);
           })
-          .finally(clearTargets);
+          .finally(clearFeedDragTargets);
       });
     });
   }
@@ -743,6 +748,8 @@
     var movedByDrag = false;
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-feed-drag]"), function (handle) {
+      if (handle.dataset.feedMoveInitialized === "true") return;
+      handle.dataset.feedMoveInitialized = "true";
       handle.addEventListener("dragstart", function () { movedByDrag = true; });
       handle.addEventListener("dragend", function () {
         window.setTimeout(function () { movedByDrag = false; }, 0);
@@ -759,6 +766,8 @@
       });
     });
 
+    if (dialog.dataset.feedMoveDialogInitialized === "true") return;
+    dialog.dataset.feedMoveDialogInitialized = "true";
     Array.prototype.forEach.call(dialog.querySelectorAll("[data-move-feed-close]"), function (button) {
       button.addEventListener("click", function () { if (dialog.open) dialog.close(); });
     });
@@ -1267,6 +1276,7 @@
         initializeReadingTracking(panel);
         initializePendingContent(panel);
         initializeSummaryActions(panel);
+        initializeDefaultLiveViews(panel);
         if (trigger) {
           var list = trigger.closest(".article-list");
           if (list) {
@@ -1306,19 +1316,20 @@
   function toggleLiveView(control, closeOnly) {
     var article = control.closest("article");
     var reader = article ? article.querySelector("[data-reader-view-content]") : null;
+    var stored = reader ? reader.querySelector("[data-stored-content]") || reader : null;
     var live = article ? article.querySelector("[data-live-view]") : null;
     var frame = live ? live.querySelector("[data-live-view-frame]") : null;
     var liveStatus = live ? live.querySelector("[data-live-view-status]") : null;
-    var button = article ? article.querySelector("[data-live-view-toggle]") : null;
-    if (!reader || !live || !frame) return;
-    var showLive = !closeOnly && (!button || button.getAttribute("aria-expanded") !== "true");
+    var button = article ? article.querySelector("[data-live-view-toggle],[data-content-live-control]") : null;
+    if (!reader || !stored || !live || !frame) return;
+    var showLive = !closeOnly && !article.classList.contains("live-view-active");
     if (showLive) {
       var ticketUrl = frame.getAttribute("data-live-ticket-url");
       var source = frame.getAttribute("data-live-src");
       if (!ticketUrl && !source) return;
       article.classList.add("live-view-active");
       live.hidden = false;
-      reader.hidden = true;
+      stored.hidden = true;
       live.setAttribute("aria-busy", "true");
       if (liveStatus) {
         liveStatus.hidden = false;
@@ -1389,7 +1400,7 @@
       frame.removeAttribute("src");
       live.hidden = true;
       live.removeAttribute("aria-busy");
-      reader.hidden = false;
+      stored.hidden = false;
       article.classList.remove("live-view-active");
       if (liveStatus) {
         liveStatus.hidden = false;
@@ -1399,7 +1410,7 @@
     }
     if (button) {
       button.setAttribute("aria-expanded", String(showLive));
-      button.textContent = showLive ? "Reader view" : "Live view";
+      if (button.hasAttribute("data-live-view-toggle")) button.textContent = showLive ? "Reader view" : "Live view";
     }
     announce(
       showLive
@@ -1408,6 +1419,14 @@
       false
     );
     if (!showLive && control.hasAttribute("data-live-view-close") && button) button.focus();
+  }
+
+  function initializeDefaultLiveViews(root) {
+    Array.prototype.forEach.call(root.querySelectorAll("[data-reader-surface][data-content-mode-current='live']"), function (article) {
+      if (article.classList.contains("live-view-active")) return;
+      var control = article.querySelector("[data-content-live-control]");
+      if (control) toggleLiveView(control, false);
+    });
   }
 
   document.addEventListener("click", function (event) {
@@ -1422,6 +1441,46 @@
     var live = document.querySelector("[data-live-view]:not([hidden])");
     var close = live ? live.querySelector("[data-live-view-close]") : null;
     if (close) toggleLiveView(close, true);
+  });
+
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest ? event.target.closest("[data-content-view-link]") : null;
+    if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    var panel = link.closest(".article-inline, .reading-pane");
+    var panelUrl = link.getAttribute("data-content-panel-url");
+    if (!panel || !panelUrl) return;
+    event.preventDefault();
+    var article = link.closest("article.live-view-active");
+    var close = article ? article.querySelector("[data-live-view-close]") : null;
+    if (close) toggleLiveView(close, true);
+    loadPanel(panel, panelUrl, null).catch(function () {
+      window.location.assign(link.href);
+    });
+  });
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form.matches || !form.matches("[data-content-default-form]")) return;
+    event.preventDefault();
+    if (form.dataset.pending === "true") return;
+    setPending(form, true);
+    fetch(form.action, {
+      method: "POST",
+      body: encodedForm(form),
+      headers: { "X-Requested-With": "fetch" },
+      credentials: "same-origin",
+    }).then(function (response) {
+      if (!response.ok) throw new Error("content mode update failed");
+      var panel = form.closest(".article-inline, .reading-pane");
+      var panelUrl = form.getAttribute("data-content-panel-url");
+      if (panel && panelUrl) return loadPanel(panel, panelUrl, null);
+      var next = form.querySelector("input[name='next']");
+      window.location.assign(next ? next.value : window.location.href);
+      return null;
+    }).catch(function () {
+      announce("The content source could not be changed. Please try again.", true);
+      setPending(form, false);
+    });
   });
 
   // In-place article actions (mark read/unread, save/unsave, mark all read).
@@ -1498,46 +1557,144 @@
     form.requestSubmit();
   });
 
-  document.addEventListener("dblclick", function (event) {
-    var card = event.target.closest ? event.target.closest("[data-catalog-selectable]") : null;
-    if (!card || event.target.closest("a, button, input, select, textarea, label, form, summary, [contenteditable], [role='button']")) return;
-    var checkbox = card.querySelector("input[name='feed_id']");
-    if (!checkbox || checkbox.disabled || checkbox.checked) return;
-    event.preventDefault();
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-    announce("Source selected. Subscribe to add it to your library.", false);
-  });
-
   function initializeCatalogSelection() {
+    function storageKey(element) {
+      var owner = element ? element.getAttribute("data-catalog-storage-key") : "";
+      return owner ? "rusty-feed.catalog-selection." + owner : "";
+    }
+    function readState(key) {
+      if (!key) return { feeds: {}, returnUrl: "" };
+      try {
+        var parsed = JSON.parse(window.sessionStorage.getItem(key) || "{}");
+        return {
+          feeds: parsed.feeds && typeof parsed.feeds === "object" ? parsed.feeds : {},
+          returnUrl: typeof parsed.returnUrl === "string" ? parsed.returnUrl : "",
+        };
+      } catch (_) {
+        return { feeds: {}, returnUrl: "" };
+      }
+    }
+    function writeState(key, state) {
+      if (!key) return;
+      try { window.sessionStorage.setItem(key, JSON.stringify(state)); } catch (_) {}
+    }
+
+    var back = document.querySelector("[data-catalog-back]");
+    if (back) {
+      var backState = readState(storageKey(back));
+      if (/^\/catalog(?:\?|$)/.test(backState.returnUrl)) back.setAttribute("href", backState.returnUrl);
+    }
+
     var form = document.querySelector(".catalog-selection");
     if (!form) return;
+    var key = storageKey(form);
+    var state = readState(key);
     var toggle = form.querySelector("[data-catalog-select-all]");
-    if (!toggle) return;
     var label = form.querySelector("[data-catalog-select-all-label]");
+    var count = form.querySelector("[data-catalog-selection-count]");
+    var clear = form.querySelector("[data-catalog-clear]");
+    var submit = form.querySelector("button[type='submit']");
     function boxes() {
       // Only enabled checkboxes are selectable; disabled ones are already subscribed.
       // These already reflect the applied category/country/language filters.
-      return Array.prototype.slice.call(form.querySelectorAll("input[name='feed_id']:not([disabled])"));
+      return Array.prototype.slice.call(form.querySelectorAll("input[name='feed_id']:not([disabled]):not([data-catalog-stored])"));
     }
+    function modeFor(box) {
+      var mode = form.querySelector("input[name='content_mode." + box.value + "']:checked");
+      return mode ? mode.value : "rss";
+    }
+    Array.prototype.forEach.call(form.querySelectorAll("input[name='feed_id'][disabled]"), function (box) {
+      delete state.feeds[box.value];
+    });
+    boxes().forEach(function (box) {
+      var mode = state.feeds[box.value];
+      if (!mode) return;
+      box.checked = true;
+      var choice = form.querySelector("input[name='content_mode." + box.value + "'][value='" + mode + "']");
+      if (choice) choice.checked = true;
+    });
     function sync() {
       var all = boxes();
       var checked = all.filter(function (box) { return box.checked; });
-      toggle.checked = all.length > 0 && checked.length === all.length;
-      toggle.indeterminate = checked.length > 0 && checked.length < all.length;
-      toggle.disabled = all.length === 0;
-      if (label) {
-        label.textContent = checked.length > 0 ? "Select all (" + checked.length + " selected)" : "Select all";
+      var selected = Object.keys(state.feeds).length;
+      if (toggle) {
+        toggle.checked = all.length > 0 && checked.length === all.length;
+        toggle.indeterminate = checked.length > 0 && checked.length < all.length;
+        toggle.disabled = all.length === 0;
       }
+      if (label) label.textContent = checked.length > 0 ? "Select all (" + checked.length + " shown selected)" : "Select all";
+      if (count) count.textContent = selected === 0
+        ? "No sources selected. Double-click a card to subscribe immediately."
+        : selected + " selected across filters. Your choices stay selected while you browse and preview.";
+      if (clear) clear.disabled = selected === 0;
+      if (submit) submit.disabled = selected === 0;
+      writeState(key, state);
     }
-    toggle.addEventListener("change", function () {
-      var check = toggle.checked;
-      boxes().forEach(function (box) { box.checked = check; });
+    if (clear) clear.addEventListener("click", function () {
+      state.feeds = {};
+      boxes().forEach(function (box) { box.checked = false; });
       sync();
-      announce(check ? "Selected all filtered sources." : "Cleared the selection.", false);
+      announce("Cleared the catalog selection.", false);
+    });
+    if (toggle) toggle.addEventListener("change", function () {
+      var check = toggle.checked;
+      boxes().forEach(function (box) {
+        box.checked = check;
+        if (check) state.feeds[box.value] = modeFor(box);
+        else delete state.feeds[box.value];
+      });
+      sync();
+      announce(check ? "Selected all filtered sources." : "Cleared the filtered selection.", false);
     });
     form.addEventListener("change", function (event) {
-      if (event.target && event.target.name === "feed_id") sync();
+      if (!event.target) return;
+      if (event.target.name === "feed_id") {
+        if (event.target.checked) state.feeds[event.target.value] = modeFor(event.target);
+        else delete state.feeds[event.target.value];
+      } else if (event.target.name && event.target.name.indexOf("content_mode.") === 0) {
+        var feedId = event.target.name.slice("content_mode.".length);
+        if (state.feeds[feedId]) state.feeds[feedId] = event.target.value;
+      }
+      sync();
+    });
+    form.addEventListener("click", function (event) {
+      var preview = event.target.closest ? event.target.closest(".catalog-preview-link") : null;
+      if (!preview) return;
+      state.returnUrl = window.location.pathname + window.location.search;
+      writeState(key, state);
+    });
+    form.addEventListener("dblclick", function (event) {
+      var card = event.target.closest ? event.target.closest("[data-catalog-selectable]") : null;
+      if (!card || event.target.closest("a, button, input, select, textarea, label, summary, [contenteditable], [role='button']")) return;
+      var checkbox = card.querySelector("input[name='feed_id']");
+      if (!checkbox || checkbox.disabled) return;
+      event.preventDefault();
+      if (!checkbox.checked) {
+        checkbox.checked = true;
+        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      announce("Subscribing to the selected sources.", false);
+      form.requestSubmit(submit);
+    });
+    form.addEventListener("submit", function () {
+      Array.prototype.forEach.call(form.querySelectorAll("[data-catalog-stored]"), function (input) { input.remove(); });
+      var visible = {};
+      boxes().forEach(function (box) { visible[box.value] = true; });
+      Object.keys(state.feeds).forEach(function (feedId) {
+        if (visible[feedId]) return;
+        var feed = document.createElement("input");
+        feed.type = "hidden";
+        feed.name = "feed_id";
+        feed.value = feedId;
+        feed.setAttribute("data-catalog-stored", "true");
+        form.appendChild(feed);
+        var mode = document.createElement("input");
+        mode.type = "hidden";
+        mode.name = "content_mode." + feedId;
+        mode.value = state.feeds[feedId];
+        mode.setAttribute("data-catalog-stored", "true");
+        form.appendChild(mode);
+      });
     });
     sync();
   }
@@ -1587,11 +1744,85 @@
     update();
   }
 
+  function initializeLibraryTagNavigation() {
+    var activeRequest = null;
+    function updateSidebar(url) {
+      var target = new URL(url, window.location.href);
+      Array.prototype.forEach.call(document.querySelectorAll("#library-sidebar .nav-link, .mobile-library-context .nav-link"), function (link) {
+        var candidate = new URL(link.href, window.location.href);
+        var active = candidate.pathname === target.pathname && candidate.search === target.search;
+        link.classList.toggle("active", active);
+        if (active) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+      });
+    }
+    function load(url, push) {
+      var current = document.querySelector("[data-library-results]");
+      if (!current) {
+        window.location.assign(url);
+        return;
+      }
+      if (activeRequest) activeRequest.abort();
+      activeRequest = window.AbortController ? new AbortController() : null;
+      current.setAttribute("aria-busy", "true");
+      fetch(url, {
+        credentials: "same-origin",
+        headers: { "Accept": "text/html", "X-Requested-With": "fetch" },
+        signal: activeRequest ? activeRequest.signal : undefined,
+      }).then(function (response) {
+        if (!response.ok) throw new Error("tag navigation failed");
+        return response.text();
+      }).then(function (html) {
+        var parsed = new DOMParser().parseFromString(html, "text/html");
+        var incoming = parsed.querySelector("[data-library-results]");
+        if (!incoming || !current.isConnected) throw new Error("tag results missing");
+        reportReadingWithin(current);
+        var liveClose = current.querySelector("article.live-view-active [data-live-view-close]");
+        if (liveClose) toggleLiveView(liveClose, true);
+        var replacement = document.importNode(incoming, true);
+        var currentMobileContext = current.querySelector(".mobile-library-context");
+        var incomingMobileContext = replacement.querySelector(".mobile-library-context");
+        if (currentMobileContext && incomingMobileContext) incomingMobileContext.replaceWith(currentMobileContext);
+        current.replaceWith(replacement);
+        document.title = parsed.title;
+        document.body.className = parsed.body.className;
+        updateSidebar(url);
+        initializeSummaryActions(replacement);
+        initializeFeedDragAndDrop();
+        initializeFeedMoveDialog();
+        if (push) window.history.pushState({ libraryTag: true }, "", url);
+        var heading = replacement.querySelector("h1");
+        if (heading) {
+          heading.setAttribute("tabindex", "-1");
+          heading.focus({ preventScroll: true });
+        }
+        announce("Tag articles loaded.", false);
+      }).catch(function (error) {
+        if (error && error.name === "AbortError") return;
+        window.location.assign(url);
+      }).finally(function () {
+        if (current.isConnected) current.removeAttribute("aria-busy");
+      });
+    }
+    document.addEventListener("click", function (event) {
+      var link = event.target.closest ? event.target.closest("[data-library-tag-nav]") : null;
+      if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      if (!document.querySelector("[data-library-results]")) return;
+      event.preventDefault();
+      load(link.href, true);
+    });
+    window.addEventListener("popstate", function () {
+      if (window.location.pathname === "/articles") load(window.location.href, false);
+    });
+  }
+
   // Implicit reading signal: on an article page, report time spent when the
   // reader leaves, so personalization can learn from completion/bounce.
   initializeReadingTracking(document);
   initializePendingContent(document);
   initializeSummaryActions(document);
+  initializeDefaultLiveViews(document);
+  initializeLibraryTagNavigation();
   initializeFeedOrganizer();
   initializeBulkFeedActions();
   initializeFeedDragAndDrop();
@@ -1609,6 +1840,16 @@
   initializePanelResize();
   initializeOpmlPreview();
 
+  function defaultArticleUrls(link) {
+    var article = new URL(link.href, window.location.href);
+    article.search = "";
+    article.hash = "";
+    return {
+      article: article.href,
+      panel: article.href.replace(/\/$/, "") + "/panel",
+    };
+  }
+
   // Inline reading: expand article content in the list instead of navigating.
   document.addEventListener("click", function (event) {
     var link = event.target.closest ? event.target.closest("a.article-link") : null;
@@ -1621,10 +1862,11 @@
     if (mode === "side-panel" && !sidePanelAvailable(workspace)) return;
 
     event.preventDefault();
+    var urls = defaultArticleUrls(link);
     var panel;
     if (mode === "inline") {
       panel = link.closest(".article-card").querySelector(".article-inline");
-      if (!panel.hidden && panel.getAttribute("data-panel-url") === link.href + "/panel") {
+      if (!panel.hidden && panel.getAttribute("data-panel-url") === urls.panel) {
         reportReadingWithin(panel);
         panel.hidden = true;
         link.setAttribute("aria-expanded", "false");
@@ -1644,13 +1886,13 @@
       panel = panelSelector ? document.querySelector(panelSelector) : null;
     }
     if (!panel) {
-      window.location.assign(link.href);
+      window.location.assign(urls.article);
       return;
     }
-    panel.setAttribute("data-panel-url", link.href + "/panel");
-    loadPanel(panel, link.href + "/panel", link)
-      .then(function (opened) { if (opened) announce("Article opened.", false); })
-      .catch(function () { window.location.assign(link.href); });
+    panel.setAttribute("data-panel-url", urls.panel);
+    loadPanel(panel, urls.panel, link)
+      .then(function (opened) { if (opened) announce("Article opened with its feed default.", false); })
+      .catch(function () { window.location.assign(urls.article); });
   });
 
   document.addEventListener("click", function (event) {
@@ -2190,11 +2432,24 @@
   if (document.body) document.body.insertBefore(banner, document.body.firstChild);
 })();
 
-// First-run wizard live preview (P8 §8.4): swap data-attributes on the page /
-// preview pane as the user changes options. CSP-safe (no inline styles/JS).
+// Theme and first-run wizard live preview (P8 §8.4): swap data-attributes on
+// the page / preview pane as options change. CSP-safe (no inline styles/JS).
 (function () {
+  var themeControls = document.querySelectorAll("input[data-theme-preview-control]");
+  themeControls.forEach(function (input) {
+    input.addEventListener("change", function () {
+      if (!input.checked) return;
+      var name = input.getAttribute("data-theme-name") || input.value;
+      document.documentElement.setAttribute("data-theme", input.value);
+      document.querySelectorAll("[data-theme-preview-name]").forEach(function (target) {
+        target.textContent = name;
+      });
+      var status = document.getElementById("action-status");
+      if (status) status.textContent = name + " theme previewed. Save to keep this choice.";
+    });
+  });
+
   var controls = document.querySelectorAll("input[data-wizard-attr]");
-  if (!controls.length) return;
   var preview = document.getElementById("wizard-preview");
   controls.forEach(function (input) {
     input.addEventListener("change", function () {
@@ -2223,6 +2478,7 @@
   var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-wizard-feed]"));
   var empty = grid.querySelector("[data-wizard-suggestions-empty]");
   var status = grid.querySelector("[data-wizard-suggestions-status]");
+  var selectionCount = grid.querySelector("[data-wizard-selection-count]");
   function apply() {
     var names = [];
     var selected = Object.create(null);
@@ -2240,6 +2496,13 @@
       if (show) visible += 1;
     });
     if (empty) empty.hidden = visible !== 0;
+    if (selectionCount) {
+      var selectedCount = cards.filter(function (card) {
+        var checkbox = card.querySelector("input[name='feed_id']");
+        return checkbox && checkbox.checked;
+      }).length;
+      selectionCount.textContent = selectedCount + " selected.";
+    }
     if (status) {
       status.textContent = any
         ? "Showing " + visible + " of " + cards.length + " curated feeds for " + names.join(", ") + "."
@@ -2248,6 +2511,10 @@
   }
   interests.forEach(function (input) {
     input.addEventListener("change", apply);
+  });
+  cards.forEach(function (card) {
+    var checkbox = card.querySelector("input[name='feed_id']");
+    if (checkbox) checkbox.addEventListener("change", apply);
   });
   apply();
 })();

@@ -21,16 +21,20 @@
 
   <fieldset class="panel">
     <legend>2. Theme &amp; colors</legend>
-    <p class="muted">Each swatch previews the theme; it also updates live above.</p>
-    <div class="wizard-swatches">
-      <label><input type="radio" name="theme" value="system" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "system" %} checked{% endif %}> <span class="theme-swatch theme-swatch--system" aria-hidden="true"></span> System</label>
-      <label><input type="radio" name="theme" value="light" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "light" %} checked{% endif %}> <span class="theme-swatch theme-swatch--light" aria-hidden="true"></span> Light</label>
-      <label><input type="radio" name="theme" value="dark" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "dark" %} checked{% endif %}> <span class="theme-swatch theme-swatch--dark" aria-hidden="true"></span> Dark</label>
-      <label><input type="radio" name="theme" value="rusty" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "rusty" %} checked{% endif %}> <span class="theme-swatch theme-swatch--rusty" aria-hidden="true"></span> Rusty</label>
-      <label><input type="radio" name="theme" value="ocean" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "ocean" %} checked{% endif %}> <span class="theme-swatch theme-swatch--ocean" aria-hidden="true"></span> Ocean</label>
-      <label><input type="radio" name="theme" value="forest" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "forest" %} checked{% endif %}> <span class="theme-swatch theme-swatch--forest" aria-hidden="true"></span> Forest</label>
-      <label><input type="radio" name="theme" value="plum" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "plum" %} checked{% endif %}> <span class="theme-swatch theme-swatch--plum" aria-hidden="true"></span> Plum</label>
-      <label><input type="radio" name="theme" value="sunset" data-wizard-attr="theme" data-wizard-target="root"{% if ui.theme == "sunset" %} checked{% endif %}> <span class="theme-swatch theme-swatch--sunset" aria-hidden="true"></span> Sunset</label>
+    <p class="muted">Choose a theme to preview it instantly across the page and in the sample below.</p>
+    <div class="theme-picker" role="radiogroup" aria-label="Color theme">
+      <label class="theme-option"><input type="radio" name="theme" value="system" data-theme-preview-control data-theme-name="System"{% if ui.theme == "system" %} checked{% endif %}> <span class="theme-swatch theme-swatch--system" aria-hidden="true"></span><span><strong>System</strong><small>Follow this device</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="light" data-theme-preview-control data-theme-name="Light"{% if ui.theme == "light" %} checked{% endif %}> <span class="theme-swatch theme-swatch--light" aria-hidden="true"></span><span><strong>Light</strong><small>Clean and bright</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="dark" data-theme-preview-control data-theme-name="Dark"{% if ui.theme == "dark" %} checked{% endif %}> <span class="theme-swatch theme-swatch--dark" aria-hidden="true"></span><span><strong>Dark</strong><small>Low-light reading</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="rusty" data-theme-preview-control data-theme-name="Rusty"{% if ui.theme == "rusty" %} checked{% endif %}> <span class="theme-swatch theme-swatch--rusty" aria-hidden="true"></span><span><strong>Rusty</strong><small>Warm clay tones</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="ocean" data-theme-preview-control data-theme-name="Ocean"{% if ui.theme == "ocean" %} checked{% endif %}> <span class="theme-swatch theme-swatch--ocean" aria-hidden="true"></span><span><strong>Ocean</strong><small>Cool blue focus</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="forest" data-theme-preview-control data-theme-name="Forest"{% if ui.theme == "forest" %} checked{% endif %}> <span class="theme-swatch theme-swatch--forest" aria-hidden="true"></span><span><strong>Forest</strong><small>Natural green calm</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="plum" data-theme-preview-control data-theme-name="Plum"{% if ui.theme == "plum" %} checked{% endif %}> <span class="theme-swatch theme-swatch--plum" aria-hidden="true"></span><span><strong>Plum</strong><small>Soft violet contrast</small></span></label>
+      <label class="theme-option"><input type="radio" name="theme" value="sunset" data-theme-preview-control data-theme-name="Sunset"{% if ui.theme == "sunset" %} checked{% endif %}> <span class="theme-swatch theme-swatch--sunset" aria-hidden="true"></span><span><strong>Sunset</strong><small>Warm orange energy</small></span></label>
+    </div>
+    <div class="theme-live-preview" data-theme-live-preview>
+      <div class="theme-live-toolbar"><span aria-hidden="true"><i></i><i></i><i></i></span><strong><span data-theme-preview-name>{% if ui.theme == "system" %}System{% else if ui.theme == "light" %}Light{% else if ui.theme == "dark" %}Dark{% else if ui.theme == "rusty" %}Rusty{% else if ui.theme == "ocean" %}Ocean{% else if ui.theme == "forest" %}Forest{% else if ui.theme == "plum" %}Plum{% else %}Sunset{% endif %}</span> preview</strong></div>
+      <div class="theme-live-layout"><span class="theme-live-sidebar" aria-hidden="true"></span><article><span class="eyebrow">Today</span><h3>A calmer way to follow the web</h3><p>Theme colors update here as soon as you make a choice.</p><span class="theme-live-action">Read article</span></article></div>
     </div>
   </fieldset>
 
@@ -72,7 +76,14 @@
     {% endif %}
     {% if !suggestions.is_empty() %}
     <p class="muted">Hand-picked, trusted sources. Select any that look good, or skip and add your own later. You can browse the full <a href="/catalog">feed catalog</a> anytime.</p>
-    <p class="muted wizard-suggestions-status" data-wizard-suggestions-status>Showing all {{ suggestions.len() }} curated feeds.</p>
+    <div class="wizard-content-modes" role="radiogroup" aria-label="Default article content for selected feeds">
+      <span>Open selected feeds with</span>
+      <label><input type="radio" name="content_mode" value="rss" checked> RSS</label>
+      <label><input type="radio" name="content_mode" value="article_page"> Page content</label>
+      <label><input type="radio" name="content_mode" value="live"> Live</label>
+      <small>Live fetches the current publisher page when you open an article and runs it in an isolated sandbox.</small>
+    </div>
+    <p class="muted wizard-suggestions-status"><strong data-wizard-selection-count>0 selected.</strong> <span data-wizard-suggestions-status>Showing all {{ suggestions.len() }} curated feeds.</span></p>
     <div class="wizard-suggestion-grid">
       {% for feed in suggestions %}
       <label class="wizard-suggestion{% if feed.featured %} featured{% endif %}" data-wizard-feed data-category="{{ feed.category }}">

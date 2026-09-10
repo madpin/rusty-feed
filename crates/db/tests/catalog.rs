@@ -1,5 +1,5 @@
 use rusty_feed_core::feed_content::{
-    ContentLifetime, FeedContentMode, SubscriptionContentSettings,
+    ContentLifetime, SubscriptionContentMode, SubscriptionContentSettings,
 };
 use rusty_feed_db::models::NewArticle;
 use rusty_feed_db::{articles, catalog, categories, feeds, subscriptions, users, Db};
@@ -173,7 +173,7 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
         &[catalog::CatalogSubscriptionChoice {
             feed_id: feed.id,
             content: SubscriptionContentSettings {
-                mode: FeedContentMode::ArticlePage,
+                mode: SubscriptionContentMode::ArticlePage,
                 lifetime: ContentLifetime::Days(30),
             },
         }],
@@ -190,7 +190,7 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
             .unwrap()
             .unwrap()
             .mode,
-        FeedContentMode::ArticlePage
+        SubscriptionContentMode::ArticlePage
     );
     let repeated = catalog::subscribe_published_many(pool, user.id, &[feed.id])
         .await
@@ -202,7 +202,7 @@ async fn catalog_filters_subscribes_and_reports_rss_stats() {
             .unwrap()
             .unwrap()
             .mode,
-        FeedContentMode::ArticlePage
+        SubscriptionContentMode::ArticlePage
     );
 
     let (draft_feed, _) = feeds::upsert_by_url(

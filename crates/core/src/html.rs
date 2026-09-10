@@ -3,6 +3,7 @@ use std::{cell::Cell, collections::HashSet};
 use ammonia::{Builder, Url, UrlRelative};
 use htmd::options::{BrStyle, BulletListMarker, Options as MarkdownOptions};
 use htmd::HtmlToMarkdown;
+use lol_html::html_content::ContentType;
 use lol_html::{element, rewrite_str, RewriteStrSettings};
 use pulldown_cmark::{html, Options, Parser};
 
@@ -11,7 +12,7 @@ use crate::tracking_url::TrackingUrlPolicy;
 
 /// Version of the shared public-page extraction and cleanup representation.
 /// Incrementing this makes older copies eligible for one shared refresh.
-pub const ARTICLE_PAGE_PROCESSING_VERSION: i32 = 2;
+pub const ARTICLE_PAGE_PROCESSING_VERSION: i32 = 3;
 
 /// Sanitized shared content plus privacy cleanup metadata.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -119,6 +120,21 @@ pub fn apply_external_link_navigation(html: &str, new_tab: bool) -> String {
 
 pub fn sanitize_article_html(html: &str, base_url: &str) -> String {
     sanitize_article_html_with_policy(html, base_url, &TrackingUrlPolicy::default())
+}
+
+pub fn sanitize_article_preview_html(html: &str, base_url: &str) -> String {
+    let sanitized = sanitize_article_html(html, base_url);
+    rewrite_str(
+        &sanitized,
+        RewriteStrSettings::new().append_element_content_handler(element!(
+            "img, picture, source, audio, video",
+            |element| {
+                element.remove();
+                Ok(())
+            }
+        )),
+    )
+    .unwrap_or_else(|_| fallback_text(&sanitized))
 }
 
 /// Sanitize article HTML and canonicalize every surviving HTTP(S) link.
@@ -250,6 +266,7 @@ fn prepare_media(
     let base = Url::parse(base_url).ok();
     let image_base = base.clone();
     let policy = policy.clone();
+    let youtube_policy = crate::youtube::YouTubePolicy::default();
     let blocked = Cell::new(0_u32);
     let output = rewrite_str(
         html,
@@ -312,7 +329,21 @@ fn prepare_media(
                     }
                     Ok(())
                 }
-            )),
+            ))
+            .append_element_content_handler(element!("iframe[src]", move |element| {
+                let Some(source) = element.get_attribute("src") else {
+                    return Ok(());
+                };
+                let Some(video) = youtube_policy.video_from_url(&source) else {
+                    return Ok(());
+                };
+                let url = html_escape::encode_double_quoted_attribute(&video.watch_url);
+                element.replace(
+                    &format!("<p><a href=\"{url}\">Watch video on YouTube</a></p>"),
+                    ContentType::Html,
+                );
+                Ok(())
+            })),
     )?;
     Ok((output, blocked.get()))
 }
@@ -564,6 +595,21 @@ mod tests {
     }
 
     #[test]
+    fn preview_html_keeps_structure_without_remote_media() {
+        let content = sanitize_article_preview_html(
+            r#"<h2>Guide</h2><p>Read <strong>carefully</strong> and <a href="/more">continue</a>.</p><picture><source srcset="/small.jpg"><img src="/large.jpg"></picture><audio src="/clip.mp3"></audio><script>bad()</script>"#,
+            "https://example.com/articles/one",
+        );
+        assert!(content.contains("<h2>Guide</h2>"));
+        assert!(content.contains("<strong>carefully</strong>"));
+        assert!(content.contains("href=\"https://example.com/more\""));
+        assert!(!content.contains("small.jpg"));
+        assert!(!content.contains("large.jpg"));
+        assert!(!content.contains("clip.mp3"));
+        assert!(!content.contains("bad()"));
+    }
+
+    #[test]
     fn caps_oversized_bodies_with_a_notice() {
         let huge = format!("<p>{}</p>", "word ".repeat(ARTICLE_MAX_STORED_CHARS));
         let out = sanitize_article_html(&huge, "https://example.com");
@@ -716,6 +762,17 @@ mod tests {
         );
         assert!(markdown.contains("first  \n\n```not-a-closing-fence\n\nlast"));
         assert!(markdown.ends_with("```\n\nAfter"));
+    }
+
+    #[test]
+    fn preserves_valid_youtube_iframe_identity_as_a_safe_link() {
+        let content = sanitize_article_html(
+            r#"<figure class="wp-block-embed is-provider-youtube"><iframe title="You Can See Everything | Official Teaser HD | A24" src="https://www.youtube.com/embed/GGJSRFWALTI?feature=oembed" allowfullscreen></iframe></figure>"#,
+            "https://techcrunch.com/2026/09/07/example/",
+        );
+        assert!(!content.contains("<iframe"));
+        assert!(content.contains("https://www.youtube.com/watch?v=GGJSRFWALTI"));
+        assert!(content.contains("Watch video on YouTube"));
     }
 
     #[test]

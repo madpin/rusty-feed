@@ -6,7 +6,7 @@
 {% include "library_context.html" %}
 {% endblock %}
 {% block content %}
-<div{% if side_panel %} class="reading-workspace"{% endif %}>
+<div data-library-results{% if side_panel %} class="reading-workspace"{% endif %}>
   <section class="article-column">
     <div class="content-header">
       <div>
@@ -159,6 +159,7 @@
       <legend>What do you want to read?</legend>
       <label class="radio-row"><input type="radio" name="content_mode" value="rss" /><span><strong>RSS content</strong><small>Always retained and immediately available.</small></span></label>
       <label class="radio-row"><input type="radio" name="content_mode" value="article_page" /><span><strong>Public article page</strong><small>Use the shared public-page copy with RSS fallback.</small></span></label>
+      <label class="radio-row"><input type="radio" name="content_mode" value="live" /><span><strong>Live publisher view</strong><small>Fetch the current publisher page when opened and use the isolated sandbox, with RSS fallback.</small></span></label>
     </fieldset>
     <label>Public-page lifetime
       <select name="content_lifetime">

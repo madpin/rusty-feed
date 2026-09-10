@@ -58,6 +58,55 @@ impl FeedContentMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionContentMode {
+    #[default]
+    Rss,
+    ArticlePage,
+    Live,
+}
+
+impl SubscriptionContentMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "rss" => Some(Self::Rss),
+            "article_page" => Some(Self::ArticlePage),
+            "live" => Some(Self::Live),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rss => "rss",
+            Self::ArticlePage => "article_page",
+            Self::Live => "live",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rss => "RSS content",
+            Self::ArticlePage => "Public article pages",
+            Self::Live => "Live publisher view",
+        }
+    }
+
+    pub fn fetches_article_pages(self) -> bool {
+        matches!(self, Self::ArticlePage)
+    }
+}
+
+impl From<FeedContentMode> for SubscriptionContentMode {
+    fn from(value: FeedContentMode) -> Self {
+        match value {
+            FeedContentMode::Rss => Self::Rss,
+            FeedContentMode::ArticlePage => Self::ArticlePage,
+        }
+    }
+}
+
 /// Return the built-in content recommendation for a catalog feed URL.
 pub fn recommended_catalog_content_mode(feed_url: &str) -> FeedContentMode {
     if CATALOG_ARTICLE_PAGE_RECOMMENDATIONS.contains(&feed_url) {
@@ -180,7 +229,7 @@ impl ContentLifetime {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubscriptionContentSettings {
     /// Which stored body this subscriber wants to read.
-    pub mode: FeedContentMode,
+    pub mode: SubscriptionContentMode,
     /// Requested lifetime for the shared public-page copy.
     pub lifetime: ContentLifetime,
 }
@@ -285,7 +334,7 @@ impl SubscriptionEnclosureSettings {
 impl Default for SubscriptionContentSettings {
     fn default() -> Self {
         Self {
-            mode: FeedContentMode::Rss,
+            mode: SubscriptionContentMode::Rss,
             lifetime: ContentLifetime::default(),
         }
     }
@@ -301,7 +350,7 @@ impl SubscriptionContentSettings {
         let mode = value
             .get("content_mode")
             .and_then(Value::as_str)
-            .and_then(FeedContentMode::parse)
+            .and_then(SubscriptionContentMode::parse)
             .unwrap_or_default();
         let lifetime = match value.get("content_lifetime_days") {
             Some(Value::Null) => ContentLifetime::Infinite,
@@ -390,9 +439,24 @@ mod tests {
             "content_mode": "article_page",
             "content_lifetime_days": null,
         })));
-        assert_eq!(settings.mode, FeedContentMode::ArticlePage);
+        assert_eq!(settings.mode, SubscriptionContentMode::ArticlePage);
         assert_eq!(settings.lifetime, ContentLifetime::Infinite);
         assert_eq!(settings.to_json()["content_lifetime_days"], Value::Null);
+    }
+
+    #[test]
+    fn live_is_a_personal_view_without_shared_page_demand() {
+        let settings = SubscriptionContentSettings::from_json(Some(&json!({
+            "content_mode": "live",
+            "content_lifetime_days": 30,
+        })));
+        assert_eq!(settings.mode, SubscriptionContentMode::Live);
+        assert!(!settings.mode.fetches_article_pages());
+        assert_eq!(settings.to_json()["content_mode"], "live");
+        assert_eq!(
+            FeedContentSettings::from_json(Some(&json!({ "mode": "live" }))).mode,
+            FeedContentMode::Rss
+        );
     }
 
     #[test]

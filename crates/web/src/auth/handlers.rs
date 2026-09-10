@@ -355,8 +355,8 @@ pub async fn register_submit(
     }
     let secure = state.settings.cookie_secure;
 
-    let user_count = users::count(state.db.pool()).await?;
-    let bootstrap = user_count == 0; // first user always allowed + becomes admin
+    let user_count = users::count_non_demo(state.db.pool()).await?;
+    let bootstrap = user_count == 0; // first persistent user is always allowed + becomes admin
     let invite_token = form.invite_token.trim();
     let invitation_allowed = matches!(state.settings.registration_mode, RegistrationMode::Invite)
         && !invite_token.is_empty()
@@ -515,7 +515,7 @@ async fn registration_open(state: &AppState, invite_token: &str) -> Result<bool,
     if matches!(state.settings.registration_mode, RegistrationMode::Open) {
         return Ok(true);
     }
-    if users::count(state.db.pool()).await? == 0 {
+    if users::count_non_demo(state.db.pool()).await? == 0 {
         return Ok(true);
     }
     if matches!(state.settings.registration_mode, RegistrationMode::Invite)

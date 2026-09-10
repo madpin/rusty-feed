@@ -8,10 +8,38 @@
     <h1>Preview {{ preview.title }}</h1>
     {% if let Some(description) = preview.description %}<p class="muted">{{ description }}</p>{% endif %}
   </div>
-  <a href="/catalog" class="btn">Back to Discover</a>
+  <a href="/catalog" class="btn" data-catalog-back data-catalog-storage-key="{{ selection_key }}">Back to Discover</a>
 </div>
 
 {% if let Some(message) = preview.analysis_message %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+
+<section class="panel preview-subscribe">
+  {% if preview.subscribed %}
+  <div>
+    <p class="eyebrow">Already subscribed</p>
+    <h2>This source is in your library</h2>
+    <p class="muted">Your existing content and folder settings are unchanged.</p>
+  </div>
+  <a href="/feeds" class="btn">Manage subscription</a>
+  {% else %}
+  <div>
+    <p class="eyebrow">Like what you see?</p>
+    <h2>Add this source</h2>
+    <p class="muted">Choose the reading body now. You can change it later without creating another shared feed.</p>
+  </div>
+  <form method="post" action="/catalog/subscribe" class="preview-subscribe-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="feed_id" value="{{ preview.feed_id }}" />
+    <fieldset class="catalog-content-choice">
+      <legend>Reading content</legend>
+      <label><input type="radio" name="content_mode.{{ preview.feed_id }}" value="rss"{% if !preview.article_page_recommended %} checked{% endif %} /> <span><strong>RSS</strong><small>Stored feed body</small></span></label>
+      <label><input type="radio" name="content_mode.{{ preview.feed_id }}" value="article_page"{% if preview.article_page_recommended %} checked{% endif %} /> <span><strong>Public article page</strong><small>Shared readable copy with RSS fallback</small></span>{% if preview.article_page_recommended %} <span class="badge">Recommended</span>{% endif %}</label>
+      <label><input type="radio" name="content_mode.{{ preview.feed_id }}" value="live" /> <span><strong>Live publisher view</strong><small>Fetch the current page when opened; isolated with RSS fallback</small></span></label>
+    </fieldset>
+    <button type="submit" class="primary">Add to my library</button>
+  </form>
+  {% endif %}
+</section>
 
 <section class="panel preview-analysis">
   <div class="section-heading">
@@ -20,7 +48,7 @@
       <p class="muted">Rusty Feed checks at most three current public article pages in the background. It always respects robots.txt, follows no redirects, and never uses publisher credentials. This check never changes the source’s shared content policy.</p>
     </div>
     {% if preview.needs_analysis %}
-    <form method="post" action="/catalog/{{ preview.feed_id }}/preview/analyze?view={% if preview.show_processed %}processed{% else %}rss{% endif %}">
+    <form method="post" action="/catalog/{{ preview.feed_id }}/preview/analyze?view={% if preview.show_processed %}processed{% else %}rss{% endif %}&amp;articles={{ preview.article_limit }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <button type="submit" class="primary">Analyze up to 3 articles</button>
     </form>
@@ -66,19 +94,23 @@
 </div>
 {% else %}
 <div class="preview-articles">
+  <div class="section-heading"><div><p class="eyebrow">Latest from this source</p><h2>Showing {{ preview.articles.len() }} recent article{% if preview.articles.len() != 1 %}s{% endif %}</h2></div></div>
   {% for article in preview.articles %}
-  <details class="preview-article" open>
+  <details class="preview-article"{% if loop.first %} open{% endif %}>
     <summary><span>{{ article.title }}</span>{% if let Some(published) = article.published %}<span class="muted">{{ published }}</span>{% endif %}</summary>
     <div class="preview-article-content">
       {% if let Some(url) = article.url %}<p class="reader-meta"><a href="{{ url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open original article</a></p>{% endif %}
       {% if let Some(content) = article.rss_content %}
-      <div class="preview-body">{{ content }}</div>
+      <div class="preview-body article-body">{{ content|safe }}</div>
       {% else %}
       <p class="muted">This item has no stored RSS body to preview.</p>
       {% endif %}
     </div>
   </details>
   {% endfor %}
+  {% if preview.has_more_articles %}
+  <div class="preview-more"><a href="{{ preview.more_articles_url }}" class="btn">Load more articles</a></div>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

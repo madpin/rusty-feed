@@ -3,7 +3,8 @@
 use std::collections::BTreeSet;
 
 use rusty_feed_core::feed_content::{
-    ContentLifetime, FeedContentMode, SubscriptionContentSettings, SubscriptionEnclosureSettings,
+    ContentLifetime, SubscriptionContentMode, SubscriptionContentSettings,
+    SubscriptionEnclosureSettings,
 };
 use rusty_feed_core::youtube::SubscriptionYouTubeMode;
 use serde_json::Value as Json;
@@ -420,7 +421,7 @@ pub async fn requested_article_page_lifetime(
     Ok(settings
         .iter()
         .map(|value| SubscriptionContentSettings::from_json(value.as_ref()))
-        .filter(|settings| settings.mode == FeedContentMode::ArticlePage)
+        .filter(|settings| settings.mode == SubscriptionContentMode::ArticlePage)
         .map(|settings| settings.lifetime)
         .reduce(ContentLifetime::merge))
 }

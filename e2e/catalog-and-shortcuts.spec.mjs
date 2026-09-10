@@ -22,32 +22,37 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await expect(page.getByRole("heading", { name: "Folha de S.Paulo (Em Cima da Hora)" })).toBeVisible();
   await expect(page.getByText("Go Blog")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Al Jazeera English" })).toBeVisible();
-  await page.getByLabel("Category").selectOption("Culture & Arts");
-  await expect(page).toHaveURL(/category=Culture/);
-  await expect(page.getByRole("heading", { name: "Smithsonian Arts and Culture" })).toBeVisible();
-  await page.goto("/catalog");
-  await page.getByLabel("Country").selectOption("Brazil");
-  await expect(page).toHaveURL(/country=Brazil/);
-  await expect(page.getByRole("heading", { name: "Agência Brasil — Últimas" })).toBeVisible();
-  await page.goto("/catalog");
   const goBlogCard = page.locator(".catalog-card").filter({
     has: page.getByRole("heading", { name: "Go Blog" }),
   });
-  await goBlogCard.getByRole("link", { name: "Preview", exact: true }).click();
+  await goBlogCard.locator("input[name='feed_id']").check();
+  await page.getByLabel("Category").selectOption("Culture & Arts");
+  await expect(page).toHaveURL(/category=Culture/);
+  await expect(page.getByRole("heading", { name: "Smithsonian Arts and Culture" })).toBeVisible();
+  await expect(page.locator("[data-catalog-selection-count]")).toContainText("1 selected");
+
+  const smithsonianCard = page.locator(".catalog-card").filter({
+    has: page.getByRole("heading", { name: "Smithsonian Arts and Culture" }),
+  });
+  await smithsonianCard.getByRole("link", { name: "Preview", exact: true }).click();
   await expect(page).toHaveURL(/\/catalog\/[^/]+\/preview/);
-  await expect(page.getByRole("heading", { name: "Preview Go Blog" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Preview Smithsonian Arts and Culture" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add to my library" })).toBeVisible();
   await expect(page.getByRole("link", { name: "RSS preview" })).toHaveAttribute("aria-current", "page");
   await page.getByRole("link", { name: "Processed availability" }).click();
   await expect(page).toHaveURL(/view=processed/);
   await expect(page.getByText("Processed preview is an availability report")).toBeVisible();
   await expect(page.getByRole("link", { name: "Processed availability" })).toHaveAttribute("aria-current", "page");
-  await page.goto("/catalog");
+  await page.getByRole("link", { name: "Back to Discover" }).click();
+  await expect(page.getByLabel("Category")).toHaveValue("Culture & Arts");
+  await expect(page.locator("[data-catalog-selection-count]")).toContainText("1 selected");
 
-  const choices = page.locator("input[name='feed_id']:not(:disabled)");
-  await choices.nth(0).check();
-  await choices.nth(1).check();
-  await page.getByRole("button", { name: "Subscribe to selected" }).click();
+  await smithsonianCard.locator(".catalog-card-heading").dblclick();
   await expect(page.getByRole("status").filter({ hasText: "Subscribed to 2 source" })).toBeVisible();
+
+  await page.getByLabel("Country").selectOption("Brazil");
+  await expect(page).toHaveURL(/country=Brazil/);
+  await expect(page.getByRole("heading", { name: "Agência Brasil — Últimas" })).toBeVisible();
 
   await page.goto("/feeds");
   await expect(page.getByText(/Last updated:/).first()).toBeVisible();
@@ -95,6 +100,7 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await contentButton.click();
   const contentDialog = page.locator("[data-content-settings-dialog]");
   await expect(contentDialog).toBeVisible();
+  await expect(contentDialog.getByLabel("Live publisher view")).toBeVisible();
   await contentDialog.getByLabel("Public article page").check();
   await contentDialog.getByLabel("Public-page lifetime").selectOption("30");
   await contentDialog.getByRole("button", { name: "Save content settings" }).click();
@@ -111,14 +117,32 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await sidebar.getByRole("link", { name: "Unfiled feeds" }).click();
   await expect(page.getByRole("heading", { name: "Unfiled" })).toBeVisible();
   await sidebar.getByRole("link", { name: "Browser folder", exact: true }).click();
+  await sidebar.evaluate((element) => { element.dataset.navigationIdentity = "preserved"; });
   await sidebar.getByRole("link", { name: "browser", exact: true }).click();
   await expect(page).toHaveURL(/tag=browser/);
-  await expect(page.getByRole("heading", { name: "Browser folder · #browser" })).toBeVisible();
+  await expect(page).not.toHaveURL(/category=/);
+  await expect(page).not.toHaveURL(/unread=1/);
+  await expect(page.getByRole("heading", { name: "Tag: #browser" })).toBeVisible();
+  await expect(sidebar).toHaveAttribute("data-navigation-identity", "preserved");
+  await expect(sidebar.getByRole("link", { name: "browser", exact: true })).toHaveAttribute("aria-current", "page");
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Folder: Browser folder" })).toBeVisible();
+  await expect(sidebar).toHaveAttribute("data-navigation-identity", "preserved");
+  await page.goForward();
+  await expect(page.getByRole("heading", { name: "Tag: #browser" })).toBeVisible();
 
   const adminResponse = await page.goto("/admin");
   expect(adminResponse?.status()).toBe(403);
 
   await page.goto("/settings/preferences");
+  const savedTheme = await page.locator("html").getAttribute("data-theme");
+  await page.getByRole("radio", { name: /Sunset/ }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "sunset");
+  await expect(page.locator("[data-theme-preview-name]")).toHaveText("Sunset");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", savedTheme);
+  await page.getByRole("radio", { name: /Ocean/ }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "ocean");
   await expect(page.getByRole("group", { name: "Content privacy" })).toContainText("balanced");
   await expect(page.getByLabel("Show how many tracking images Rusty Feed removed from each article")).toBeChecked();
   const mediaDelivery = page.getByLabel("Media delivery");
@@ -175,6 +199,8 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await page.keyboard.press("ArrowUp");
   await page.getByRole("button", { name: "Save preferences" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Preferences saved" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "ocean");
+  await expect(page.getByRole("radio", { name: /Ocean/ })).toBeChecked();
   await expect(mediaDelivery).toHaveValue("mixed-content");
   await expect(searchMode).toHaveValue("keyword");
   await expect(searchText).toHaveValue("english");
@@ -294,6 +320,128 @@ test("live view defers and clears the publisher frame", async ({ page }) => {
   await expect(reader).toBeVisible();
   await expect(live).toBeHidden();
   await expect(frame).not.toHaveAttribute("src");
+});
+
+test("a saved Live content mode starts the isolated publisher view", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto("/login");
+  const cssUrl = new URL("/static/app.css", page.url()).href;
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  await page.route("**/test-live-ticket", async (route) => {
+    await route.fulfill({ status: 200, contentType: "text/plain", body: "https://example.invalid/live-default" });
+  });
+  await page.setContent(`
+    <article class="reader" data-reader-surface data-content-mode-current="live">
+      <div data-reader-view-content>
+        <button type="button" data-content-live-control aria-expanded="true">Live</button>
+        <div data-stored-content>Stored RSS fallback</div>
+        <section class="live-view" data-live-view hidden>
+          <button type="button" data-live-view-close>Stored content</button>
+          <span data-live-view-status></span>
+          <iframe class="live-view-frame" data-live-view-frame data-live-ticket-url="/test-live-ticket"></iframe>
+        </section>
+      </div>
+    </article>
+    <div id="action-status" role="status"></div>
+  `);
+  await page.addStyleTag({ url: cssUrl });
+  await page.addScriptTag({ url: scriptUrl });
+
+  await expect(page.locator("[data-reader-view-content]")).toBeVisible();
+  await expect(page.locator("[data-content-live-control]")).toBeVisible();
+  await expect(page.locator("[data-stored-content]")).toBeHidden();
+  await expect(page.locator("[data-live-view]")).toBeVisible();
+  await expect(page.locator("[data-live-view-frame]")).toHaveAttribute("src", "https://example.invalid/live-default");
+  const liveSize = await page.locator("[data-live-view]").evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    viewport: window.innerHeight,
+  }));
+  expect(liveSize.height).toBeGreaterThan(liveSize.viewport * 0.85);
+  expect(liveSize.height).toBeLessThanOrEqual(liveSize.viewport);
+  await page.getByRole("button", { name: "Stored content" }).click();
+  await expect(page.locator("[data-reader-view-content]")).toBeVisible();
+  await expect(page.locator("[data-stored-content]")).toBeVisible();
+  await expect(page.locator("[data-live-view-frame]")).not.toHaveAttribute("src");
+});
+
+test("article visualization stays temporary until made the feed default", async ({ page }) => {
+  await page.goto("/login");
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  let defaultWrites = 0;
+  await page.route("**/articles/one/content-mode", async (route) => {
+    defaultWrites += 1;
+    await route.fulfill({ status: 204 });
+  });
+  await page.route("**/articles/one/panel?content=article_page", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: `<article data-reader-surface data-content-mode-current="article_page"><div data-reader-view-content><h2>Temporary page view</h2><nav><a href="/articles/one?content=rss" data-content-view-link data-content-panel-url="/articles/one/panel?content=rss">RSS</a><a class="active" href="/articles/one?content=article_page" data-content-view-link data-content-panel-url="/articles/one/panel?content=article_page">Page content</a><form action="/articles/one/content-mode" method="post" data-content-default-form data-content-panel-url="/articles/one/panel"><input name="content_mode" value="article_page"><input name="next" value="/articles/one"><button type="submit">Make default for this feed</button></form></nav><div data-stored-content>Temporary page body</div></div></article>`,
+    });
+  });
+  await page.route("**/articles/one/panel", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: `<article data-reader-surface data-content-mode-current="article_page"><div data-reader-view-content><h2>Saved page default</h2><nav><a href="/articles/one?content=rss" data-content-view-link data-content-panel-url="/articles/one/panel?content=rss">RSS</a><a class="active" href="/articles/one?content=article_page" data-content-view-link data-content-panel-url="/articles/one/panel?content=article_page">Page content</a></nav><div data-stored-content>Saved page body</div></div></article>`,
+    });
+  });
+  await page.setContent(`
+    <aside class="reading-pane">
+      <article data-reader-surface data-content-mode-current="rss">
+        <div data-reader-view-content>
+          <h2>RSS default</h2>
+          <a href="/articles/one?content=article_page" data-content-view-link data-content-panel-url="/articles/one/panel?content=article_page">Page content</a>
+          <div data-stored-content>RSS body</div>
+        </div>
+      </article>
+    </aside>
+    <div id="action-status" role="status"></div>
+  `);
+  await page.addScriptTag({ url: scriptUrl });
+
+  await page.getByRole("link", { name: "Page content" }).click();
+  await expect(page.getByRole("heading", { name: "Temporary page view" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Make default for this feed" })).toBeVisible();
+  expect(defaultWrites).toBe(0);
+
+  await page.getByRole("button", { name: "Make default for this feed" }).click();
+  await expect(page.getByRole("heading", { name: "Saved page default" })).toBeVisible();
+  expect(defaultWrites).toBe(1);
+  await expect(page.getByRole("button", { name: "Make default for this feed" })).toHaveCount(0);
+});
+
+test("the next article returns to its feed default visualization", async ({ page }) => {
+  await page.goto("/login");
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  let requestedPanelUrl = "";
+  await page.route("**/articles/two/panel**", async (route) => {
+    requestedPanelUrl = route.request().url();
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: `<article data-panel-article="two" data-reader-surface data-content-mode-current="rss"><div data-reader-view-content><h2>Second article · RSS default</h2><div data-stored-content>Default RSS body</div></div></article>`,
+    });
+  });
+  await page.setContent(`
+    <div class="reading-workspace">
+      <ul class="article-list" data-reading-mode="side-panel" data-reading-panel="#default-reset-pane">
+        <li class="article-card selected"><h3><a class="article-link" href="/articles/one">First article</a></h3></li>
+        <li class="article-card"><h3><a class="article-link" href="/articles/two?content=live">Second article</a></h3></li>
+      </ul>
+      <aside class="reading-pane" id="default-reset-pane">
+        <article data-reader-surface data-content-mode-current="article_page"><div data-reader-view-content><h2>First article · temporary Page Content</h2></div></article>
+      </aside>
+    </div>
+    <div id="action-status" role="status"></div>
+  `);
+  await page.addScriptTag({ url: scriptUrl });
+
+  await page.getByRole("link", { name: "Second article" }).click();
+  await expect(page.getByRole("heading", { name: "Second article · RSS default" })).toBeVisible();
+  expect(new URL(requestedPanelUrl).search).toBe("");
+  expect(new URL(requestedPanelUrl).pathname).toBe("/articles/two/panel");
+  await expect(page.locator("[data-panel-article='two']")).toHaveAttribute("data-content-mode-current", "rss");
 });
 
 test("attachment players contact the media host only after consent", async ({ page }) => {
@@ -514,11 +662,15 @@ test("side-panel cards and catalog cards support direct selection", async ({ pag
       </ul>
       <aside class="reading-pane" id="reading-pane" style="display:block"></aside>
     </div>
-    <article class="catalog-card" data-catalog-selectable>
-      <p class="catalog-description">Double click this source to select it.</p>
-      <a href="/catalog/one/preview">Preview</a>
-      <label><input type="checkbox" name="feed_id" value="one" /> Subscribe</label>
-    </article>
+    <form class="catalog-selection" action="/catalog/subscribe" method="post" data-catalog-storage-key="synthetic-reader">
+      <article class="catalog-card" data-catalog-selectable>
+        <p class="catalog-description">Double click this source to subscribe to it.</p>
+        <a href="/catalog/one/preview">Preview</a>
+        <input type="radio" name="content_mode.one" value="rss" checked />
+        <label><input type="checkbox" name="feed_id" value="one" /> Subscribe</label>
+      </article>
+      <button type="submit">Subscribe to selected</button>
+    </form>
     <form id="bulk-feed-actions">
       <input type="checkbox" data-bulk-select-all />
       <span data-bulk-selection-count></span>
@@ -530,6 +682,11 @@ test("side-panel cards and catalog cards support direct selection", async ({ pag
   `);
   await page.evaluate(() => {
     window.__panelRequests = 0;
+    window.__catalogSubmits = 0;
+    document.querySelector(".catalog-selection").addEventListener("submit", (event) => {
+      event.preventDefault();
+      window.__catalogSubmits += 1;
+    });
     window.fetch = function () {
       window.__panelRequests += 1;
       return Promise.resolve({
@@ -554,6 +711,7 @@ test("side-panel cards and catalog cards support direct selection", async ({ pag
   const catalogCard = page.locator("[data-catalog-selectable]");
   await catalogCard.locator(".catalog-description").dblclick();
   await expect(catalogCard.locator("input[name='feed_id']")).toBeChecked();
+  await expect.poll(() => page.evaluate(() => window.__catalogSubmits)).toBe(1);
 
   const bulkAction = page.locator("[data-bulk-action]");
   await expect(bulkAction).toBeDisabled();
