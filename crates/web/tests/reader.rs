@@ -1451,8 +1451,11 @@ async fn sidebar_keeps_all_feeds_visible_and_exposes_unfiled_scope() {
     assert!(body.contains("Visible only in folder scope"));
     assert!(body.contains("Filed source"));
     assert!(body.contains("Unfiled source"));
-    assert!(body.contains("href=\"/articles?unfiled=1\""));
-    assert!(body.contains(&format!("href=\"/articles?feed={}\"", unfiled_feed.id)));
+    assert!(body.contains("href=\"/articles?unread=1&amp;unfiled=1\""));
+    assert!(body.contains(&format!(
+        "href=\"/articles?unread=1&amp;feed={}\"",
+        unfiled_feed.id
+    )));
     assert!(!body.contains("<details class=\"folder-tree-node"));
     assert!(body.contains("class=\"page-articles side-panel-mode\""));
     assert!(body.contains(&format!("data-folder-collapse=\"{}\"", folder.id)));
@@ -1895,7 +1898,7 @@ async fn summarize_enqueues_a_job() {
     let response = app
         .clone()
         .oneshot(
-            Request::get("/articles")
+            Request::get("/articles?unread=0")
                 .header("cookie", format!("rusty_feed_sid={sid}"))
                 .body(Body::empty())
                 .unwrap(),

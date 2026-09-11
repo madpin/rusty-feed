@@ -49,6 +49,7 @@ pub mod saved_searches;
 pub mod search;
 pub mod sessions;
 pub mod subscriptions;
+pub mod summary_policy;
 pub mod ui_customizations;
 pub mod url_backfill;
 pub mod user_preferences;

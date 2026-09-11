@@ -260,8 +260,15 @@ the profile. When a provider fails, Rusty Feed tries enabled profiles in this or
 3. the environment-configured provider.
 
 Administrators can configure OpenAI or trusted Ollama-compatible endpoints.
-Users cannot supply arbitrary endpoints. Every exhausted failure is sanitized
-and visible both beside the article and in the administrator queue/log view.
+On the same instance AI page, they can enable automatic summaries and choose the
+minimum normalized plain-text article size (2,000 characters by default). Feed
+ingestion applies changes to created or materially updated articles without
+restarting workers. Existing eligible articles
+are not queued merely by saving: **Backfill existing articles** is a separate,
+explicit bounded background action. Manual per-article summaries ignore the
+automatic threshold. Users cannot supply arbitrary endpoints. Every exhausted
+failure is sanitized and visible both beside the article and in the administrator
+queue/log view.
 
 ## 7. Privacy, media, and sharing
 

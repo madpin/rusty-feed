@@ -148,6 +148,8 @@ pub struct RefreshStats {
     pub skipped: u64,
     /// Shared article identifiers first inserted by this refresh.
     pub created_article_ids: Vec<uuid::Uuid>,
+    /// Shared article identifiers created or materially updated by this refresh.
+    pub changed_article_ids: Vec<uuid::Uuid>,
 }
 
 /// Refresh one shared feed: conditional fetch → parse → upsert articles → update
@@ -322,8 +324,12 @@ pub async fn refresh_feed_with_policies(
             Ok((stored, rusty_feed_db::UpsertAction::Created)) => {
                 stats.created += 1;
                 stats.created_article_ids.push(stored.id);
+                stats.changed_article_ids.push(stored.id);
             }
-            Ok((_, rusty_feed_db::UpsertAction::Updated)) => stats.updated += 1,
+            Ok((stored, rusty_feed_db::UpsertAction::Updated)) => {
+                stats.updated += 1;
+                stats.changed_article_ids.push(stored.id);
+            }
             Ok((_, rusty_feed_db::UpsertAction::Skipped)) => stats.skipped += 1,
             Err(e) => tracing::warn!(feed_id = %feed.id, error = %e, "article upsert failed"),
         }

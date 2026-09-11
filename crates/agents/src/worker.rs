@@ -22,7 +22,7 @@ use crate::{
     Agent, AgentContext, CatalogPreviewAgent, ContentCleanupAgent, DemoResetAgent,
     EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
     IntegrationDeliveryAgent, PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent,
-    SummarizeArticleAgent, YouTubeDurationAgent,
+    SummarizeArticleAgent, SummaryBackfillAgent, YouTubeDurationAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -36,7 +36,7 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 12] = [
+        let list: [Arc<dyn Agent>; 13] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
             Arc::new(IntegrationDeliveryAgent),
@@ -48,6 +48,7 @@ impl Registry {
             Arc::new(SavedSearchScanAgent),
             Arc::new(SavedSearchMatchAgent::default()),
             Arc::new(SummarizeArticleAgent::default()),
+            Arc::new(SummaryBackfillAgent),
             Arc::new(YouTubeDurationAgent),
         ];
         for agent in list {
@@ -100,6 +101,7 @@ pub struct WorkerConfig {
     /// (disabled) embedder.
     pub embeddings_enabled: bool,
     pub auto_summarize: bool,
+    pub auto_summarize_min_chars: u32,
     /// Proactively backfill public-page extraction on feed ingest. When false,
     /// pages are extracted lazily on first reader access via the interactive lane.
     pub eager_extraction: bool,
@@ -142,6 +144,7 @@ impl Default for WorkerConfig {
             embed_on_ingest: false,
             embeddings_enabled: true,
             auto_summarize: false,
+            auto_summarize_min_chars: rusty_feed_db::summary_policy::DEFAULT_MIN_CONTENT_CHARS,
             eager_extraction: true,
             tracking_url_policy: TrackingUrlPolicy::default(),
             tracking_pixel_policy: TrackingPixelPolicy::default(),
@@ -219,6 +222,7 @@ impl Worker {
         let ctx = AgentContext::new(db, fetch)
             .with_embed_on_ingest(config.embed_on_ingest)
             .with_auto_summarize(config.auto_summarize && summarization_available)
+            .with_auto_summarize_min_chars(config.auto_summarize_min_chars)
             .with_eager_extraction(config.eager_extraction)
             .with_tracking_url_policy(config.tracking_url_policy.clone())
             .with_tracking_pixel_policy(config.tracking_pixel_policy.clone());
@@ -493,6 +497,60 @@ pub(crate) async fn enqueue_summary(
             "article_id": article_id,
             "content_revision": content_revision,
             "user_id": null,
+        }),
+        Some(&dedup),
+        None,
+        3,
+    )
+    .await?
+    .is_some())
+}
+
+pub(crate) async fn enqueue_automatic_summary(
+    ctx: &AgentContext,
+    article_id: uuid::Uuid,
+    content_revision: i64,
+) -> anyhow::Result<bool> {
+    let policy = ctx.summary_policy().await?;
+    if !policy.enabled {
+        return Ok(false);
+    }
+    let Some(article) = rusty_feed_db::articles::find_by_id(ctx.db.pool(), article_id).await?
+    else {
+        return Ok(false);
+    };
+    if article.content_revision != content_revision
+        || !rusty_feed_db::articles::meets_summary_minimum(
+            &article.content,
+            policy.min_content_chars,
+        )
+    {
+        return Ok(false);
+    }
+    enqueue_summary(&ctx.db, article_id, content_revision).await
+}
+
+/// Queue a bounded automatic-summary scan for one feed or the whole instance.
+pub async fn enqueue_summary_backfill(
+    db: &Db,
+    feed_id: Option<uuid::Uuid>,
+    ready_only: bool,
+    after: Option<uuid::Uuid>,
+) -> anyhow::Result<bool> {
+    let scope = feed_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "all".to_string());
+    let cursor = after
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "start".to_string());
+    let dedup = format!("summary-backfill:{scope}:{ready_only}:{cursor}");
+    Ok(jobs::enqueue(
+        db.pool(),
+        "summary_backfill",
+        serde_json::json!({
+            "feed_id": feed_id,
+            "ready_only": ready_only,
+            "after": after,
         }),
         Some(&dedup),
         None,

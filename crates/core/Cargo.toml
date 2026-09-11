@@ -20,6 +20,7 @@ html-escape = { workspace = true }
 htmd = { workspace = true }
 pulldown-cmark = { workspace = true }
 lol_html = { workspace = true }
+scraper = { workspace = true }
 url = { workspace = true }
 ipnet = { workspace = true }
 thiserror = { workspace = true }

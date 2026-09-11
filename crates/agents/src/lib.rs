@@ -19,6 +19,7 @@ mod integration_delivery;
 mod pattern_decay;
 mod saved_search;
 mod summarize;
+mod summary_backfill;
 mod worker;
 mod youtube_duration;
 
@@ -33,7 +34,10 @@ pub use integration_delivery::IntegrationDeliveryAgent;
 pub use pattern_decay::PatternDecayAgent;
 pub use saved_search::{SavedSearchMatchAgent, SavedSearchScanAgent};
 pub use summarize::SummarizeArticleAgent;
-pub use worker::{enqueue_feed_refresh, process, Registry, Worker, WorkerConfig};
+pub use summary_backfill::SummaryBackfillAgent;
+pub use worker::{
+    enqueue_feed_refresh, enqueue_summary_backfill, process, Registry, Worker, WorkerConfig,
+};
 pub use youtube_duration::YouTubeDurationAgent;
 
 use async_trait::async_trait;
@@ -52,8 +56,9 @@ pub struct AgentContext {
     pub fetch: SafeFetchClient,
     /// Whether new/extracted articles should be enqueued for embedding.
     pub embed_on_ingest: bool,
-    /// Admin-owned automatic shared summarization policy.
+    /// First-start default for the database-backed automatic summary policy.
     pub auto_summarize: bool,
+    pub auto_summarize_min_chars: u32,
     /// Whether feed ingest proactively backfills public-page extraction for
     /// article-page subscribers. When false, extraction happens lazily on the
     /// first user access (via the interactive lane) instead.
@@ -80,6 +85,7 @@ impl AgentContext {
             fetch,
             embed_on_ingest: false,
             auto_summarize: false,
+            auto_summarize_min_chars: rusty_feed_db::summary_policy::DEFAULT_MIN_CONTENT_CHARS,
             eager_extraction: true,
             tracking_url_policy: TrackingUrlPolicy::default(),
             tracking_pixel_policy: TrackingPixelPolicy::default(),
@@ -114,6 +120,24 @@ impl AgentContext {
     pub fn with_auto_summarize(mut self, enabled: bool) -> Self {
         self.auto_summarize = enabled;
         self
+    }
+
+    /// Set the first-start readable-text minimum for automatic summaries.
+    pub fn with_auto_summarize_min_chars(mut self, min_content_chars: u32) -> Self {
+        self.auto_summarize_min_chars = min_content_chars;
+        self
+    }
+
+    /// Resolve the live database policy, initializing deployment defaults once.
+    pub async fn summary_policy(
+        &self,
+    ) -> anyhow::Result<rusty_feed_db::summary_policy::SummaryPolicy> {
+        Ok(rusty_feed_db::summary_policy::get_or_init(
+            self.db.pool(),
+            self.auto_summarize,
+            self.auto_summarize_min_chars,
+        )
+        .await?)
     }
 
     pub fn with_eager_extraction(mut self, enabled: bool) -> Self {

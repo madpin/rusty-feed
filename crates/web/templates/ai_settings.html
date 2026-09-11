@@ -13,6 +13,25 @@
 {% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
 {% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 
+{% if managing_instance %}
+<section class="panel">
+  <h2>Automatic article summaries</h2>
+  <p class="muted">Queue one shared summary while feeds are ingested when the effective article body reaches the minimum readable-text size. The policy is stored in PostgreSQL and standalone workers pick up changes without a restart.</p>
+  <form method="post" action="/admin/ai/summary-policy" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label class="check-row"><input type="checkbox" name="enabled" value="true" {% if auto_summary_enabled %}checked{% endif %} /> Enable automatic summaries for this instance</label>
+    <label>Minimum plain-text characters<input type="number" name="min_content_chars" min="0" max="1000000" value="{{ auto_summary_min_chars }}" required /></label>
+    <p class="muted">The 2,000-character default avoids spending provider quota on short posts. A value of 0 includes every article. On-demand summaries are unaffected.</p>
+    <div class="form-actions"><button class="primary" type="submit">Save automatic policy</button></div>
+  </form>
+  <form method="post" action="/admin/ai/summary-backfill" class="form-actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit" data-confirm="Queue summaries for every existing eligible unsummarized article?">Backfill existing articles</button>
+  </form>
+  <p class="muted">Backfill is explicit and runs in bounded background batches. Saving the policy alone only affects later feed ingestion.</p>
+</section>
+{% endif %}
+
 <section class="panel">
   <h2 id="add-provider">Add a provider</h2>
   <form method="post" action="{% if managing_instance %}/admin/ai{% else %}/settings/ai{% endif %}" class="stack" data-provider-form>

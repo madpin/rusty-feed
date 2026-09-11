@@ -176,7 +176,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-LLM-2 (P0):** Provider cascade: **user config → admin/system config → environment**. Providers: OpenAI-compatible and Ollama.
 - **FR-LLM-3 (P0):** Encrypted per-user and system API keys.
 - **FR-LLM-4 (P0):** **Cost tracking** (per user, per provider, daily/monthly) that is **durable** (persisted, not in-process only — fixes a known reference gap). Admin cost visibility.
-- **FR-LLM-5 (P1):** Optional auto-summarization on refresh, gated by admin + cascade settings and a minimum content length.
+- **FR-LLM-5 (P1):** Optional auto-summarization during feed ingestion, gated by a PostgreSQL-backed instance policy and configurable minimum normalized plain-text length (default 2,000 characters). Eligible shared article revisions created or materially updated by that consumption are queued once; policy changes require an explicit bounded admin backfill for existing articles.
 - **FR-LLM-6 (P2):** **News clustering + cluster digests** (LLM summary of an event across articles, with source links) — backlog.
 
 ### 5.9 Notifications

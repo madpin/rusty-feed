@@ -31,19 +31,6 @@ async fn enqueue_embeddings(
     Ok(enqueued)
 }
 
-async fn enqueue_summaries(
-    ctx: &AgentContext,
-    pending: Vec<rusty_feed_db::articles::ArticleRevision>,
-) -> anyhow::Result<u64> {
-    let mut enqueued = 0;
-    for article in pending {
-        if crate::worker::enqueue_summary(&ctx.db, article.id, article.content_revision).await? {
-            enqueued += 1;
-        }
-    }
-    Ok(enqueued)
-}
-
 async fn enqueue_new_entry_deliveries(
     ctx: &AgentContext,
     feed_id: Uuid,
@@ -135,7 +122,6 @@ impl Agent for FetchFeedAgent {
             subscriptions::requested_article_page_lifetime(ctx.db.pool(), feed_id).await?;
         let mut extract_jobs = 0u64;
         let mut embed_jobs = 0u64;
-        let mut summarize_jobs = 0u64;
         if article_page_lifetime.is_some() {
             // Only pre-extract public pages in the background when eager
             // extraction is enabled; otherwise a page is fetched lazily on the
@@ -157,27 +143,33 @@ impl Agent for FetchFeedAgent {
                 .await?;
                 embed_jobs = enqueue_embeddings(ctx, pending).await?;
             }
-            if ctx.auto_summarize {
-                summarize_jobs = enqueue_summaries(
-                    ctx,
-                    articles::list_ready_for_summary(ctx.db.pool(), feed_id, EXTRACT_ENQUEUE_LIMIT)
-                        .await?,
-                )
-                .await?;
-            }
         } else if ctx.embed_on_ingest {
             let pending =
                 articles::list_needing_embedding(ctx.db.pool(), feed_id, EXTRACT_ENQUEUE_LIMIT)
                     .await?;
             embed_jobs = enqueue_embeddings(ctx, pending).await?;
         }
-        if article_page_lifetime.is_none() && ctx.auto_summarize {
-            summarize_jobs = enqueue_summaries(
-                ctx,
-                articles::list_needing_summary(ctx.db.pool(), feed_id, EXTRACT_ENQUEUE_LIMIT)
-                    .await?,
+        let policy = ctx.summary_policy().await?;
+        let mut summarize_jobs = 0u64;
+        if policy.enabled {
+            for candidate in articles::list_summary_candidates_by_ids(
+                ctx.db.pool(),
+                &stats.changed_article_ids,
+                article_page_lifetime.is_some() && ctx.eager_extraction,
             )
-            .await?;
+            .await?
+            {
+                if candidate.meets_minimum(policy.min_content_chars)
+                    && crate::worker::enqueue_summary(
+                        &ctx.db,
+                        candidate.id,
+                        candidate.content_revision,
+                    )
+                    .await?
+                {
+                    summarize_jobs += 1;
+                }
+            }
         }
 
         Ok(json!({

@@ -3825,7 +3825,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rusty-feed-agents"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3853,7 +3853,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-cache"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "moka",
@@ -3867,7 +3867,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ammonia",
  "base64 0.22.1",
@@ -3899,6 +3899,7 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.8.8",
  "regex",
+ "scraper",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3912,7 +3913,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-db"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rusty-feed-core",
  "serde_json",
@@ -3926,7 +3927,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-embed"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3943,7 +3944,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-extract"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chromiumoxide",
  "dom_smoothie",
@@ -3966,7 +3967,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-feeds"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "feed-rs",
  "futures-util",
@@ -3988,7 +3989,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-llm"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4006,7 +4007,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-search"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "proptest",
  "rusty-feed-cache",
@@ -4021,7 +4022,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-server"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4042,7 +4043,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-web"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4085,7 +4086,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-feed-worker"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "rusty-feed-agents",

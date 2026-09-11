@@ -102,6 +102,15 @@ impl Agent for SummarizeArticleAgent {
         if article.content_revision != content_revision {
             return Ok(json!({ "skipped": "stale content revision" }));
         }
+        if user_id.is_none() {
+            let policy = ctx.summary_policy().await?;
+            if !policy.enabled {
+                return Ok(json!({ "skipped": "automatic summaries disabled" }));
+            }
+            if !articles::meets_summary_minimum(&article.content, policy.min_content_chars) {
+                return Ok(json!({ "skipped": "article below automatic summary minimum" }));
+            }
+        }
 
         if let Some(cascade) = &self.cascade {
             let (written, model) = match rusty_feed_llm::summarize_article_with_cascade(

@@ -6,6 +6,7 @@ use htmd::HtmlToMarkdown;
 use lol_html::html_content::ContentType;
 use lol_html::{element, rewrite_str, RewriteStrSettings};
 use pulldown_cmark::{html, Options, Parser};
+use scraper::Html;
 
 use crate::tracking_pixel::TrackingPixelPolicy;
 use crate::tracking_url::TrackingUrlPolicy;
@@ -92,6 +93,25 @@ pub fn article_html_to_markdown(html: &str, base_url: &str) -> String {
         .convert(&sanitized)
         .map(|markdown| normalize_markdown(&markdown))
         .unwrap_or_else(|_| fallback_text(&sanitized))
+}
+
+/// Count normalized plain-text characters in a sanitized article body.
+pub fn article_plain_text_len(html: &str) -> usize {
+    let document = Html::parse_fragment(html);
+    let mut count = 0usize;
+    let mut has_word = false;
+    for word in document
+        .root_element()
+        .text()
+        .flat_map(str::split_whitespace)
+    {
+        if has_word {
+            count = count.saturating_add(1);
+        }
+        count = count.saturating_add(word.chars().count());
+        has_word = true;
+    }
+    count
 }
 
 /// Apply a personal navigation target to already-sanitized article links.
@@ -684,6 +704,15 @@ mod tests {
         assert!(content.contains("<ul>"));
         assert!(content.contains("<table>"));
         assert!(!content.contains("bad()"));
+    }
+
+    #[test]
+    fn counts_normalized_plain_text_without_markup() {
+        assert_eq!(
+            article_plain_text_len("<h2>Hello</h2><p>wide&nbsp;world</p>"),
+            16
+        );
+        assert_eq!(article_plain_text_len("<p>   </p>"), 0);
     }
 
     #[test]

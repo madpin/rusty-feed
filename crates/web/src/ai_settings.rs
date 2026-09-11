@@ -49,6 +49,8 @@ struct AiSettingsTemplate {
     managing_instance: bool,
     profiles: Vec<ProfileView>,
     env_provider: Option<EnvProviderView>,
+    auto_summary_enabled: bool,
+    auto_summary_min_chars: u32,
     notice: Option<String>,
     error: Option<String>,
 }
@@ -80,6 +82,14 @@ pub struct ToggleForm {
 #[derive(Deserialize)]
 pub struct CsrfForm {
     csrf_token: String,
+}
+
+#[derive(Deserialize)]
+pub struct SummaryPolicyForm {
+    csrf_token: String,
+    #[serde(default)]
+    enabled: bool,
+    min_content_chars: u32,
 }
 
 async fn render(
@@ -118,6 +128,12 @@ async fn render(
         has_key: env.has_key,
         copyable: managing_instance || env.provider == "openai",
     });
+    let summary_policy = rusty_feed_db::summary_policy::get_or_init(
+        state.db.pool(),
+        state.settings.auto_summarize_default,
+        state.settings.auto_summarize_min_chars_default,
+    )
+    .await?;
     let body = AiSettingsTemplate {
         theme: ui.theme.clone(),
         user_email: user.email.clone(),
@@ -127,6 +143,8 @@ async fn render(
         managing_instance,
         profiles,
         env_provider,
+        auto_summary_enabled: summary_policy.enabled,
+        auto_summary_min_chars: summary_policy.min_content_chars,
         notice,
         error,
     }
@@ -150,6 +168,90 @@ pub async fn admin_page(
     jar: CookieJar,
 ) -> Result<Response, AppError> {
     render(&state, &user, jar, true, None, None).await
+}
+
+pub async fn admin_summary_policy(
+    State(state): State<AppState>,
+    AdminUser(user): AdminUser,
+    jar: CookieJar,
+    Form(form): Form<SummaryPolicyForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if form.min_content_chars > rusty_feed_db::summary_policy::MAX_MIN_CONTENT_CHARS {
+        return render(
+            &state,
+            &user,
+            jar,
+            true,
+            None,
+            Some("The minimum must be between 0 and 1,000,000 characters.".to_string()),
+        )
+        .await;
+    }
+    rusty_feed_db::summary_policy::update(state.db.pool(), form.enabled, form.min_content_chars)
+        .await?;
+    render(
+        &state,
+        &user,
+        jar,
+        true,
+        Some("Automatic summary policy saved. New feed ingestion uses it immediately.".to_string()),
+        None,
+    )
+    .await
+}
+
+pub async fn admin_summary_backfill(
+    State(state): State<AppState>,
+    AdminUser(user): AdminUser,
+    jar: CookieJar,
+    Form(form): Form<CsrfForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    let policy = rusty_feed_db::summary_policy::get_or_init(
+        state.db.pool(),
+        state.settings.auto_summarize_default,
+        state.settings.auto_summarize_min_chars_default,
+    )
+    .await?;
+    if !policy.enabled {
+        return render(
+            &state,
+            &user,
+            jar,
+            true,
+            None,
+            Some("Enable automatic summaries before starting a backfill.".to_string()),
+        )
+        .await;
+    }
+    let queued = rusty_feed_db::jobs::enqueue(
+        state.db.pool(),
+        "summary_backfill",
+        serde_json::json!({ "feed_id": null, "ready_only": false, "after": null }),
+        Some("summary-backfill:all:false:start"),
+        None,
+        3,
+    )
+    .await?
+    .is_some();
+    render(
+        &state,
+        &user,
+        jar,
+        true,
+        Some(if queued {
+            "Eligible existing articles were queued for bounded background backfill.".to_string()
+        } else {
+            "An automatic summary backfill is already queued or running.".to_string()
+        }),
+        None,
+    )
+    .await
 }
 
 fn validate(form: &CreateForm, managing_instance: bool) -> Result<(&str, String), String> {

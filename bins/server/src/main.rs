@@ -178,6 +178,8 @@ async fn main() -> anyhow::Result<()> {
         oauth_providers,
         // The managed-provider screen can enable summarization without a restart.
         summarization_enabled: true,
+        auto_summarize_default: config.llm_auto_summarize,
+        auto_summarize_min_chars_default: config.llm_auto_summarize_min_chars,
         env_llm,
         auto_embed: config.embedding_auto_generate,
         embeddings_enabled: config.embeddings_enabled,
@@ -313,6 +315,7 @@ async fn main() -> anyhow::Result<()> {
                 embed_on_ingest: config.embedding_auto_generate,
                 embeddings_enabled: config.embeddings_enabled,
                 auto_summarize: config.llm_auto_summarize,
+                auto_summarize_min_chars: config.llm_auto_summarize_min_chars,
                 eager_extraction: config.article_page_eager_extraction,
                 tracking_url_policy,
                 tracking_pixel_policy,

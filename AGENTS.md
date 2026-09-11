@@ -79,6 +79,15 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test                      # workspace unit + integration tests
 cargo test -p <crate>           # a single crate
 
+# Guarded release bump (major, minor, patch, or an explicit X.Y.Z).
+# Requires separate empty disposable integration/E2E databases and runs every CI/release gate before writing version files.
+TEST_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_feed_bump \
+  TEST_REDIS_URL=redis://localhost:6379 \
+  PLAYWRIGHT_DATABASE_URL=postgres://rusty_feed:rusty_feed@localhost:5435/rusty_feed_bump_e2e \
+  PLAYWRIGHT_REDIS_URL=redis://localhost:6379 \
+  RUSTY_FEED_BUMP_CONFIRM_DATABASES=1 \
+  scripts/bump-version.sh minor
+
 # Browser E2E (dev-only Node dependency; starts Rusty Feed on :8088 with worker off)
 npm ci
 docker compose --env-file .env -f docker/compose.yaml exec -T postgres \

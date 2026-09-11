@@ -57,10 +57,8 @@ async fn store_failure(
             crate::worker::enqueue_embed(&ctx.db, article_id, revision).await?;
         }
     }
-    if ctx.auto_summarize {
-        if let Some(revision) = revision {
-            crate::worker::enqueue_summary(&ctx.db, article_id, revision).await?;
-        }
+    if let Some(revision) = revision {
+        crate::worker::enqueue_automatic_summary(ctx, article_id, revision).await?;
     }
     Ok(json!({ "status": "failed", "failure_class": failure_class }))
 }
@@ -161,9 +159,7 @@ impl Agent for ExtractContentAgent {
                 if ctx.embed_on_ingest {
                     crate::worker::enqueue_embed(&ctx.db, article_id, content_revision).await?;
                 }
-                if ctx.auto_summarize {
-                    crate::worker::enqueue_summary(&ctx.db, article_id, content_revision).await?;
-                }
+                crate::worker::enqueue_automatic_summary(ctx, article_id, content_revision).await?;
                 Ok(json!({ "status": "success", "extractor": e.extractor }))
             }
             // Soft failure: keep the RSS content, don't retry the job.

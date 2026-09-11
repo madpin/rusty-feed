@@ -164,6 +164,10 @@ pub struct AppSettings {
     pub oauth_providers: Vec<OAuthProvider>,
     /// Whether an LLM is configured (enables the "Summarize" action).
     pub summarization_enabled: bool,
+    /// First-start enablement for the persisted automatic-summary policy.
+    pub auto_summarize_default: bool,
+    /// First-start readable-text minimum for the persisted policy.
+    pub auto_summarize_min_chars_default: u32,
     /// Environment-configured summarization provider (the cascade fallback), if any.
     pub env_llm: Option<EnvLlmProvider>,
     /// Whether newly-ingested articles should be enqueued for embedding.
@@ -263,6 +267,9 @@ impl Default for AppSettings {
             passkey_rp_name: "Rusty Feed".to_string(),
             oauth_providers: Vec::new(),
             summarization_enabled: false,
+            auto_summarize_default: false,
+            auto_summarize_min_chars_default:
+                rusty_feed_db::summary_policy::DEFAULT_MIN_CONTENT_CHARS,
             env_llm: None,
             auto_embed: false,
             embeddings_enabled: true,

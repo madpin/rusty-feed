@@ -297,6 +297,7 @@ Preferences & Notifications (PER-USER)
 
 System / Ops
   admin_settings (id, key UNIQUE, value jsonb, description?, created_at, updated_at)
+  instance_summary_policy (singleton PK, enabled, min_content_chars, updated_at)
   cost_ledger (id, user_id?, provider, model, kind[embedding|summary|digest], input_tokens,
                output_tokens, cost_usd, occurred_at)                                -- NEW: durable costs
   agent_runs (id, agent_name, status[PENDING|RUNNING|SUCCESS|FAILED], started_at, completed_at?,
@@ -351,7 +352,7 @@ The heavy operations — **fetch, extract, embed, summarize** — are keyed by t
 - **Extraction/embedding/summarization** are enqueued **per article id**. Before doing work, the agent **claims** the article for that operation:
   - *Extraction:* subscriber preferences are reduced to one shared demand. A public page is fetched when any subscriber requests it and the shared copy is absent or expired; one deduplicated job and a content-revision guard prevent per-user or concurrent duplicate work. RSS and public-page bodies are stored separately.
   - *Embedding:* skip if a row already exists in `article_embeddings`; use `INSERT ... ON CONFLICT (article_id) DO NOTHING` so concurrent workers don't double-compute.
-  - *Summary:* first-writer-wins; skip if `summary/key_points/topics` already set. A short-lived Redis/advisory lock (`work:{op}:{article_id}`) prevents two workers computing the same summary simultaneously; the DB `ON CONFLICT` is the durable guard.
+  - *Summary:* first-writer-wins on the shared content revision. On-demand requests are independent of automatic policy. During feed ingest, an enabled singleton `instance_summary_policy` queues only created or materially updated bodies meeting its normalized plain-text character minimum. Public-page extraction repeats the eligibility check against the final effective body; an explicit `SummaryBackfillAgent` action cursor-scans older unsummarized rows in bounded batches. Automatic jobs recheck enablement, threshold, and revision immediately before provider use, so disabling the policy stops already-queued spend. Historical backfill is a separate explicit admin action.
 - **Catalog public-content probe:** a published catalog feed may receive one globally deduplicated, background diagnostic keyed by `feed_id`. It tests at most three current shared article URLs and replaces one scalar shared snapshot; it never writes article content or feed policy. The current candidate IDs and a freshness window prevent visitor-driven repeated work.
 - **Result:** for a feed/article shared by N users, network + CPU + LLM work per refresh cycle is **O(1)**, not O(N). Only cheap per-user rows (notifications, saved-search matches, read state) scale with N.
 
@@ -434,7 +435,7 @@ pub trait Agent: Send + Sync + 'static {
                    │         │ - notify ≥ threshold │
                    │         └──────────────────────┘
                    ▼
-         SummarizeArticleAgent (on-demand / optional auto): first-writer-wins summary
+         SummaryBackfillAgent → SummarizeArticleAgent (ingest/manual batches or on-demand): first-writer-wins
 
   Scheduled maintenance agents (singleton):
     • PatternDecayAgent  (decay + prune per-user patterns)      -- was API-only/untracked in ref
@@ -590,7 +591,7 @@ Defaults mirror the reference (validated during analysis); all are configurable.
 - **Throughput target:** ≥ 1000 articles/min; batch 100 articles × concurrency 5; pre-embed each query once per batch.
 
 ### 11.5 Settings cascade
-Effective value = first present of **feed → category → user prefs → system defaults → env** (feed wins). Applies to `refresh_interval`, `max_articles_per_feed`, `max_article_age`, and the `summarization` block. Constraints (admin): refresh 15–1440 min, max_articles 50–5000, max_age 1–365 days.
+Effective personal values use the first present of **feed → category → user prefs → system defaults → env** (feed wins). This applies to personal reading and refresh controls. Automatic summarization is intentionally instance-scoped because the result and provider spend are shared: the PostgreSQL singleton overrides its environment seed and applies one enablement/minimum-size decision to every feed. Constraints (admin): refresh 15–1440 min, max_articles 50–5000, max_age 1–365 days; automatic-summary minimum 0–1,000,000 normalized plain-text characters.
 
 ### 11.6 Cleanup/retention
 - Delete articles older than `max_article_age` **and** trim each feed to newest `max_articles_per_feed`; **preserve bookmarked**. Age basis is explicit/configurable (`published_at` preferred; `createdAt` available for parity). `VACUUM ANALYZE` when deletions exceed a threshold.
@@ -637,7 +638,7 @@ Effective value = first present of **feed → category → user prefs → system
 ## 14. LLM Integration & Secrets
 
 - **Provider configuration today:** summary requests resolve the enabled **user → admin/system → environment** OpenAI-compatible/Ollama cascade and continue to the next profile after a sanitized provider failure. User endpoints are fixed to official OpenAI; only administrators can supply compatible endpoints. The embedding provider remains one instance-wide space by design.
-- **Summarization** (`SummarizeArticleAgent` / on-demand): sanitized article HTML is converted to structured Markdown before prompt construction; the prompt returns JSON `{summary, key_points[], topics[], sentiment?}`; robust JSON extraction with text fallback; content is truncated to a safe max; results are stored **once** on the shared article (first-writer-wins).
+- **Summarization** (`SummarizeArticleAgent` / on-demand / automatic): sanitized article HTML is converted to structured Markdown before prompt construction; the prompt returns JSON `{summary, key_points[], topics[], sentiment?}`; robust JSON extraction with text fallback; content is truncated to a safe max; results are stored **once** on the shared article revision (first-writer-wins). Automatic generation is controlled by `instance_summary_policy`, initialized once from `LLM_AUTO_SUMMARIZE` and `LLM_AUTO_SUMMARIZE_MIN_CHARS` (default 2,000 normalized plain-text characters), then editable live under Administration → AI providers. Feed ingest queues eligible created/materially updated revisions directly, extraction applies the same gate to the final body, and explicit historical backfill uses bounded durable batches.
 - **Durable cost tracking (fix):** every billable call appends to **`cost_ledger`** (user, provider, model, kind, tokens, `cost_usd`, timestamp). Admin/user views aggregate by day/month/provider. Replaces the reference's in-process counters (PRD §9.3). Pricing table includes `gpt-4o-mini` (the common default) to avoid the reference's mis-pricing bug.
 - **Secrets (unified AEAD — fix):** stored LLM, integration, and acquisition-profile credentials use **XChaCha20-Poly1305**; the 32-byte key is derived from `ENCRYPTION_SECRET` via **HKDF-SHA256** with a stable domain-separated context per credential class. One versioned format authenticates the key version as associated data: `base64(version ‖ nonce ‖ ciphertext ‖ tag)`. Secrets are never logged or redisplayed; masking is used where presence must be shown. (Replaces the reference's two incompatible schemes; §21 covers migration.)
 

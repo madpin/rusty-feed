@@ -10,9 +10,13 @@ use time::Duration as TimeDuration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use rusty_feed_agents::{process, Agent, AgentContext, FeedRefreshAgent, FetchFeedAgent, Registry};
-use rusty_feed_db::{agent_runs, articles, feeds, jobs, subscriptions, users, Db};
+use rusty_feed_agents::{
+    process, Agent, AgentContext, FeedRefreshAgent, FetchFeedAgent, Registry, SummaryBackfillAgent,
+};
+use rusty_feed_db::{agent_runs, articles, feeds, jobs, subscriptions, summary_policy, users, Db};
 use rusty_feed_feeds::SafeFetchClient;
+
+static SUMMARY_POLICY_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct FailingAgent;
 
@@ -194,6 +198,176 @@ async fn fetch_feed_job_ingests_and_records_a_run() {
         .unwrap();
     sqlx::query("DELETE FROM agent_runs WHERE agent_name = $1")
         .bind(kind)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn feed_ingestion_queues_eligible_changed_articles_when_enabled() {
+    let _guard = SUMMARY_POLICY_TEST_LOCK.lock().await;
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let run = uuid::Uuid::now_v7();
+    let server = MockServer::start().await;
+    let body = format!(
+        r#"<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://summary.example</link>
+        <item><title>Long</title><link>https://summary.example/{run}</link><guid>{run}</guid><description><![CDATA[<p>{}</p>]]></description></item>
+        </channel></rss>"#,
+        "eligible content ".repeat(20)
+    );
+    Mock::given(method("GET"))
+        .and(path("/feed.xml"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(body))
+        .mount(&server)
+        .await;
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("{}/feed.xml", server.uri()),
+        "Summary ingest",
+        None,
+    )
+    .await
+    .unwrap();
+    let (existing, _) = articles::upsert(
+        db.pool(),
+        &rusty_feed_db::models::NewArticle {
+            feed_id: feed.id,
+            url: format!("https://summary.example/existing-{run}"),
+            comments_url: None,
+            guid: None,
+            title: "Existing eligible article".to_string(),
+            author: None,
+            content: format!("<p>{}</p>", "old eligible content ".repeat(20)),
+            excerpt: None,
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    summary_policy::update(db.pool(), true, 100).await.unwrap();
+
+    let result = FetchFeedAgent
+        .run(&ctx(db.clone()), json!({ "feed_id": feed.id }))
+        .await
+        .unwrap();
+
+    assert_eq!(result["summarize_jobs"], 1);
+    let article = articles::list_for_feed(db.pool(), feed.id, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|article| article.title == "Long")
+        .unwrap();
+    let dedup = format!("summarize:{}:{}", article.id, article.content_revision);
+    assert_eq!(
+        jobs::count_active_by_dedup(db.pool(), &dedup)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        jobs::count_active_by_dedup(
+            db.pool(),
+            &format!("summarize:{}:{}", existing.id, existing.content_revision),
+        )
+        .await
+        .unwrap(),
+        0,
+        "saving automatic policy must not backfill old articles"
+    );
+    summary_policy::update(db.pool(), false, summary_policy::DEFAULT_MIN_CONTENT_CHARS)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM job_queue WHERE dedup_key = $1")
+        .bind(dedup)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn automatic_summary_backfill_queues_only_articles_over_the_plain_text_minimum() {
+    use rusty_feed_db::models::NewArticle;
+
+    let _guard = SUMMARY_POLICY_TEST_LOCK.lock().await;
+    let Some(db) = connect().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://summary-{}.example/feed", uuid::Uuid::now_v7()),
+        "Summary threshold",
+        None,
+    )
+    .await
+    .unwrap();
+    let create = |title: &str, content: String| NewArticle {
+        feed_id: feed.id,
+        url: format!("https://summary.example/{}", uuid::Uuid::now_v7()),
+        comments_url: None,
+        guid: None,
+        title: title.to_string(),
+        author: None,
+        content,
+        excerpt: None,
+        image_url: None,
+        enclosures: Vec::new(),
+        published_at: None,
+    };
+    let (short, _) = articles::upsert(
+        db.pool(),
+        &create("Short", "<p>nineteen chars here</p>".to_string()),
+    )
+    .await
+    .unwrap();
+    let (long, _) = articles::upsert(
+        db.pool(),
+        &create("Long", format!("<p>{}</p>", "long article ".repeat(20))),
+    )
+    .await
+    .unwrap();
+    summary_policy::update(db.pool(), true, 100).await.unwrap();
+
+    let result = SummaryBackfillAgent
+        .run(
+            &ctx(db.clone()),
+            json!({ "feed_id": feed.id, "ready_only": false }),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result["enqueued"], 1);
+    assert_eq!(
+        jobs::count_active_by_dedup(
+            db.pool(),
+            &format!("summarize:{}:{}", long.id, long.content_revision),
+        )
+        .await
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        jobs::count_active_by_dedup(
+            db.pool(),
+            &format!("summarize:{}:{}", short.id, short.content_revision),
+        )
+        .await
+        .unwrap(),
+        0
+    );
+
+    summary_policy::update(db.pool(), false, summary_policy::DEFAULT_MIN_CONTENT_CHARS)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM job_queue WHERE payload->>'article_id' IN ($1, $2)")
+        .bind(long.id.to_string())
+        .bind(short.id.to_string())
         .execute(db.pool())
         .await
         .unwrap();

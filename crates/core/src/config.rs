@@ -338,6 +338,9 @@ pub struct AppConfig {
     /// interactive lane independently of this setting.
     #[serde(default)]
     pub llm_auto_summarize: bool,
+    /// First-start readable-text minimum for the persisted automatic policy.
+    #[serde(default = "defaults::llm_auto_summarize_min_chars")]
+    pub llm_auto_summarize_min_chars: u32,
     #[serde(default = "defaults::ollama_base_url")]
     pub ollama_base_url: String,
 
@@ -738,6 +741,11 @@ impl AppConfig {
                 "EMBEDDING_BATCH_SIZE must be greater than 0".into(),
             ));
         }
+        if self.llm_auto_summarize_min_chars > 1_000_000 {
+            return Err(ConfigError::Invalid(
+                "LLM_AUTO_SUMMARIZE_MIN_CHARS must be between 0 and 1000000".into(),
+            ));
+        }
         if !(1_024..=262_144).contains(&self.ui_customization_max_bytes) {
             return Err(ConfigError::Invalid(
                 "UI_CUSTOMIZATION_MAX_BYTES must be between 1024 and 262144".into(),
@@ -1045,7 +1053,8 @@ impl AppConfig {
                 "summary_model": self.llm_summary_model,
                 "digest_model": self.llm_digest_model,
                 "provider_credential_configured": self.openai_api_key.is_some(),
-                "automatic": self.llm_auto_summarize,
+                "automatic_default": self.llm_auto_summarize,
+                "automatic_min_chars_default": self.llm_auto_summarize_min_chars,
             },
             "extraction": {
                 "chromium_enabled": self.chromium_enabled,
@@ -1268,6 +1277,9 @@ mod defaults {
     pub fn llm_model() -> String {
         "gpt-4o-mini".to_string()
     }
+    pub fn llm_auto_summarize_min_chars() -> u32 {
+        2_000
+    }
     pub fn ollama_base_url() -> String {
         "http://localhost:11434".to_string()
     }
@@ -1393,6 +1405,7 @@ mod tests {
         assert_eq!(cfg.search_mode, SearchMode::Hybrid);
         assert_eq!(cfg.search_text_config, SearchTextConfig::Simple);
         assert_eq!(cfg.search_semantic_weight_percent, 60);
+        assert_eq!(cfg.llm_auto_summarize_min_chars, 2_000);
         assert_eq!(cfg.feed_refresh_concurrency, 6);
         assert_eq!(cfg.interactive_job_concurrency, 2);
         assert!(cfg.cache_enabled);
@@ -1702,6 +1715,14 @@ mod tests {
                 "{base_url} must not be accepted as a passkey origin"
             );
         }
+    }
+
+    #[test]
+    fn rejects_excessive_automatic_summary_minimum() {
+        let invalid = base().merge(Serialized::defaults(serde_json::json!({
+            "llm_auto_summarize_min_chars": 1_000_001,
+        })));
+        assert!(AppConfig::from_figment(invalid).is_err());
     }
 
     #[test]

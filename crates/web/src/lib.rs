@@ -237,6 +237,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/admin/ai/{id}/toggle", post(ai_settings::admin_toggle))
         .route("/admin/ai/{id}/delete", post(ai_settings::admin_delete))
+        .route(
+            "/admin/ai/summary-policy",
+            post(ai_settings::admin_summary_policy),
+        )
+        .route(
+            "/admin/ai/summary-backfill",
+            post(ai_settings::admin_summary_backfill),
+        )
         .route("/settings/preferences", get(prefs::page).post(prefs::save))
         .route("/settings/account", get(account::page))
         .route("/settings/account/export", post(account::export))

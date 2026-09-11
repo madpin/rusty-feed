@@ -143,35 +143,65 @@ pub async fn list_needing_embedding_space(
     .await?)
 }
 
-/// Recent shared article revisions without a current summary.
-pub async fn list_needing_summary(
+/// Unsummarized shared content considered by a bounded policy scan.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SummaryCandidate {
+    pub id: Uuid,
+    pub content_revision: i64,
+    content: String,
+}
+
+impl SummaryCandidate {
+    /// Whether the effective body reaches the normalized readable-text minimum.
+    pub fn meets_minimum(&self, min_content_chars: u32) -> bool {
+        meets_summary_minimum(&self.content, min_content_chars)
+    }
+}
+
+/// Check automatic-summary eligibility against normalized readable text.
+pub fn meets_summary_minimum(content: &str, min_content_chars: u32) -> bool {
+    rusty_feed_core::html::article_plain_text_len(content) >= min_content_chars as usize
+}
+
+/// Page through unsummarized candidates by stable shared article id.
+pub async fn list_summary_candidates_after(
     pool: &PgPool,
-    feed_id: Uuid,
+    feed_id: Option<Uuid>,
+    ready_only: bool,
+    after: Option<Uuid>,
     limit: i64,
-) -> Result<Vec<ArticleRevision>> {
+) -> Result<Vec<SummaryCandidate>> {
     Ok(sqlx::query_as(
-        "SELECT id, content_revision FROM articles WHERE feed_id = $1 \
-         AND summarized_at IS NULL ORDER BY created_at DESC LIMIT $2",
+        "SELECT id, content_revision, content FROM articles \
+         WHERE summarized_at IS NULL AND ($1::uuid IS NULL OR feed_id = $1) \
+           AND (NOT $2 OR extraction_status <> 'none') \
+           AND ($3::uuid IS NULL OR id > $3) \
+         ORDER BY id LIMIT $4",
     )
     .bind(feed_id)
+    .bind(ready_only)
+    .bind(after)
     .bind(limit.clamp(1, 5_000))
     .fetch_all(pool)
     .await?)
 }
 
-/// Page-mode articles whose extraction has completed or fallen back to RSS.
-pub async fn list_ready_for_summary(
+/// Load unsummarized candidates changed by one feed consumption.
+pub async fn list_summary_candidates_by_ids(
     pool: &PgPool,
-    feed_id: Uuid,
-    limit: i64,
-) -> Result<Vec<ArticleRevision>> {
+    article_ids: &[Uuid],
+    ready_only: bool,
+) -> Result<Vec<SummaryCandidate>> {
+    if article_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     Ok(sqlx::query_as(
-        "SELECT id, content_revision FROM articles WHERE feed_id = $1 \
-         AND summarized_at IS NULL AND extraction_status <> 'none' \
-         ORDER BY created_at DESC LIMIT $2",
+        "SELECT id, content_revision, content FROM articles \
+         WHERE id = ANY($1) AND summarized_at IS NULL \
+           AND (NOT $2 OR extraction_status <> 'none')",
     )
-    .bind(feed_id)
-    .bind(limit.clamp(1, 5_000))
+    .bind(article_ids)
+    .bind(ready_only)
     .fetch_all(pool)
     .await?)
 }

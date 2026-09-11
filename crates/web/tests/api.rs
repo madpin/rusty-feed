@@ -162,6 +162,8 @@ async fn read_only_admin_can_read_but_not_write_admin_routes() {
         "/admin/ai".to_string(),
         format!("/admin/ai/{id}/toggle"),
         format!("/admin/ai/{id}/delete"),
+        "/admin/ai/summary-policy".to_string(),
+        "/admin/ai/summary-backfill".to_string(),
     ];
     for path in &writes {
         let response = app
@@ -181,6 +183,88 @@ async fn read_only_admin_can_read_but_not_write_admin_routes() {
             "POST {path} must be 403 for a read-only admin"
         );
     }
+}
+
+#[tokio::test]
+async fn admin_can_persist_summary_policy_and_start_manual_backfill() {
+    let Some(state) = state().await else { return };
+    let admin = users::create(
+        state.db.pool(),
+        &format!("summary-admin-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "admin",
+        None,
+    )
+    .await
+    .unwrap();
+    let session = session_cookie(&state, admin.id).await;
+    let app = router(state.clone());
+    let page = app
+        .clone()
+        .oneshot(
+            Request::get("/admin/ai")
+                .header("cookie", &session)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf = set_cookies_value(&page, "rusty_feed_csrf").unwrap();
+    let body =
+        String::from_utf8_lossy(&page.into_body().collect().await.unwrap().to_bytes()).to_string();
+    assert!(body.contains("Automatic article summaries"));
+    assert!(body.contains("Minimum plain-text characters"));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/admin/ai/summary-policy")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("{session}; rusty_feed_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&enabled=true&min_content_chars=2345"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let policy = rusty_feed_db::summary_policy::get_or_init(state.db.pool(), false, 2_000)
+        .await
+        .unwrap();
+    assert!(policy.enabled);
+    assert_eq!(policy.min_content_chars, 2_345);
+
+    let response = app
+        .oneshot(
+            Request::post("/admin/ai/summary-backfill")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", format!("{session}; rusty_feed_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        rusty_feed_db::jobs::count_active_by_dedup(
+            state.db.pool(),
+            "summary-backfill:all:false:start",
+        )
+        .await
+        .unwrap(),
+        1
+    );
+
+    rusty_feed_db::summary_policy::update(state.db.pool(), false, 2_000)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM job_queue WHERE dedup_key = 'summary-backfill:all:false:start'")
+        .execute(state.db.pool())
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

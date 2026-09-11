@@ -220,7 +220,8 @@ subscriber lifetime and RSS content is retained when those copies expire.
 | `LLM_PROVIDER` | `openai` | `openai` or `ollama` |
 | `LLM_SUMMARY_MODEL` | `gpt-4o-mini` | Article-summary model |
 | `LLM_DIGEST_MODEL` | `gpt-4o-mini` | Digest model |
-| `LLM_AUTO_SUMMARIZE` | `false` | Queue one background summary per shared article revision; may incur provider cost |
+| `LLM_AUTO_SUMMARIZE` | `false` | First-start default for automatic shared summaries; may incur provider cost |
+| `LLM_AUTO_SUMMARIZE_MIN_CHARS` | `2000` | First-start minimum normalized plain-text characters (`0`–`1000000`) |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama/OpenAI-compatible endpoint |
 
 The environment provider is the final fallback. Users may add personal OpenAI
@@ -230,9 +231,21 @@ The enabled cascade is personal profiles by priority, then administrator
 profiles, then environment configuration. API keys are encrypted with
 domain-separated AEAD and are never redisplayed; rotate one by deleting and
 recreating its profile. User profiles use the fixed official OpenAI endpoint,
-while only trusted administrators may configure a compatible endpoint. Core
-reading does not depend on an LLM; failures remain visible in the live summary
-state, interactive lane, and wide admin operations view.
+while only trusted administrators may configure a compatible endpoint.
+
+The automatic policy is a singleton PostgreSQL row so an administrator can turn
+it on or off and change the normalized plain-text character minimum without
+restarting either embedded or standalone workers. `LLM_AUTO_SUMMARIZE` and
+`LLM_AUTO_SUMMARIZE_MIN_CHARS` seed that row only when it does not exist; database
+state is authoritative afterward and is included in normal backups. Feed ingest
+queues only eligible articles created or materially updated by that consumption;
+public-page extraction rechecks the final effective body. Saving the policy does not surprise
+operators with historical spend: **Backfill existing articles** is a separate
+explicit action on the instance AI page and runs in bounded background batches.
+On-demand summaries ignore the automatic minimum.
+
+Core reading does not depend on an LLM; failures remain visible in the live
+summary state, interactive lane, and wide admin operations view.
 
 ## Fetching, extraction, and privacy
 

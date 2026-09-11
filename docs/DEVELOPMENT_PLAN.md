@@ -39,7 +39,7 @@
 |---|---|---|---|
 | M0 | ✅ | Workspace & CI scaffold | Workspace, containers, CI, Rust and browser suites are operational. |
 | M1 | ✅ | Config, errors, telemetry | Typed environment/TOML configuration, secret-safe diagnostics, safe web errors, tracing, bounded HTTP metrics, readiness, and narrow feature-owned interfaces are implemented and tested. |
-| M2 | ✅ | Database & migrations | 41 migrations, runtime SQLx repositories, pgvector, protocol aliases, managed AI/integration/acquisition profiles, passkeys, rewrite history, and database-backed dedup/tenant tests are present. Integration tests use an explicit test database instead of hidden build-time SQL. |
+| M2 | ✅ | Database & migrations | 51 migrations, runtime SQLx repositories, pgvector, protocol aliases, managed AI/integration/acquisition profiles, passkeys, rewrite history, the persisted automatic-summary policy, and database-backed dedup/tenant tests are present. Integration tests use an explicit test database instead of hidden build-time SQL. |
 | M3 | ✅ | Cache layer | moka L1, namespace-isolated optional Redis L2, bounded TTLs, typed keys, `SCAN` invalidation, versioned cross-instance Pub/Sub coherence, and graceful degradation are implemented and tested. |
 | M4 | ✅ | Auth & sessions | Local/OAuth/passkey accounts, invitation lifecycle, trusted-proxy boundary, first-admin/bootstrap CLI, default subscriptions, opaque session listing/revocation, RBAC, CSRF, rate limiting, and API tokens are implemented and tested. |
 | M5 | ✅ | Web shell & reading UI | The strict-CSP responsive reader, three modes, preferences, versioned CSS/managed opt-in JavaScript with Safe Mode, 20 locale/format profiles, live/batched notifications, PWA shell, no-JS fallbacks, and desktop/tablet/mobile accessibility matrix are implemented and tested. Complete translation coverage remains a separate parity row. |
@@ -282,7 +282,7 @@ Tasks:
 - [x] Domain-separated XChaCha20-Poly1305 + HKDF-SHA256 AEAD, masking, versioned AAD, and managed user/admin credential profiles. Delete-and-recreate provides explicit credential rotation without ever redisplaying key material.
 - [x] Structured summary/key-points/topics parsing with fallback and first-writer-wins storage on the shared article revision.
 - [x] Durable per-user/provider/model/day cost ledger and pricing calculations.
-- [x] Low-latency, revision-deduplicated **SummarizeArticleAgent** works on demand and through the administrator-gated automatic refresh policy.
+- [x] Low-latency, revision-deduplicated **SummarizeArticleAgent** works on demand and through a live PostgreSQL-backed instance policy. Feed ingestion queues only eligible created/materially updated revisions and post-extraction paths enforce the same configurable normalized plain-text minimum; explicit bounded backfill covers existing articles.
 - [x] Live article summary UI, actionable safe failures, and admin cost/queue views.
 
 Verification: `wiremock` LLM tests; AEAD round-trip + tamper-detection tests; first-writer-wins concurrency test; cost math test.
