@@ -101,17 +101,75 @@ jobs:
   # container image on GHCR, so main is always deployable (e.g. to Dokploy)
   # without building from source on the target host. Release tags (v*.*.*) still
   # produce the signed, SBOM-attested images in release.yml.
+  build-image:
+    name: build image · ${{ matrix.arch }}
+    needs: lint-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/rusty-feed
+          tags: type=sha,prefix=main-,format=short
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/rusty-feed,push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=gha,scope=main-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=main-${{ matrix.arch }}
+      - name: Export image digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rusty-feed-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
   publish-image:
     name: publish · multi-arch image (main)
-    needs: lint-and-test
+    needs: [lint-and-test, build-image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rusty-feed-digest-*
+          path: /tmp/digests
+          merge-multiple: true
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -128,14 +186,27 @@ jobs:
             type=raw,value=main
             type=raw,value=edge
             type=sha,prefix=main-,format=short
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Publish multi-architecture manifest
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/rusty-feed
+        run: |
+          mapfile -t digest_files < <(printf '%s\n' /tmp/digests/*)
+          if [[ ${#digest_files[@]} -ne 2 ]]; then
+            echo "expected two platform digests, found ${#digest_files[@]}" >&2
+            exit 1
+          fi
+          sources=()
+          for digest_file in "${digest_files[@]}"; do
+            digest=$(basename "$digest_file")
+            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "invalid image digest: $digest" >&2
+              exit 1
+            fi
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          args=()
+          while IFS= read -r tag; do
+            args+=(--tag "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          docker buildx imagetools inspect "$IMAGE:main"

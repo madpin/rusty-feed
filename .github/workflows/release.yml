@@ -23,7 +23,7 @@ jobs:
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             nfpm_arch: arm64
-          - runner: macos-13
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
           - runner: macos-14
             target: aarch64-apple-darwin
@@ -211,7 +211,7 @@ jobs:
           docker run -d --name rusty-feed-release-db --network rusty-feed-release-smoke \
             -e POSTGRES_USER=rusty_feed -e POSTGRES_PASSWORD=rusty_feed -e POSTGRES_DB=rusty_feed \
             postgres:17
-          for attempt in $(seq 1 45); do
+          for _ in $(seq 1 45); do
             docker exec rusty-feed-release-db pg_isready -U rusty_feed -d rusty_feed && break
             sleep 1
           done
@@ -220,7 +220,7 @@ jobs:
             -e SESSION_SECRET=release-smoke-session-secret-32-bytes \
             -e ENCRYPTION_SECRET=release-smoke-encryption-secret-32-bytes \
             -e CACHE_ENABLED=false -e RUN_EMBEDDED_WORKER=false "$IMAGE"
-          for attempt in $(seq 1 90); do
+          for _ in $(seq 1 90); do
             if curl --fail --silent http://127.0.0.1:18080/api/health/ready | grep -q '"status":"ready"'; then
               exit 0
             fi
