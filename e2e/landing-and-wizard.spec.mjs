@@ -29,6 +29,9 @@ test("the isolated demo starts in Rusty with organized showcase feeds", async ({
   await expect(
     page.locator("#library-sidebar .folder-tree-node:not(.folder-tree-unfiled)").first(),
   ).toBeVisible();
+  await expect(
+    page.locator("#library-sidebar .sidebar-feed-drag-handle").first(),
+  ).toBeVisible();
 });
 
 test("robots.txt disallows the app and points at the sitemap", async ({

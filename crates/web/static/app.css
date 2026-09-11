@@ -477,6 +477,7 @@ code { padding: 0.1rem 0.3rem; border-radius: 0.25rem; background: var(--surface
 .account-email { padding: 0.45rem 0.6rem 0.6rem; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 0.78rem; }
 .account-menu-panel form { margin: 0.2rem 0 0; padding-top: 0.2rem; border-top: 1px solid var(--border); }
 .account-menu-panel .button-quiet { width: 100%; padding: 0.42rem 0.6rem; text-align: left; }
+.account-version { padding: 0.35rem 0.6rem 0.1rem; color: var(--muted); font-size: 0.72rem; text-align: center; }
 
 .layout {
   display: grid;
@@ -518,7 +519,11 @@ code { padding: 0.1rem 0.3rem; border-radius: 0.25rem; background: var(--surface
 .folder-tree-feeds { display: grid; gap: 0.12rem; margin: 0.05rem 0 0.1rem 1.05rem; padding-left: 0.35rem; border-left: 1px solid var(--border); }
 .folder-tree-feeds .nav-link { font-size: 0.84rem; }
 .folder-tree-unfiled { padding-top: 0.35rem; border-top: 1px solid var(--border); }
-.sidebar-feed-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; }
+.sidebar-feed-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; min-width: 0; }
+.sidebar-feed-drag-handle { display: none; width: 1.45rem; min-height: 1.7rem; padding: 0; border-color: transparent; box-shadow: none; color: var(--muted); background: transparent; cursor: grab; }
+.sidebar-feed-drag-handle:active { cursor: grabbing; }
+.js .sidebar-feed-drag-handle { display: inline-grid; place-items: center; }
+.sidebar-feed-drag-handle:hover { color: var(--accent); border-color: transparent; background: var(--surface-hover); }
 .sidebar-feed-tools { display: none; align-items: center; gap: 0.12rem; padding-right: 0.18rem; }
 .sidebar-quick-tools-active .sidebar-feed-tools { display: flex; }
 .sidebar-feed-tools button { width: 1.7rem; min-height: 1.7rem; padding: 0; border-color: transparent; box-shadow: none; color: var(--muted); background: transparent; font-weight: 800; }
@@ -694,8 +699,10 @@ legend { margin-bottom: 0.7rem; color: var(--text-strong); font-size: 0.95rem; f
 .js .feed-drag-handle { display: inline-grid; place-items: center; }
 .feed-folder-drop { transition: border-color 150ms ease, background-color 150ms ease; }
 .js .feed-folder-drop { border: 1px dashed transparent; border-radius: 0.45rem; }
+.js.feed-drag-active .feed-folder-drop { border-color: var(--border); }
 .js .feed-folder-drop.drag-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
-.js .feed-row.dragging { opacity: 0.5; }
+.js .feed-row.dragging,
+.js .sidebar-feed-row.dragging { opacity: 0.5; }
 .feed-icon { position: relative; display: inline-grid; flex: 0 0 2.25rem; width: 2.25rem; height: 2.25rem; place-items: center; overflow: hidden; border-radius: 0.58rem; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-size: 0.88rem; font-weight: 800; }
 .feed-icon-fallback { line-height: 1; }
 .feed-organization-meta,

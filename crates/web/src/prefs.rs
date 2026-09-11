@@ -324,6 +324,10 @@ impl Preferences {
         rusty_feed_core::i18n::text_direction(&self.locale)
     }
 
+    pub(crate) fn app_version(&self) -> &'static str {
+        rusty_feed_core::VERSION
+    }
+
     /// Whether the user selected `value` as a content interest (used by the
     /// setup wizard to pre-check interest chips on re-run).
     pub fn has_interest(&self, value: &str) -> bool {
@@ -1040,6 +1044,15 @@ pub async fn save_layout(
 mod tests {
     use super::*;
     use serde::de::value::{Error as ValueError, StrDeserializer};
+
+    #[test]
+    fn exposes_application_version() {
+        assert_eq!(
+            Preferences::default().app_version(),
+            rusty_feed_core::VERSION
+        );
+        assert!(include_str!("../templates/app_base.html").contains("{{ ui.app_version() }}"));
+    }
 
     #[test]
     fn optional_percentage_accepts_empty_form_values() {

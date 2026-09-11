@@ -671,6 +671,7 @@
   var draggingFeedId = null;
   var draggingFeedRow = null;
   function clearFeedDragTargets() {
+    document.documentElement.classList.remove("feed-drag-active");
     Array.prototype.forEach.call(document.querySelectorAll("[data-feed-drop]"), function (target) {
       target.classList.remove("drag-over");
       target.removeAttribute("aria-busy");
@@ -687,8 +688,9 @@
       handle.dataset.feedDragInitialized = "true";
       handle.addEventListener("dragstart", function (event) {
         draggingFeedId = handle.getAttribute("data-feed-id");
-        draggingFeedRow = handle.closest("[data-feed-row],[data-article-card]");
+        draggingFeedRow = handle.closest("[data-feed-row],[data-article-card],[data-sidebar-feed-row]");
         if (!draggingFeedId || !event.dataTransfer) return;
+        document.documentElement.classList.add("feed-drag-active");
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", draggingFeedId);
         if (draggingFeedRow) draggingFeedRow.classList.add("dragging");

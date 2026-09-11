@@ -998,6 +998,14 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_feeds_expose_an_accessible_folder_move_handle() {
+        let template = include_str!("../templates/library_feed_nav.html");
+        assert!(template.contains("data-feed-drag"));
+        assert!(template.contains("draggable=\"true\""));
+        assert!(template.contains("select to choose a folder"));
+    }
+
+    #[test]
     fn every_page_shell_exposes_the_same_install_metadata() {
         for template in [
             include_str!("../templates/base.html"),

@@ -851,11 +851,12 @@ test("article destinations open and submit without leaving the reader", async ({
   expect(queuedBody).toContain("profile_id=archive");
 });
 
-test("dragging an article onto a sidebar folder moves its source feed", async ({ page }) => {
+test("source move handles provide a picker and sidebar drag-and-drop", async ({ page }) => {
   await page.goto("/login");
   const scriptUrl = new URL("/static/app.js", page.url()).href;
   await page.setContent(`
     <article data-article-card><button type="button" data-feed-drag data-feed-id="feed-one" data-feed-name="Example source" draggable="true">Move source</button></article>
+    <div class="sidebar-feed-row" data-sidebar-feed-row><button type="button" class="sidebar-feed-drag-handle" data-feed-drag data-feed-id="feed-two" data-feed-name="Sidebar source" draggable="true">Move sidebar source</button></div>
     <div class="folder-tree-node" data-feed-drop data-folder-id="folder-one" data-folder-label="Folder one">Folder one</div>
     <dialog data-move-feed-dialog aria-labelledby="move-feed-title">
       <form data-move-feed-form><h2 id="move-feed-title" data-move-feed-title>Choose a folder</h2><input name="csrf_token" value="csrf-token"><select name="folder_id" data-move-feed-folder><option value="folder-one">Folder one</option></select><button type="button" data-move-feed-close>Cancel</button><button type="submit">Move feed</button></form>
@@ -877,13 +878,15 @@ test("dragging an article onto a sidebar folder moves its source feed", async ({
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.evaluate(() => {
     const transfer = new DataTransfer();
-    const drag = document.querySelector("[data-feed-drag]");
+    const drag = document.querySelector(".sidebar-feed-drag-handle");
     const target = document.querySelector("[data-feed-drop]");
     drag.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    window.__feedDragActive = document.documentElement.classList.contains("feed-drag-active") && drag.closest("[data-sidebar-feed-row]").classList.contains("dragging");
     target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
   });
-  await expect.poll(() => page.evaluate(() => window.__moveRequest?.url)).toBe("/feeds/feed-one/folder");
+  expect(await page.evaluate(() => window.__feedDragActive)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__moveRequest?.url)).toBe("/feeds/feed-two/folder");
   await expect.poll(() => page.evaluate(() => window.__moveRequest?.body)).toContain("csrf_token=csrf-token");
   await expect.poll(() => page.evaluate(() => window.__moveRequest?.body)).toContain("folder_id=folder-one");
 });

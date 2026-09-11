@@ -45,6 +45,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <button type="submit" class="button-quiet">{{ ui.text("logout") }}</button>
           </form>
+          <span class="account-version">Rusty Feed v{{ ui.app_version() }}</span>
         </div>
       </details>
     </header>

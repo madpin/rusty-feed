@@ -53,6 +53,12 @@ test("authenticated shell remains keyboard-usable without overflow at supported 
   }
 });
 
+test("authenticated account menu exposes the application version", async ({ page }, testInfo) => {
+  await register(page, `version-${Date.now()}-${testInfo.parallelIndex}`);
+  await page.locator("details.account-menu > summary").click();
+  await expect(page.locator(".account-version")).toHaveText(/^Rusty Feed v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
+});
+
 test("mobile dialogs and wide operational data stay inside their viewport", async ({ page }, testInfo) => {
   await register(page, `mobile-surfaces-${Date.now()}-${testInfo.parallelIndex}`);
   await page.setViewportSize({ width: 390, height: 844 });
