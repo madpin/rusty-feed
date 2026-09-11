@@ -75,8 +75,11 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await organization.getByRole("button", { name: "Cancel" }).click();
   await page.goto("/articles");
   const sidebar = page.locator("#library-sidebar");
+  await expect(page.getByRole("heading", { name: "Unread only" })).toBeVisible();
+  await expect(page).toHaveTitle("Unread only · Rusty Feed");
+  await sidebar.getByRole("link", { name: "Most recent", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Most recent" })).toBeVisible();
-  await expect(page).toHaveTitle("Most recent · Rusty Feed");
+  await expect(page).toHaveURL(/unread=0/);
   await sidebar.getByRole("link", { name: "Unread only", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Unread only" })).toBeVisible();
   await sidebar.getByRole("link", { name: "Personalized", exact: true }).click();

@@ -44,6 +44,8 @@ filter. Use it to switch between:
 - one source;
 - one tag across every subscribed feed.
 
+**Unread only** is the default for new accounts. Choose **Most recent** to include read items for the current view, or enable **Show read articles** in Preferences to make that the saved default.
+
 Article cards expose read/unread, save, AI summary, and thumbs-up/down actions.
 Thumbs feedback is private and trains your personal relevance model. A bookmark
 is also personal and protects the shared article from age-based retention.

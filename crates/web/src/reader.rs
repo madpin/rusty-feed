@@ -126,7 +126,7 @@ struct TagNav {
 struct FolderNavContext<'a> {
     selected: Option<Uuid>,
     tag: Option<&'a str>,
-    unread: bool,
+    unread: Option<bool>,
     sort: &'a str,
     summary_only: bool,
     feeds_by_folder: &'a mut HashMap<Uuid, Vec<FeedNav>>,
@@ -553,14 +553,14 @@ fn articles_url(
     category_id: Option<Uuid>,
     unfiled: bool,
     tag: Option<&str>,
-    unread: bool,
+    unread: Option<bool>,
     sort: &str,
     offset: Option<i64>,
     summary_only: bool,
 ) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
-    if unread {
-        query.append_pair("unread", "1");
+    if let Some(unread) = unread {
+        query.append_pair("unread", if unread { "1" } else { "0" });
     }
     if let Some(feed_id) = feed_id {
         query.append_pair("feed", &feed_id.to_string());
@@ -645,7 +645,7 @@ fn folder_nav(
     categories: Vec<categories::CategoryWithFeedCount>,
     selected: Option<Uuid>,
     tag: Option<&str>,
-    unread: bool,
+    unread: Option<bool>,
     sort: &str,
     summary_only: bool,
     feeds_by_folder: &mut HashMap<Uuid, Vec<FeedNav>>,
@@ -708,14 +708,19 @@ pub async fn list(
     let prefs = prefs::load(&state.db, user.id).await;
     let is_admin = user.role == "admin";
     let per_page = prefs.articles_per_page.clamp(5, 100) as i64;
-    let unread_param = q.unread.as_deref() == Some("1");
+    let unread_filter = match q.unread.as_deref() {
+        Some("1") => Some(true),
+        Some("0") => Some(false),
+        _ => None,
+    };
     // "Unread AI summaries" is one atomic filter — show only summaries the
     // reader hasn't seen yet — so it forces the unread scope regardless of the
     // "show read articles" preference, the same way the plain "Unread only"
     // link already overrides it.
     let summary_only = q.summary.as_deref() == Some("1");
     let tag = normalized_tag(q.tag).map_err(AppError::Validation)?;
-    let unread_only = unread_param || (tag.is_none() && !prefs.show_read_articles) || summary_only;
+    let unread_only =
+        unread_filter.unwrap_or(tag.is_none() && !prefs.show_read_articles) || summary_only;
     let offset = q.offset.unwrap_or(0).max(0);
     let feed_id = q.feed;
     let unfiled = q.unfiled.as_deref() == Some("1");
@@ -821,7 +826,7 @@ pub async fn list(
                 None,
                 false,
                 None,
-                unread_param,
+                Some(unread_only),
                 sort,
                 None,
                 summary_only,
@@ -848,7 +853,7 @@ pub async fn list(
         category_records,
         category_id,
         tag.as_deref(),
-        unread_param,
+        Some(unread_only),
         sort,
         summary_only,
         &mut feeds_by_folder,
@@ -861,7 +866,7 @@ pub async fn list(
                 None,
                 false,
                 Some(&tag_record.name),
-                false,
+                None,
                 "recent",
                 None,
                 false,
@@ -882,7 +887,7 @@ pub async fn list(
         category_id,
         unfiled,
         tag.as_deref(),
-        unread_param,
+        Some(unread_only),
         sort,
         Some(offset),
         summary_only,
@@ -910,7 +915,7 @@ pub async fn list(
             category_id,
             unfiled,
             tag.as_deref(),
-            false,
+            Some(false),
             "recent",
             None,
             false,
@@ -920,7 +925,7 @@ pub async fn list(
             category_id,
             unfiled,
             tag.as_deref(),
-            true,
+            Some(true),
             "recent",
             None,
             false,
@@ -930,7 +935,7 @@ pub async fn list(
             category_id,
             unfiled,
             tag.as_deref(),
-            false,
+            Some(false),
             "relevance",
             None,
             false,
@@ -940,7 +945,7 @@ pub async fn list(
             category_id,
             unfiled,
             tag.as_deref(),
-            false,
+            None,
             "recent",
             None,
             true,
@@ -950,7 +955,7 @@ pub async fn list(
             None,
             true,
             None,
-            unread_param,
+            Some(unread_only),
             sort,
             None,
             summary_only,
@@ -973,7 +978,7 @@ pub async fn list(
             category_id,
             unfiled,
             tag.as_deref(),
-            unread_param,
+            Some(unread_only),
             sort,
             Some((offset - per_page).max(0)),
             summary_only,
@@ -983,7 +988,7 @@ pub async fn list(
             category_id,
             unfiled,
             tag.as_deref(),
-            unread_param,
+            Some(unread_only),
             sort,
             Some(offset + per_page),
             summary_only,
@@ -2198,8 +2203,26 @@ pub async fn mark_all_read(
 
 #[cfg(test)]
 mod tests {
-    use super::{enclosure_mime_is_safe, format_timestamp, reader_image_url, safe_external_url};
+    use super::{
+        articles_url, enclosure_mime_is_safe, format_timestamp, reader_image_url, safe_external_url,
+    };
     use uuid::Uuid;
+
+    #[test]
+    fn article_urls_encode_read_filter_overrides() {
+        assert_eq!(
+            articles_url(None, None, false, None, None, "recent", None, false),
+            "/articles"
+        );
+        assert_eq!(
+            articles_url(None, None, false, None, Some(true), "recent", None, false),
+            "/articles?unread=1"
+        );
+        assert_eq!(
+            articles_url(None, None, false, None, Some(false), "recent", None, false),
+            "/articles?unread=0"
+        );
+    }
 
     #[test]
     fn external_urls_reject_unsafe_origins_and_strip_fragments() {

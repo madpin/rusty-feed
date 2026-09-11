@@ -264,7 +264,7 @@ impl Default for Preferences {
             custom_script_enabled: false,
             theme: "system".to_string(),
             articles_per_page: 20,
-            show_read_articles: true,
+            show_read_articles: false,
             reading_mode: "side-panel".to_string(),
             auto_mark_read: true,
             article_density: "comfortable".to_string(),
@@ -1044,6 +1044,11 @@ pub async fn save_layout(
 mod tests {
     use super::*;
     use serde::de::value::{Error as ValueError, StrDeserializer};
+
+    #[test]
+    fn hides_read_articles_by_default() {
+        assert!(!Preferences::default().show_read_articles);
+    }
 
     #[test]
     fn exposes_application_version() {
