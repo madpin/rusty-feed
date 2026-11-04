@@ -18,6 +18,8 @@ import, or direct-add flow. Only temporary demo accounts receive the instance's
 featured showcase feeds; those are pre-organized into topic folders. Invitation-only
 instances require a one-use invite.
 
+Local accounts can use **Forgot password** on the sign-in page. The reset link lasts one hour, works once, and signs out every existing session. The instance has to be able to send email; otherwise an administrator sets the new password.
+
 The main navigation contains:
 
 - **Library** — your article list and reader;

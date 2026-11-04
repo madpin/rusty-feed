@@ -32,6 +32,7 @@ mod moderation;
 pub mod oauth;
 mod opml;
 mod passkeys;
+mod password_reset;
 mod prefs;
 mod public_shares;
 mod quota;
@@ -87,6 +88,14 @@ pub fn router(state: AppState) -> Router {
             get(auth::handlers::register_page).post(auth::handlers::register_submit),
         )
         .route("/logout", post(auth::handlers::logout_submit))
+        .route(
+            "/forgot-password",
+            get(password_reset::forgot_page).post(password_reset::forgot_submit),
+        )
+        .route(
+            "/reset-password",
+            get(password_reset::reset_page).post(password_reset::reset_submit),
+        )
         .route("/demo/start", post(auth::handlers::demo_start))
         .route("/terms", get(legal::terms))
         .route("/acceptable-use", get(legal::acceptable_use))

@@ -798,3 +798,108 @@ async fn invitation_is_one_use_and_new_user_starts_without_subscriptions() {
         .await
         .contains("Registration is currently closed"));
 }
+
+#[tokio::test]
+async fn password_reset_replaces_the_local_password_once() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let login = router(state.clone())
+        .oneshot(Request::get("/login").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert!(body_string(login).await.contains("Forgot password?"));
+
+    let forgot = router(state.clone())
+        .oneshot(
+            Request::get("/forgot-password")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forgot.status(), StatusCode::OK);
+    assert!(body_string(forgot)
+        .await
+        .contains("not configured to send email"));
+
+    let email = format!("reset-{}@example.test", uuid::Uuid::now_v7());
+    let password_hash =
+        rusty_feed_web::auth::password::hash_password("Old-Password-9x").expect("hash");
+    let user = users::create(
+        state.db.pool(),
+        &email,
+        None,
+        None,
+        "user",
+        Some(&password_hash),
+    )
+    .await
+    .unwrap();
+    let generated = rusty_feed_web::auth::token::generate();
+    rusty_feed_db::password_resets::issue(
+        state.db.pool(),
+        user.id,
+        &generated.hash,
+        time::OffsetDateTime::now_utc() + time::Duration::minutes(30),
+    )
+    .await
+    .unwrap();
+
+    let page = router(state.clone())
+        .oneshot(
+            Request::get(format!("/reset-password?token={}", generated.raw))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let cookies = set_cookies(&page);
+    let csrf = find_cookie(&cookies, "rusty_feed_csrf")
+        .expect("csrf")
+        .to_string();
+    let body = body_string(page).await;
+    assert!(body.contains("Choose a new password"));
+
+    let reset = router(state.clone())
+        .oneshot(
+            Request::post("/reset-password")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&token={}&password=New-Password-9x",
+                    generated.raw
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reset.status(), StatusCode::SEE_OTHER);
+
+    let again = router(state.clone())
+        .oneshot(
+            Request::post("/reset-password")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("cookie", cookie_header(&[("rusty_feed_csrf", &csrf)]))
+                .body(Body::from(format!(
+                    "csrf_token={csrf}&token={}&password=Another-Password-9x",
+                    generated.raw
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.status(), StatusCode::OK);
+    assert!(body_string(again).await.contains("invalid or has expired"));
+
+    let stored = users::find_by_id(state.db.pool(), user.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(rusty_feed_web::auth::password::verify_password(
+        "New-Password-9x",
+        stored.password_hash.as_deref().unwrap()
+    ));
+}

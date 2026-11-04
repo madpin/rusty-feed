@@ -21,6 +21,7 @@
     <h2 id="login-heading">Sign in</h2>
     <p>Continue with your local account{% if !providers.is_empty() %}, identity provider,{% endif %}{% if passkeys_enabled %} or passkey{% endif %}.</p>
   </div>
+  {% if let Some(note) = notice %}<p class="notice" role="status">{{ note }}</p>{% endif %}
   {% if let Some(err) = error %}<p class="alert" role="alert">{{ err }}</p>{% endif %}
   <form method="post" action="/login" class="login-password-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
@@ -52,6 +53,7 @@
     {% endfor %}
   </div>
   {% endif %}
+  <p class="login-register-link"><a href="/forgot-password">Forgot password?</a></p>
   <p class="login-register-link">New to Rusty Feed? <a href="/register">Create an account</a></p>
 </section>
 {% endblock %}

@@ -40,6 +40,7 @@ pub mod oauth_accounts;
 pub mod operations;
 pub mod outbox;
 pub mod passkeys;
+pub mod password_resets;
 pub mod patterns;
 pub mod public_shares;
 pub mod read_articles;

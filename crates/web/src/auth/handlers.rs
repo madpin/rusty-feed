@@ -59,6 +59,7 @@ struct LoginTemplate {
     passkeys_enabled: bool,
     /// Same-origin return path to resume after signing in (empty if none).
     next: String,
+    notice: Option<String>,
 }
 
 #[derive(Template)]
@@ -88,6 +89,8 @@ pub struct LoginForm {
 pub struct LoginQuery {
     #[serde(default)]
     next: String,
+    #[serde(default)]
+    reset: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -227,6 +230,8 @@ pub async fn login_page(
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
     let body = render(&LoginTemplate {
         error: None,
+        notice: (query.reset.as_deref() == Some("1"))
+            .then(|| "Password updated. Sign in with the new password.".to_string()),
         csrf_token,
         providers: provider_buttons(&state),
         passkeys_enabled: state.webauthn.is_some(),
@@ -259,6 +264,7 @@ pub async fn login_submit(
         let (csrf_token, jar) = csrf::issue(jar, secure);
         let body = render(&LoginTemplate {
             error: Some(message.to_string()),
+            notice: None,
             csrf_token,
             providers: provider_buttons(state),
             passkeys_enabled: state.webauthn.is_some(),
