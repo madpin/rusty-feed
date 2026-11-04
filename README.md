@@ -159,6 +159,18 @@ not yet a supported database backend.
 
 ### Develop locally
 
+A self-documenting Make command assistant wraps setup, Cargo, Docker, databases,
+tests, debugging, and maintenance. Start with:
+
+```bash
+make help       # list every command and supported variable
+make setup      # initialize the development environment once
+make dev        # run dependencies, migrations, and the server
+make verify     # formatting, Clippy, and database-backed Rust tests
+```
+
+The underlying commands remain available directly:
+
 ```bash
 # Prereqs: Rust (stable) and Docker. Node 20 is needed only for browser E2E tests.
 cp .env.example .env

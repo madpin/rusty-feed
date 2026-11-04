@@ -72,7 +72,14 @@ docs/       PRD, ARCHITECTURE, DEVELOPMENT_PLAN, MINIFLUX_PARITY, FINDINGS
 > These commands are available in the current workspace. See `docs/DEVELOPMENT_PLAN.md` for the remaining milestone acceptance work.
 
 ```bash
-# Build / lint / format / test  (run before every commit)
+# Self-documenting development command assistant
+make help                     # all setup, Cargo, Docker, DB, test, and debug targets
+make setup                    # one-time local environment bootstrap
+make dev                      # dependencies + migrations + server
+make verify                   # fmt + Clippy + database-backed Rust tests
+make ci                       # reproduce the full local CI quality gates
+
+# Direct build / lint / format / test commands (run before every commit)
 cargo build
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
