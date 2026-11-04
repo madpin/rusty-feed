@@ -426,8 +426,9 @@ The administration area separates configuration from live operations:
 - **Overview** shows accounts, shared feeds/articles, active public shares,
   database/article/embedding/media storage, worker count/capacity, and queue
   totals.
-- **Users** changes roles with self-demotion and last-admin protection and
-  issues invitation links when registration is invite-only.
+- **Users** changes roles with self-demotion and last-admin protection, clears
+  another account's learned ranking, and issues invitation links when
+  registration is invite-only.
 - **Feeds** shows shared health, cadence, failures, pause state, and safe actions.
 - **Catalog** publishes, orders, and previews curated sources.
 - **AI providers** manages prioritized instance fallback profiles.

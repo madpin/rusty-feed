@@ -385,6 +385,11 @@ pub struct RoleForm {
     role: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct CsrfForm {
+    csrf_token: String,
+}
+
 #[derive(Deserialize, Default)]
 pub struct FeedsQuery {
     #[serde(default)]
@@ -1160,6 +1165,40 @@ pub async fn update_role(
         users::RoleChange::LastAdmin => "Keep at least one administrator account.",
     };
     render_users(&state, &user, jar, None, Some(message.to_string()), None).await
+}
+
+/// `POST /admin/users/{id}/reset-learning` — clear another account's ranking.
+pub async fn reset_user_learning(
+    State(state): State<AppState>,
+    AdminUser(user): AdminUser,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<CsrfForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    if users::find_by_id(state.db.pool(), id).await?.is_none() {
+        return render_users(
+            &state,
+            &user,
+            jar,
+            None,
+            Some("That user no longer exists.".to_string()),
+            None,
+        )
+        .await;
+    }
+    rusty_feed_search::personalize::reset_learning(&state.db, &state.cache, id).await?;
+    render_users(
+        &state,
+        &user,
+        jar,
+        Some("Cleared that account's learned ranking.".to_string()),
+        None,
+        None,
+    )
+    .await
 }
 
 pub async fn create_invitation(

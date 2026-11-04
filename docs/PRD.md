@@ -197,7 +197,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-ADM-1 (P0):** Admin dashboard: system stats for users, shared feeds, articles, catalog entries, active jobs, and durable AI costs; links to management surfaces.
 - **FR-ADM-2 (P0):** Job management: view **run history** (status, duration, stats, logs), trigger jobs manually.
 - **FR-ADM-3 (P0):** System configuration: embedding provider + auto-generate, LLM system credentials/models, provider enable/disable, new-user default preferences, and **min/max constraints** for user settings.
-- **FR-ADM-4 (P0):** User management: list users and change admin/user roles with CSRF protection, self-demotion prevention, and last-admin protection. Resetting another user's learned data remains backlog.
+- **FR-ADM-4 (P0):** User management: list users and change admin/user roles with CSRF protection, self-demotion prevention, and last-admin protection. An administrator can clear another account's learned ranking.
 - **FR-ADM-5 (P0):** Maintenance actions: cache clear, Postgres `VACUUM/ANALYZE`, delete/regenerate embeddings, cleanup old articles.
 - **FR-ADM-6 (P1):** Storage/cost visibility, cleanup/compaction actions, live worker/lane/queue state, recent completions, wide sanitized application/agent/feed errors, and bounded retry/recovery controls are implemented. Rich installation/version presentation remains optional polish.
 

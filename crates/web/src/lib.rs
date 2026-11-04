@@ -192,6 +192,10 @@ pub fn router(state: AppState) -> Router {
         .route("/admin", get(admin::dashboard))
         .route("/admin/users", get(admin::users_page))
         .route("/admin/users/{id}/role", post(admin::update_role))
+        .route(
+            "/admin/users/{id}/reset-learning",
+            post(admin::reset_user_learning),
+        )
         .route("/admin/invitations", post(admin::create_invitation))
         .route(
             "/admin/invitations/{id}/revoke",
