@@ -1,0 +1,33 @@
+{% extends "app_base.html" %}
+{% block title %}Briefing{% endblock %}
+{% block body_class %}page-digests{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Library</p>
+    <h1>Briefing</h1>
+    <p class="muted">Stories covered by more than one of your sources, grouped once and assembled for you. Turn on a daily briefing in Preferences.</p>
+  </div>
+  <form method="post" action="/digests/refresh">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit" class="primary">Update briefing</button>
+  </form>
+</div>
+{% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+{% if digests.is_empty() %}
+<div class="empty-state">
+  <p><strong>No briefing yet.</strong></p>
+  <p>Rusty Feed groups recent embedded articles that describe the same event. Update the briefing after feeds have been fetched and embedded.</p>
+</div>
+{% else %}
+{% for digest in digests %}
+<article class="panel stack">
+  <header>
+    <p class="eyebrow">{{ digest.when }}</p>
+    <h2>{{ digest.title }}</h2>
+  </header>
+  <pre class="digest-body">{{ digest.body }}</pre>
+</article>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -20,6 +20,17 @@
     {% endif %}
   </nav>
   <div data-stored-content>
+  {% if !story_sources.is_empty() %}
+  <section class="story-cluster" aria-label="Same story in other sources">
+    <p class="reader-section-kicker">Same story</p>
+    {% if let Some(text) = story_summary %}<p>{{ text }}</p>{% endif %}
+    <ul>
+      {% for source in story_sources %}
+      <li><a href="{{ source.href }}">{{ source.title }}</a> <span class="muted">{{ source.feed_name }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
   {% if let Some(text) = summary %}
   <section class="reader-summary" aria-labelledby="summary-heading-{{ id }}">
     <header class="reader-section-heading">

@@ -174,7 +174,7 @@ Behavioral parity with the reference is the baseline; §21 and Rusty Feed explic
         │ Interval scheduler → enqueue │ Bounded lane consumers │ Singleton leases/guards    │
         │                                                                                    │
         │  FeedRefresh → FetchFeed → ExtractContent → EmbedArticle → SavedSearchMatch        │
-        │  Summarize (on-demand) • PatternDecay • Cleanup • Health • (v2) Cluster/Digest      │
+        │  Summarize (on-demand) • PatternDecay • Cleanup • Health • ClusterStories • Digest   │
         │                                                                                    │
         │ Outbound via SafeFetchClient • providers • bounded isolated Chromium fallback    │
         └──────────────────────────────────────────────────────────────────────────────────┘
@@ -441,8 +441,8 @@ pub trait Agent: Send + Sync + 'static {
     • PatternDecayAgent  (decay + prune per-user patterns)      -- was API-only/untracked in ref
     • CleanupAgent       (retention; preserves bookmarks; VACUUM ANALYZE when needed)
     • FeedHealthSweep    (optional; batch notifications and manual-pause maintenance)
-    • (v2) ClusterAgent  (group related articles into events)
-    • (v2) DigestAgent   (LLM digest per cluster / daily saved-search digests)
+    • ClusterStoriesAgent (hourly at :15 UTC; cosine similarity ≥ 0.82 joins a shared story)
+    • DailyDigestAgent   (07:00 UTC; personal briefing from shared stories, email only when SMTP is configured and the user opted in)
 ```
 
 Notes:

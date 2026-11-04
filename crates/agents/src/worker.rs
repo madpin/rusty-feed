@@ -19,10 +19,10 @@ use rusty_feed_feeds::SafeFetchClient;
 use rusty_feed_llm::LlmClient;
 
 use crate::{
-    Agent, AgentContext, CatalogPreviewAgent, ContentCleanupAgent, DemoResetAgent,
-    EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent, FetchFeedAgent,
-    IntegrationDeliveryAgent, PatternDecayAgent, SavedSearchMatchAgent, SavedSearchScanAgent,
-    SummarizeArticleAgent, SummaryBackfillAgent, YouTubeDurationAgent,
+    Agent, AgentContext, CatalogPreviewAgent, ClusterStoriesAgent, ContentCleanupAgent,
+    DailyDigestAgent, DemoResetAgent, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent,
+    FetchFeedAgent, IntegrationDeliveryAgent, PatternDecayAgent, SavedSearchMatchAgent,
+    SavedSearchScanAgent, SummarizeArticleAgent, SummaryBackfillAgent, YouTubeDurationAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -125,6 +125,16 @@ pub struct WorkerConfig {
     pub demo_mode: bool,
     /// UTC cron for the daily demo wipe.
     pub demo_reset_schedule: CronSchedule,
+    /// UTC cron for shared story clustering. Defaults to hourly at minute 15.
+    pub cluster_schedule: CronSchedule,
+    /// UTC cron for personal daily briefings. Defaults to 07:00.
+    pub digest_schedule: CronSchedule,
+    /// Optional SMTP URL used only to deliver opted-in briefings.
+    pub smtp_url: Option<String>,
+    /// Mailbox used as the briefing From address.
+    pub smtp_from: Option<String>,
+    /// Public origin placed in briefing emails.
+    pub public_base_url: String,
 }
 
 impl Default for WorkerConfig {
@@ -165,6 +175,13 @@ impl Default for WorkerConfig {
             demo_mode: false,
             demo_reset_schedule: CronSchedule::parse("0 4 * * *")
                 .unwrap_or_else(|_| unreachable!("static cron is valid")),
+            cluster_schedule: CronSchedule::parse("15 * * * *")
+                .unwrap_or_else(|_| unreachable!("static cron is valid")),
+            digest_schedule: CronSchedule::parse("0 7 * * *")
+                .unwrap_or_else(|_| unreachable!("static cron is valid")),
+            smtp_url: None,
+            smtp_from: None,
+            public_base_url: "http://localhost:8080".to_string(),
         }
     }
 }
@@ -200,7 +217,7 @@ impl Worker {
         );
         registry.register(
             "summarize_article",
-            Arc::new(SummarizeArticleAgent::new(llm).with_cascade(llm_cascade)),
+            Arc::new(SummarizeArticleAgent::new(llm.clone()).with_cascade(llm_cascade)),
         );
         registry.register(
             "extract_content",
@@ -218,6 +235,18 @@ impl Worker {
         registry.register(
             "demo_reset",
             Arc::new(DemoResetAgent::new(config.demo_mode)),
+        );
+        registry.register(
+            "cluster_stories",
+            Arc::new(ClusterStoriesAgent::new(llm.clone())),
+        );
+        registry.register(
+            "daily_digest",
+            Arc::new(DailyDigestAgent::new(
+                config.smtp_url.clone(),
+                config.smtp_from.clone(),
+                config.public_base_url.clone(),
+            )),
         );
         let ctx = AgentContext::new(db, fetch)
             .with_embed_on_ingest(config.embed_on_ingest)
@@ -328,6 +357,8 @@ impl Worker {
             let feed_refresh_schedule = self.config.feed_refresh_schedule.clone();
             let cleanup_schedule = self.config.cleanup_schedule.clone();
             let demo_reset_schedule = self.config.demo_reset_schedule.clone();
+            let cluster_schedule = self.config.cluster_schedule.clone();
+            let digest_schedule = self.config.digest_schedule.clone();
             let demo_mode = self.config.demo_mode;
             let mut sd = shutdown.clone();
             handles.push(tokio::spawn(async move {
@@ -356,6 +387,16 @@ impl Worker {
                         if demo_mode && demo_reset_schedule.matches(now) {
                             if let Err(e) = enqueue_singleton(&ctx.db, "demo_reset").await {
                                 tracing::warn!(error = %e, "scheduler: could not enqueue demo_reset");
+                            }
+                        }
+                        if cluster_schedule.matches(now) {
+                            if let Err(e) = enqueue_singleton(&ctx.db, "cluster_stories").await {
+                                tracing::warn!(error = %e, "scheduler: could not enqueue cluster_stories");
+                            }
+                        }
+                        if digest_schedule.matches(now) {
+                            if let Err(e) = enqueue_singleton(&ctx.db, "daily_digest").await {
+                                tracing::warn!(error = %e, "scheduler: could not enqueue daily_digest");
                             }
                         }
                     }

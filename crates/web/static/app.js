@@ -1792,6 +1792,7 @@
         initializeSummaryActions(replacement);
         initializeFeedDragAndDrop();
         initializeFeedMoveDialog();
+        initializeInfiniteScroll(replacement);
         if (push) window.history.pushState({ libraryTag: true }, "", url);
         var heading = replacement.querySelector("h1");
         if (heading) {
@@ -1820,7 +1821,68 @@
 
   // Implicit reading signal: on an article page, report time spent when the
   // reader leaves, so personalization can learn from completion/bounce.
+  var infiniteObserver = null;
+  function initializeInfiniteScroll(root) {
+    if (infiniteObserver) {
+      infiniteObserver.disconnect();
+      infiniteObserver = null;
+    }
+    var scope = root && root.querySelector ? root : document;
+    var list = scope.querySelector("[data-infinite-list]");
+    var pager = scope.querySelector("[data-infinite-pager]");
+    if (!list || !pager || !window.IntersectionObserver) return;
+    var loading = false;
+    function loadNext() {
+      if (loading || !pager.isConnected) return;
+      var link = pager.querySelector("[data-infinite-next]");
+      if (!link) return;
+      loading = true;
+      pager.setAttribute("data-loading", "true");
+      var url = new URL(link.href, window.location.href);
+      url.searchParams.set("fragment", "items");
+      fetch(url.toString(), {
+        credentials: "same-origin",
+        headers: { "Accept": "text/html", "X-Requested-With": "fetch" },
+      }).then(function (response) {
+        if (!response.ok) throw new Error("older articles failed");
+        return response.text();
+      }).then(function (html) {
+        var parsed = new DOMParser().parseFromString(html, "text/html");
+        Array.prototype.forEach.call(parsed.querySelectorAll("[data-article-card]"), function (card) {
+          list.appendChild(document.importNode(card, true));
+        });
+        var nextPager = parsed.querySelector("[data-infinite-pager]");
+        if (nextPager) {
+          var imported = document.importNode(nextPager, true);
+          pager.replaceWith(imported);
+          pager = imported;
+        } else {
+          pager.remove();
+        }
+        initializeFeedDragAndDrop();
+        initializeFeedMoveDialog();
+        loading = false;
+        if (pager.removeAttribute) pager.removeAttribute("data-loading");
+        var next = pager.querySelector && pager.querySelector("[data-infinite-next]");
+        if (!next || !infiniteObserver) return;
+        var rect = next.getBoundingClientRect();
+        infiniteObserver.disconnect();
+        if (rect.top < window.innerHeight + 600) loadNext();
+        else infiniteObserver.observe(next);
+      }).catch(function () {
+        loading = false;
+        if (pager.removeAttribute) pager.removeAttribute("data-loading");
+      });
+    }
+    infiniteObserver = new IntersectionObserver(function (entries) {
+      if (entries.some(function (entry) { return entry.isIntersecting; })) loadNext();
+    }, { rootMargin: "600px 0px" });
+    var first = pager.querySelector("[data-infinite-next]");
+    if (first) infiniteObserver.observe(first);
+  }
+
   initializeReadingTracking(document);
+  initializeInfiniteScroll(document);
   initializePendingContent(document);
   initializeSummaryActions(document);
   initializeDefaultLiveViews(document);

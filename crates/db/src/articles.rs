@@ -843,6 +843,8 @@ pub struct LibraryFilter<'a> {
     pub category_id: Option<Uuid>,
     pub unfiled: bool,
     pub tag: Option<&'a str>,
+    /// Hide articles the user has already opened. Independent of read state.
+    pub unseen_only: bool,
 }
 
 /// A row for the reading list: shared article fields plus this user's personal
@@ -859,8 +861,10 @@ pub struct ArticleListItem {
     pub published_at: Option<time::OffsetDateTime>,
     pub feed_name: String,
     pub is_read: bool,
+    pub is_seen: bool,
     pub is_bookmarked: bool,
     pub has_summary: bool,
+    pub story_count: i32,
     pub feedback_value: Option<f64>,
     pub subscription_settings: Option<serde_json::Value>,
 }
@@ -890,15 +894,20 @@ pub async fn list_for_user(
          SELECT a.id, a.feed_id, a.title, a.url, a.author, a.excerpt, a.image_url, a.published_at, \
                 coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
+                (seen.article_id IS NOT NULL) AS is_seen, \
                 (b.article_id IS NOT NULL) AS is_bookmarked, \
                 (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL) AS has_summary, \
+                coalesce(sc.member_count, 0) AS story_count, \
                 af.feedback_value, uf.settings AS subscription_settings \
          FROM articles a \
          JOIN feeds f ON f.id = a.feed_id \
          JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
          LEFT JOIN read_articles r ON r.article_id = a.id AND r.user_id = $1 \
+         LEFT JOIN seen_articles seen ON seen.article_id = a.id AND seen.user_id = $1 \
          LEFT JOIN bookmarks b ON b.article_id = a.id AND b.user_id = $1 \
          LEFT JOIN article_feedback af ON af.article_id = a.id AND af.user_id = $1 \
+         LEFT JOIN story_cluster_members scm ON scm.article_id = a.id \
+         LEFT JOIN story_clusters sc ON sc.id = scm.cluster_id \
          WHERE ($2::uuid IS NULL OR a.feed_id = $2) \
            AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
                 JOIN category_scope scope ON scope.id = ufc.user_category_id \
@@ -908,7 +917,8 @@ pub async fn list_for_user(
            AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[] \
                OR EXISTS (SELECT 1 FROM unnest(uf.tags) stored_tag \
                   WHERE lower(stored_tag) = lower($5))) \
-           AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) {read_filter} \
+           AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) \
+           AND (NOT $9 OR seen.article_id IS NULL) {read_filter} \
          ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
          LIMIT $6 OFFSET $7",
         read_filter = if unread_only {
@@ -926,6 +936,7 @@ pub async fn list_for_user(
         .bind(limit)
         .bind(offset)
         .bind(summary_only)
+        .bind(filter.unseen_only)
         .fetch_all(pool)
         .await?)
 }

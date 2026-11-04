@@ -49,14 +49,16 @@
       <p><a class="btn primary" href="/feeds">Manage feeds</a></p>
     </div>
     {% else %}
-    <ul class="article-list" data-reading-mode="{% if side_panel %}side-panel{% else %}{{ reading_mode }}{% endif %}"{% if side_panel %} data-reading-panel="#reading-pane"{% endif %}>
+    <ul class="article-list" data-infinite-list data-reading-mode="{% if side_panel %}side-panel{% else %}{{ reading_mode }}{% endif %}"{% if side_panel %} data-reading-panel="#reading-pane"{% endif %}>
       {% for a in articles %}
-      <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}" data-article-card>
+      <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_seen && !a.is_read %}seen{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}" data-article-card>
         <button type="button" class="article-drag-handle" draggable="true" data-feed-drag data-feed-id="{{ a.feed_id }}" data-feed-name="{{ a.feed_name }}" aria-label="Move the {{ a.feed_name }} source feed to a folder" title="Drag to a folder, or select to choose one">⠿</button>
         {% if let Some(image_url) = a.image_url %}<img class="article-thumbnail" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
         <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if side_panel %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
         <div class="meta">
           {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
+          {% if a.is_seen && !a.is_read %} · <span class="badge">Seen</span>{% endif %}
+          {% if a.story_count > 1 %} · <span class="badge">{{ a.story_count }} sources</span>{% endif %}
           {% if let Some(pct) = a.score %} · <span class="badge">{{ pct }}% for you</span>{% endif %}
         </div>
         {% if let Some(excerpt) = a.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
@@ -131,9 +133,9 @@
       {% endfor %}
     </ul>
 
-    <nav class="pager" aria-label="Article pagination">
+    <nav class="pager" data-infinite-pager aria-label="Article pagination">
       {% if has_prev %}<a href="{{ prev_url }}">Newer</a>{% endif %}
-      {% if has_next %}<a href="{{ next_url }}" class="pager-next">Older</a>{% endif %}
+      {% if has_next %}<a href="{{ next_url }}" class="pager-next" data-infinite-next>Older</a>{% endif %}
     </nav>
     {% endif %}
   </section>

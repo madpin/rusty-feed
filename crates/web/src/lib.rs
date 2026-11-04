@@ -18,6 +18,7 @@ mod captcha;
 mod catalog;
 mod catalog_view;
 mod customization;
+mod digests;
 mod error;
 pub mod extract;
 mod feeds;
@@ -111,6 +112,8 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/oauth/{provider}", get(oauth::start))
         .route("/auth/oauth/{provider}/callback", get(oauth::callback))
         .route("/articles", get(reader::list))
+        .route("/digests", get(digests::page))
+        .route("/digests/refresh", post(digests::refresh))
         .route("/articles/read-all", post(reader::mark_all_read))
         .route("/articles/{id}", get(reader::read))
         .route("/articles/{id}/panel", get(reader::side_panel))

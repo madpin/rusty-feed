@@ -39,7 +39,7 @@ place and groups repeated feed-health changes so they do not overwhelm you.
 The Library sidebar is stable navigation, independent of the current article
 filter. Use it to switch between:
 
-- **Most recent**, **Unread only**, or **Personalized** ranking;
+- **Most recent**, **Unread only**, **Unseen**, or **Personalized** ranking;
 - **Unread AI summaries** — jump straight to the summaries that finished generating while you moved on to other articles, skipping ones you've already read or that don't have a summary yet;
 - a folder and all of its nested sources;
 - **Unfiled feeds**;
@@ -53,8 +53,13 @@ Thumbs feedback is private and trains your personal relevance model. A bookmark
 is also personal and protects the shared article from age-based retention.
 
 Use **Mark all read** to apply the current Library scope—not the whole account
-unless the current scope is the whole account. Pagination is bounded and keeps
-the active filter in its links.
+unless the current scope is the whole account. The Older link keeps the active
+filter. With JavaScript, further pages append as you reach the end of the list.
+
+Opening an article marks it seen. That is separate from read: a seen, unread
+card stays in the unread list unless you also mark it read. **Unseen** hides
+articles you have already opened. **Briefing** collects stories that more than
+one of your sources covered.
 
 ### Reading modes
 
@@ -326,9 +331,9 @@ Revoke the link to invalidate it immediately.
 ## 8. Preferences, shortcuts, sessions, and installation
 
 **Account → Reading & display** contains theme, typography, density, reading
-mode, sidebar, external-link, media, YouTube, privacy, search, notification,
-keyboard, locale, fallback locale, IANA time zone, date order, and number
-grouping settings. Reset/inherit controls make the effective instance default
+mode, the ADHD-friendly format, daily briefing options, sidebar, external-link,
+media, YouTube, privacy, search, notification, keyboard, locale, fallback
+locale, IANA time zone, date order, and number grouping settings. Reset/inherit controls make the effective instance default
 clear. The shell, navigation, primary reader actions, and formatted dates use
 the selected profile; Arabic also switches the document to right-to-left.
 Some feature/admin/validation strings still fall back to English while the

@@ -56,7 +56,7 @@ All fourteen milestones meet their v1 product outcome and verification bar.
 The repository is a release candidate; pushing the intended `vX.Y.Z` tag is a
 separate maintainer-controlled publication action.
 
-Post-v1: a distinct seen state remains optional; clustering/digests and ADHD mode remain v2 work. The expanded Miniflux audit is 65/67 complete, with full translation coverage and exact turnkey adapters for all advertised providers still partial.
+Seen state, shared story clustering, personal briefings, ADHD reading format, bare-URL linking, password reset, and library infinite scroll are implemented. The expanded Miniflux audit is 65/67 complete, with full translation coverage and exact turnkey adapters for all advertised providers still partial. Offline article storage and the separate Rusty Signal service remain out of this repository.
 
 Miniflux ecosystem parity is tracked across milestones in
 [`docs/MINIFLUX_PARITY.md`](MINIFLUX_PARITY.md). Any task that implements or
@@ -339,7 +339,7 @@ explicitly partial rather than silently overstated.
 ## Post-v1
 
 - **v1.1:** bookmarks, hybrid search, media proxy, public sharing, invitations, and batched health notifications landed in v1. A dedicated "seen" state distinct from read remains optional product work.
-- **v2:** configurable keyboard shortcuts, privacy-enhanced and alternative YouTube players, touch gestures, date/number/locale profiles, duration enrichment, Fever compatibility, UI customization, and deeper storage/log administration landed early. ClusterAgent (related events), DigestAgent (LLM event/daily digests, optional email), ADHD reading formatting, full translated-string coverage, remaining turnkey integration adapters, and auto-linking bare text remain.
+- **v2:** configurable keyboard shortcuts, privacy-enhanced and alternative YouTube players, touch gestures, date/number/locale profiles, duration enrichment, Fever compatibility, UI customization, and deeper storage/log administration landed early. Story clustering, daily briefings, ADHD reading format, bare-URL linking, a distinct seen state, password reset, and infinite scroll have since landed. Full translated-string coverage and the remaining turnkey integration adapters remain.
 
 ---
 

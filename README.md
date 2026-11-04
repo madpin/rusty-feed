@@ -65,7 +65,7 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 - Versioned personal CSS, administrator-managed opt-in JavaScript with Safe Mode, public YouTube duration enrichment, and 20 selectable locale/format profiles
 - Named article destinations and signed event webhooks with encrypted credential rotation, templates, event filters, low-impact retries, dead letters, and delivery history
 
-**After v1:** the product program continues with news **clustering + LLM digests**, ADHD-friendly reading formatting, completion of every translated UI string and accessibility label, and exact turnkey contracts for the remaining hosted integration providers. Fever compatibility, YouTube duration enrichment, automatic/custom HTTPS with HTTP/2, touch navigation, and a validated alternative-player path are already implemented. Full status lives in **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)** and the separate parity tracker.
+**After v1:** shared story clustering, personal briefings, an ADHD-friendly reading format, bare-URL linking, a seen state separate from read, password reset, and infinite scroll are implemented. Completion of every translated UI string and accessibility label, and exact turnkey contracts for the remaining hosted integration providers, are still partial. Full status lives in **[docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)** and the separate parity tracker.
 
 The living Miniflux feature-parity and customization checklist is in
 **[docs/MINIFLUX_PARITY.md](docs/MINIFLUX_PARITY.md)**.
@@ -274,7 +274,7 @@ The detailed status and acceptance evidence are maintained in
   - [x] Performance, dependency-failure, model offline-cache, upgrade/backup/restore, and browser acceptance evidence
   - [x] Versioned native archives, Debian/RPM packages, and multi-registry amd64/arm64 images with checksums, SBOM/provenance, smoke/upgrade checks, and keyless signatures (publication occurs when a maintainer pushes a version tag)
 - [ ] **Broader Miniflux parity program** — 65/67 complete; complete catalogs for every UI/validation/notification/accessibility string and exact service-specific adapters for every advertised integration remain
-- [ ] **Post-v1 product program** — clustering/digests and ADHD reading mode remain deliberately scoped after v1
+- [x] **Post-v1 reading product** — seen state, shared story clustering, personal briefings, ADHD reading format, bare-URL linking, password reset, and infinite scroll
 
 Work is committed iteratively per milestone using **[Conventional Commits](https://www.conventionalcommits.org/)** (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`), with commit bodies explaining the *why*.
 

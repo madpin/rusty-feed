@@ -1,0 +1,84 @@
+{% for a in articles %}
+<li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_seen && !a.is_read %}seen{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}" data-article-card>
+  <button type="button" class="article-drag-handle" draggable="true" data-feed-drag data-feed-id="{{ a.feed_id }}" data-feed-name="{{ a.feed_name }}" aria-label="Move the {{ a.feed_name }} source feed to a folder" title="Drag to a folder, or select to choose one">⠿</button>
+  {% if let Some(image_url) = a.image_url %}<img class="article-thumbnail" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
+  <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if side_panel %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
+  <div class="meta">
+    {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
+    {% if a.is_seen && !a.is_read %} · <span class="badge">Seen</span>{% endif %}
+    {% if a.story_count > 1 %} · <span class="badge">{{ a.story_count }} sources</span>{% endif %}
+    {% if let Some(pct) = a.score %} · <span class="badge">{{ pct }}% for you</span>{% endif %}
+  </div>
+  {% if let Some(excerpt) = a.excerpt %}<p class="excerpt">{{ excerpt }}</p>{% endif %}
+  <div class="article-inline" id="inline-{{ a.id }}" hidden></div>
+  <div class="actions" aria-label="Article actions">
+    <form class="js-action" method="post" data-action="read-toggle"
+          action="/articles/{{ a.id }}/{% if a.is_read %}unread{% else %}read{% endif %}"
+          data-target="#card-{{ a.id }}" data-toggle-class="read"
+          data-alt-action="/articles/{{ a.id }}/{% if a.is_read %}read{% else %}unread{% endif %}"
+          data-alt-label="{% if a.is_read %}Mark read{% else %}Mark unread{% endif %}"
+          data-success-message="Reading status updated.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="{{ back_url }}" />
+      <button type="submit">{% if a.is_read %}Mark unread{% else %}Mark read{% endif %}</button>
+    </form>
+    <form class="js-action" method="post" data-action="bookmark-toggle"
+          action="/articles/{{ a.id }}/{% if a.is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"
+          data-target="#card-{{ a.id }}" data-toggle-class="bookmarked"
+          data-alt-action="/articles/{{ a.id }}/{% if a.is_bookmarked %}bookmark{% else %}unbookmark{% endif %}"
+          data-alt-label="{% if a.is_bookmarked %}Save{% else %}Saved{% endif %}"
+          data-success-message="Saved state updated.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="{{ back_url }}" />
+      <button type="submit">{% if a.is_bookmarked %}Saved{% else %}Save{% endif %}</button>
+    </form>
+    {% if a.has_summary %}
+    <a href="/articles/{{ a.id }}" class="btn summary-card-link">View AI summary</a>
+    {% else if a.can_summarize %}
+    <form class="js-action" method="post" action="/articles/{{ a.id }}/summarize"
+          data-action="summarize" data-summary-status-url="/articles/{{ a.id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="next" value="{{ back_url }}" />
+      <button type="submit" class="summary-button">Summarize with AI</button>
+    </form>
+    {% endif %}
+    <a href="/articles/{{ a.id }}/send" class="btn">Send to…</a>
+    <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
+          data-target="#card-{{ a.id }}" data-feedback-value="up" data-success-message="Rusty Feed will show you more articles like this.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="value" value="up" />
+      <input type="hidden" name="next" value="{{ back_url }}" />
+      <button type="submit" class="feedback-button" data-feedback-button="up" aria-label="More like this" title="More like this" aria-pressed="{% if a.is_liked %}true{% else %}false{% endif %}">👍</button>
+    </form>
+    <form class="js-action" method="post" action="/articles/{{ a.id }}/feedback"
+          data-target="#card-{{ a.id }}" data-feedback-value="down" data-success-message="Rusty Feed will show you fewer articles like this.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <input type="hidden" name="value" value="down" />
+      <input type="hidden" name="next" value="{{ back_url }}" />
+      <button type="submit" class="feedback-button" data-feedback-button="down" aria-label="Less like this" title="Less like this" aria-pressed="{% if a.is_disliked %}true{% else %}false{% endif %}">👎</button>
+    </form>
+    <details class="report-control card-report">
+      <summary class="card-report-icon" aria-label="Report this article" title="Report this article">⚑</summary>
+      <div class="report-control-body">
+        <p class="report-control-heading">Report this article</p>
+        <form method="post" action="/articles/{{ a.id }}/report" class="stack">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <label>Reason
+            <select name="reason">
+              <option value="spam or advertising">Spam or advertising</option>
+              <option value="malware or phishing">Malware or phishing</option>
+              <option value="illegal content">Illegal content</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <button type="submit" class="danger">Report to admins</button>
+        </form>
+      </div>
+    </details>
+  </div>
+  <p class="card-summary-status muted" data-summary-progress role="status"></p>
+</li>
+{% endfor %}
+<nav class="pager" data-infinite-pager aria-label="Article pagination">
+  {% if has_next %}<a href="{{ next_url }}" class="pager-next" data-infinite-next>Older</a>{% endif %}
+</nav>

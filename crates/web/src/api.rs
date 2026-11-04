@@ -268,6 +268,7 @@ pub async fn articles_list(
             category_id: None,
             unfiled: false,
             tag: None,
+            unseen_only: false,
         },
         query.unread,
         false,

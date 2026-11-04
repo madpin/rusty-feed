@@ -3830,6 +3830,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "hmac",
+ "lettre",
  "regex",
  "rusty-feed-core",
  "rusty-feed-db",

@@ -18,6 +18,7 @@ mod fetch_feed;
 mod integration_delivery;
 mod pattern_decay;
 mod saved_search;
+mod stories;
 mod summarize;
 mod summary_backfill;
 mod worker;
@@ -33,6 +34,7 @@ pub use fetch_feed::FetchFeedAgent;
 pub use integration_delivery::IntegrationDeliveryAgent;
 pub use pattern_decay::PatternDecayAgent;
 pub use saved_search::{SavedSearchMatchAgent, SavedSearchScanAgent};
+pub use stories::{ClusterStoriesAgent, DailyDigestAgent};
 pub use summarize::SummarizeArticleAgent;
 pub use summary_backfill::SummaryBackfillAgent;
 pub use worker::{

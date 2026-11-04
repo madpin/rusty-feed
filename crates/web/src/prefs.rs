@@ -247,6 +247,12 @@ pub struct Preferences {
     pub touch_gesture_sensitivity: String,
     /// `natural` or `reversed` article-navigation direction.
     pub touch_gesture_direction: String,
+    /// `standard` or `adhd`.
+    pub reading_format: String,
+    /// Assemble a personal daily briefing from shared stories.
+    pub daily_digest: bool,
+    /// Email that briefing when the instance has SMTP configured.
+    pub digest_email: bool,
     /// Content interests (catalog categories) chosen in the setup wizard; used to
     /// pre-filter feed suggestions and remembered so the wizard can be re-run.
     pub interests: Vec<String>,
@@ -296,6 +302,9 @@ impl Default for Preferences {
             touch_gestures_enabled: false,
             touch_gesture_sensitivity: "medium".to_string(),
             touch_gesture_direction: "natural".to_string(),
+            reading_format: "standard".to_string(),
+            daily_digest: false,
+            digest_email: false,
             interests: Vec::new(),
             shortcuts: KeyboardShortcuts::default(),
         }
@@ -361,6 +370,9 @@ impl Preferences {
             "side-panel" | "standalone" | "inline"
         ) {
             self.reading_mode = "side-panel".to_string();
+        }
+        if !matches!(self.reading_format.as_str(), "standard" | "adhd") {
+            self.reading_format = "standard".to_string();
         }
         if !matches!(
             self.article_density.as_str(),
@@ -632,6 +644,14 @@ pub struct PrefsForm {
     touch_gesture_sensitivity: Option<String>,
     #[serde(default)]
     touch_gesture_direction: Option<String>,
+    #[serde(default)]
+    reading_format: Option<String>,
+    #[serde(default)]
+    briefing_settings_present: Option<String>,
+    #[serde(default)]
+    daily_digest: Option<String>,
+    #[serde(default)]
+    digest_email: Option<String>,
     #[serde(default)]
     shortcuts_enabled: Option<String>,
     #[serde(default)]
@@ -967,6 +987,17 @@ pub async fn save(
         touch_gesture_direction: form
             .touch_gesture_direction
             .unwrap_or(current.touch_gesture_direction),
+        reading_format: form.reading_format.unwrap_or(current.reading_format),
+        daily_digest: if form.briefing_settings_present.is_some() {
+            form.daily_digest.is_some()
+        } else {
+            current.daily_digest
+        },
+        digest_email: if form.briefing_settings_present.is_some() {
+            form.digest_email.is_some()
+        } else {
+            current.digest_email
+        },
         interests: current.interests,
         shortcuts,
     }

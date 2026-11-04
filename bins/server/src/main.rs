@@ -339,6 +339,12 @@ async fn main() -> anyhow::Result<()> {
                     &config.demo_reset_schedule,
                 )
                 .map_err(|error| anyhow::anyhow!("invalid DEMO_RESET_SCHEDULE: {error}"))?,
+                smtp_url: config
+                    .smtp_url
+                    .as_ref()
+                    .map(|value| value.expose().to_string()),
+                smtp_from: config.smtp_from.clone(),
+                public_base_url: config.base_url(),
                 ..rusty_feed_agents::WorkerConfig::default()
             },
         );

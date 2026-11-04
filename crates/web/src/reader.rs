@@ -22,10 +22,11 @@ use rusty_feed_core::html::{
     apply_external_link_navigation, sanitize_article_html_with_policies,
     ARTICLE_PAGE_PROCESSING_VERSION,
 };
+use rusty_feed_core::reading::{apply_adhd_reading, autolink_bare_urls};
 use rusty_feed_core::youtube::{SubscriptionYouTubeMode, YouTubePolicy, YouTubeVideo};
 use rusty_feed_db::{
     articles, bookmarks, categories, cost_ledger, feed_icons, feedback, feeds, jobs, llm_profiles,
-    patterns, read_articles, subscriptions, youtube_metadata,
+    patterns, read_articles, seen_articles, stories, subscriptions, youtube_metadata,
 };
 use rusty_feed_search::personalize;
 use rusty_feed_search::{extract_keywords, relevance_score, ExplicitFeedback};
@@ -53,8 +54,10 @@ struct ArticleView {
     feed_name: String,
     published: Option<String>,
     is_read: bool,
+    is_seen: bool,
     is_bookmarked: bool,
     has_summary: bool,
+    story_count: i32,
     can_summarize: bool,
     is_liked: bool,
     is_disliked: bool,
@@ -148,12 +151,14 @@ struct ArticlesTemplate {
     unread_url: String,
     relevance_url: String,
     summary_url: String,
+    unseen_url: String,
     scope_label: String,
     feed_filter: Option<String>,
     category_filter: Option<String>,
     tag_filter: Option<String>,
     unfiled_url: String,
     unread_only: bool,
+    unseen_only: bool,
     summary_only: bool,
     unfiled_only: bool,
     reading_mode: String,
@@ -205,8 +210,16 @@ struct ArticleTemplate {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    story_summary: Option<String>,
+    story_sources: Vec<StorySource>,
     external_new_tab: bool,
     share: ShareControls,
+}
+
+struct StorySource {
+    title: String,
+    href: String,
+    feed_name: String,
 }
 
 #[derive(Template)]
@@ -243,8 +256,22 @@ struct ArticlePanelTemplate {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    story_summary: Option<String>,
+    story_sources: Vec<StorySource>,
     external_new_tab: bool,
     share: ShareControls,
+}
+
+#[derive(Template)]
+#[template(path = "articles_fragment.html")]
+struct ArticlesFragmentTemplate {
+    csrf_token: String,
+    articles: Vec<ArticleView>,
+    reading_mode: String,
+    side_panel: bool,
+    back_url: String,
+    has_next: bool,
+    next_url: String,
 }
 
 struct ReaderView {
@@ -277,6 +304,8 @@ struct ReaderView {
     key_points: Vec<String>,
     topics: Vec<String>,
     can_summarize: bool,
+    story_summary: Option<String>,
+    story_sources: Vec<StorySource>,
     external_new_tab: bool,
     share: ShareControls,
 }
@@ -433,6 +462,12 @@ pub struct ArticlesQuery {
     /// `1` shows only articles with a ready AI summary (implies unread).
     #[serde(default)]
     summary: Option<String>,
+    /// `1` hides articles the user has already opened.
+    #[serde(default)]
+    unseen: Option<String>,
+    /// `items` returns the next card page for infinite scroll.
+    #[serde(default)]
+    fragment: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -591,6 +626,17 @@ fn articles_url(
     }
 }
 
+fn with_unseen(url: String, unseen: bool) -> String {
+    if !unseen {
+        return url;
+    }
+    if url.contains('?') {
+        format!("{url}&unseen=1")
+    } else {
+        format!("{url}?unseen=1")
+    }
+}
+
 fn append_folder_nav(
     parent_id: Option<Uuid>,
     depth: usize,
@@ -718,6 +764,7 @@ pub async fn list(
     // "show read articles" preference, the same way the plain "Unread only"
     // link already overrides it.
     let summary_only = q.summary.as_deref() == Some("1");
+    let unseen_only = q.unseen.as_deref() == Some("1");
     let tag = normalized_tag(q.tag).map_err(AppError::Validation)?;
     let unread_only =
         unread_filter.unwrap_or(tag.is_none() && !prefs.show_read_articles) || summary_only;
@@ -741,6 +788,7 @@ pub async fn list(
         category_id,
         unfiled,
         tag: tag.as_deref(),
+        unseen_only,
     };
     let (article_views, has_next, filtered_count) = if sort == "relevance" {
         relevance_page(
@@ -768,6 +816,55 @@ pub async fn list(
         .await?
     };
 
+    if q.fragment.as_deref() == Some("items") {
+        let side_panel = prefs.reading_mode == "side-panel" && !article_views.is_empty();
+        let back_url = with_unseen(
+            articles_url(
+                feed_id,
+                category_id,
+                unfiled,
+                tag.as_deref(),
+                Some(unread_only),
+                sort,
+                Some(offset),
+                summary_only,
+            ),
+            unseen_only,
+        );
+        let next_url = with_unseen(
+            articles_url(
+                feed_id,
+                category_id,
+                unfiled,
+                tag.as_deref(),
+                Some(unread_only),
+                sort,
+                Some(offset + per_page),
+                summary_only,
+            ),
+            unseen_only,
+        );
+        let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
+        let body = ArticlesFragmentTemplate {
+            csrf_token,
+            articles: article_views,
+            reading_mode: prefs.reading_mode,
+            side_panel,
+            back_url,
+            has_next,
+            next_url,
+        }
+        .render()
+        .map(Html)
+        .map_err(|error| AppError::Internal(anyhow::anyhow!("template render failed: {error}")))?;
+        let mut response = (jar, body).into_response();
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store"),
+        );
+        return Ok(response);
+    }
+
     let (feed_records, category_records, tag_records, organizations, unread_counts) = tokio::try_join!(
         feeds::list_for_user(state.db.pool(), user.id),
         categories::list_with_feed_counts(state.db.pool(), user.id),
@@ -789,6 +886,7 @@ pub async fn list(
             (Some(category), Some(tag)) => format!("{category} · #{tag}"),
             (Some(category), None) => format!("Folder: {category}"),
             (None, Some(tag)) => format!("Tag: #{tag}"),
+            (None, None) if unseen_only => "Unseen".to_string(),
             (None, None) if summary_only => "Unread AI summaries".to_string(),
             (None, None) if unread_only => "Unread only".to_string(),
             (None, None) if sort == "relevance" => "Personalized".to_string(),
@@ -882,15 +980,18 @@ pub async fn list(
         })
         .collect();
     let side_panel = prefs.reading_mode == "side-panel" && !article_views.is_empty();
-    let back_url = articles_url(
-        feed_id,
-        category_id,
-        unfiled,
-        tag.as_deref(),
-        Some(unread_only),
-        sort,
-        Some(offset),
-        summary_only,
+    let back_url = with_unseen(
+        articles_url(
+            feed_id,
+            category_id,
+            unfiled,
+            tag.as_deref(),
+            Some(unread_only),
+            sort,
+            Some(offset),
+            summary_only,
+        ),
+        unseen_only,
     );
     // Nudge keyless users to bring their own AI key once, at the top of the list,
     // instead of repeating the pitch inside every article (§8.1.3).
@@ -950,6 +1051,19 @@ pub async fn list(
             None,
             true,
         ),
+        unseen_url: with_unseen(
+            articles_url(
+                feed_id,
+                category_id,
+                unfiled,
+                tag.as_deref(),
+                Some(true),
+                "recent",
+                None,
+                false,
+            ),
+            true,
+        ),
         unfiled_url: articles_url(
             None,
             None,
@@ -966,6 +1080,7 @@ pub async fn list(
         tag_filter: tag.clone(),
         unfiled_only: unfiled,
         unread_only,
+        unseen_only,
         summary_only,
         reading_mode: prefs.reading_mode,
         side_panel,
@@ -973,25 +1088,31 @@ pub async fn list(
         back_url,
         has_prev: offset > 0,
         has_next,
-        prev_url: articles_url(
-            feed_id,
-            category_id,
-            unfiled,
-            tag.as_deref(),
-            Some(unread_only),
-            sort,
-            Some((offset - per_page).max(0)),
-            summary_only,
+        prev_url: with_unseen(
+            articles_url(
+                feed_id,
+                category_id,
+                unfiled,
+                tag.as_deref(),
+                Some(unread_only),
+                sort,
+                Some((offset - per_page).max(0)),
+                summary_only,
+            ),
+            unseen_only,
         ),
-        next_url: articles_url(
-            feed_id,
-            category_id,
-            unfiled,
-            tag.as_deref(),
-            Some(unread_only),
-            sort,
-            Some(offset + per_page),
-            summary_only,
+        next_url: with_unseen(
+            articles_url(
+                feed_id,
+                category_id,
+                unfiled,
+                tag.as_deref(),
+                Some(unread_only),
+                sort,
+                Some(offset + per_page),
+                summary_only,
+            ),
+            unseen_only,
         ),
         filtered_count,
         show_ai_key_cue,
@@ -1046,8 +1167,10 @@ async fn recency_page(
             feed_name: a.feed_name,
             published: a.published_at.map(|date| preferences.format_date(date)),
             is_read: a.is_read,
+            is_seen: a.is_seen,
             is_bookmarked: a.is_bookmarked,
             has_summary: a.has_summary,
+            story_count: a.story_count,
             can_summarize: state.settings.summarization_enabled && !a.has_summary,
             is_liked: a.feedback_value.is_some_and(|value| value > 0.0),
             is_disliked: a.feedback_value.is_some_and(|value| value < 0.0),
@@ -1137,8 +1260,10 @@ async fn relevance_page(
             feed_name: a.feed_name,
             published: a.published_at.map(|date| preferences.format_date(date)),
             is_read: a.is_read,
+            is_seen: a.is_seen,
             is_bookmarked: a.is_bookmarked,
             has_summary: a.has_summary,
+            story_count: a.story_count,
             can_summarize: state.settings.summarization_enabled && !a.has_summary,
             is_liked: a.feedback_value.is_some_and(|value| value > 0.0),
             is_disliked: a.feedback_value.is_some_and(|value| value < 0.0),
@@ -1220,6 +1345,45 @@ pub async fn feedback(
 }
 
 /// Estimate reading time (seconds) at ~200 wpm.
+fn present_reader_html(html: &str, new_tab: bool, adhd: bool) -> String {
+    let linked = autolink_bare_urls(html);
+    let navigable = apply_external_link_navigation(&linked, new_tab);
+    if adhd {
+        apply_adhd_reading(&navigable)
+    } else {
+        navigable
+    }
+}
+
+async fn note_article_opened(
+    state: &AppState,
+    user_id: Uuid,
+    article_id: Uuid,
+    auto_mark_read: bool,
+) -> Result<(), AppError> {
+    seen_articles::mark_seen(state.db.pool(), user_id, article_id).await?;
+    if auto_mark_read {
+        read_articles::mark_read(state.db.pool(), user_id, article_id).await?;
+    }
+    Ok(())
+}
+
+fn story_view(coverage: stories::ArticleCoverage) -> (Option<String>, Vec<StorySource>) {
+    if coverage.sources.is_empty() {
+        return (None, Vec::new());
+    }
+    let sources = coverage
+        .sources
+        .into_iter()
+        .map(|source| StorySource {
+            href: format!("/articles/{}", source.article_id),
+            title: source.title,
+            feed_name: source.feed_name,
+        })
+        .collect();
+    (coverage.summary, sources)
+}
+
 fn estimate_reading_seconds(content: &str) -> f64 {
     let words = content.split_whitespace().count().max(1) as f64;
     words / 200.0 * 60.0
@@ -1638,9 +1802,7 @@ async fn reader_view(
     let article = articles::find_by_id(state.db.pool(), id)
         .await?
         .ok_or(AppError::NotFound)?;
-    if preferences.auto_mark_read {
-        read_articles::mark_read(state.db.pool(), user_id, id).await?;
-    }
+    note_article_opened(state, user_id, id, preferences.auto_mark_read).await?;
 
     let feed = feeds::find_by_id(state.db.pool(), article.feed_id).await?;
     let subscription = subscriptions::find(state.db.pool(), user_id, article.feed_id).await?;
@@ -1822,6 +1984,8 @@ async fn reader_view(
     };
     let share =
         public_shares::controls(state, user_id, id, &article.title, default_share_source).await?;
+    let (story_summary, story_sources) =
+        story_view(stories::coverage_for_user(state.db.pool(), user_id, id).await?);
     Ok(ReaderView {
         id: id.to_string(),
         title: article.title,
@@ -1852,7 +2016,11 @@ async fn reader_view(
         published: article
             .published_at
             .map(|date| preferences.format_date(date)),
-        content: apply_external_link_navigation(&content_report.html, external_new_tab),
+        content: present_reader_html(
+            &content_report.html,
+            external_new_tab,
+            preferences.reading_format == "adhd",
+        ),
         content_notice,
         content_pending: content_availability == ContentAvailability::Pending,
         blocked_tracking_pixels: (preferences.show_blocked_tracking_notice
@@ -1866,6 +2034,8 @@ async fn reader_view(
         key_points,
         topics,
         can_summarize,
+        story_summary,
+        story_sources,
         external_new_tab,
         share,
     })
@@ -1918,6 +2088,8 @@ pub async fn read(
         key_points: article.key_points,
         topics: article.topics,
         can_summarize: article.can_summarize,
+        story_summary: article.story_summary,
+        story_sources: article.story_sources,
         external_new_tab: article.external_new_tab,
         share: article.share,
     }
@@ -1974,6 +2146,8 @@ pub async fn side_panel(
         key_points: article.key_points,
         topics: article.topics,
         can_summarize: article.can_summarize,
+        story_summary: article.story_summary,
+        story_sources: article.story_sources,
         external_new_tab: article.external_new_tab,
         share: article.share,
     }
@@ -1997,9 +2171,7 @@ pub async fn content_fragment(
         .await?
         .ok_or(AppError::NotFound)?;
     let prefs = prefs::load(&state.db, user.id).await;
-    if prefs.auto_mark_read {
-        read_articles::mark_read(state.db.pool(), user.id, id).await?;
-    }
+    note_article_opened(&state, user.id, id, prefs.auto_mark_read).await?;
     let settings =
         subscriptions::content_settings_for_user(state.db.pool(), user.id, article.feed_id)
             .await?
@@ -2025,7 +2197,11 @@ pub async fn content_fragment(
     };
     let external_new_tab =
         state.settings.external_links_new_tab_required || prefs.external_open_mode == "new-tab";
-    let content = apply_external_link_navigation(&report.html, external_new_tab);
+    let content = present_reader_html(
+        &report.html,
+        external_new_tab,
+        prefs.reading_format == "adhd",
+    );
     Ok((
         [("x-rusty-feed-content-status", availability.as_str())],
         Html(format!("{notice}{content}")),

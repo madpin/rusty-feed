@@ -27,6 +27,7 @@ tracing = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 async-trait = "0.1"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls", "hostname"] }
 url = { workspace = true }
 regex = { workspace = true }
 

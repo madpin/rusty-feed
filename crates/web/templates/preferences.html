@@ -175,6 +175,22 @@
       <input type="checkbox" name="auto_mark_read" value="true"{% if prefs_auto_mark_read %} checked{% endif %} />
       <span>Mark articles read when opened</span>
     </label>
+    <label>Reading format
+      <select name="reading_format">
+        <option value="standard"{% if ui.reading_format == "standard" %} selected{% endif %}>Standard</option>
+        <option value="adhd"{% if ui.reading_format == "adhd" %} selected{% endif %}>ADHD-friendly</option>
+      </select>
+    </label>
+    <p class="muted">ADHD-friendly reading shortens the measure, opens the paragraphs, and bolds the start of longer words. Opening an article records that you have seen it without changing its read state.</p>
+    <input type="hidden" name="briefing_settings_present" value="1" />
+    <label class="check-row">
+      <input type="checkbox" name="daily_digest" value="true"{% if ui.daily_digest %} checked{% endif %} />
+      <span>Build a daily briefing from stories covered by more than one source</span>
+    </label>
+    <label class="check-row">
+      <input type="checkbox" name="digest_email" value="true"{% if ui.digest_email %} checked{% endif %} />
+      <span>Email that briefing when this instance can send mail</span>
+    </label>
     {% if external_links_new_tab_required %}<p class="notice">This instance requires publisher links to open in a new tab.</p>{% endif %}
     <p class="muted">Rusty Feed keeps the publisher-provided URL for provenance. Clean links remove analytics parameters according to the instance policy; same-tab and new-tab links always suppress the referrer and opener relationship.</p>
   </fieldset>

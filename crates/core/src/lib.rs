@@ -27,6 +27,7 @@ pub mod html;
 pub mod i18n;
 pub mod integrations;
 pub mod quotas;
+pub mod reading;
 pub mod secret;
 pub mod tracking_pixel;
 pub mod tracking_url;
