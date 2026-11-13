@@ -126,6 +126,8 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/media/{position}", get(media_proxy::get))
         .route("/articles/{id}/read", post(reader::mark_read))
         .route("/articles/{id}/unread", post(reader::mark_unread))
+        .route("/articles/{id}/seen", post(reader::mark_seen))
+        .route("/articles/{id}/unseen", post(reader::mark_unseen))
         .route("/articles/{id}/bookmark", post(reader::bookmark))
         .route("/articles/{id}/unbookmark", post(reader::unbookmark))
         .route("/articles/{id}/feedback", post(reader::feedback))

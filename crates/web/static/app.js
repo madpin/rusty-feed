@@ -1861,6 +1861,7 @@
         }
         initializeFeedDragAndDrop();
         initializeFeedMoveDialog();
+        initializeSeenCards(list);
         loading = false;
         if (pager.removeAttribute) pager.removeAttribute("data-loading");
         var next = pager.querySelector && pager.querySelector("[data-infinite-next]");
@@ -1881,7 +1882,60 @@
     if (first) infiniteObserver.observe(first);
   }
 
+  var seenObserver = null;
+  function initializeSeenCards(root) {
+    if (!window.IntersectionObserver) return;
+    if (!seenObserver) {
+      seenObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          var cardHeight = entry.boundingClientRect.height;
+          var viewport = entry.rootBounds ? entry.rootBounds.height : window.innerHeight;
+          var needed = Math.min(cardHeight, viewport) * 0.6;
+          if (entry.intersectionRect.height < needed) return;
+          markCardSeen(entry.target);
+        });
+      }, { threshold: [0, 0.25, 0.5, 0.6, 0.75, 1] });
+    }
+    var scope = root && root.querySelector ? root : document;
+    var cards = [];
+    if (scope.matches && scope.matches("[data-article-card]")) cards.push(scope);
+    Array.prototype.push.apply(cards, scope.querySelectorAll("[data-article-card]"));
+    cards.forEach(function (card) {
+      if (card.dataset.seenWatch === "true") return;
+      var list = card.closest("[data-infinite-list]");
+      if (list && list.getAttribute("data-skip-glance") === "true") return;
+      if (card.classList.contains("seen") || card.classList.contains("read")) return;
+      card.dataset.seenWatch = "true";
+      seenObserver.observe(card);
+    });
+  }
+  function markCardSeen(card) {
+    if (!card || card.dataset.seenSent === "true") return;
+    card.dataset.seenSent = "true";
+    if (seenObserver) seenObserver.unobserve(card);
+    var id = card.getAttribute("data-article-id");
+    var tokenInput = card.querySelector("input[name='csrf_token']");
+    if (!id || !tokenInput) return;
+    var body = new URLSearchParams();
+    body.set("csrf_token", tokenInput.value);
+    fetch("/articles/" + id + "/seen", {
+      method: "POST",
+      body: body,
+      headers: { "X-Requested-With": "fetch" },
+      credentials: "same-origin",
+    }).then(function (response) {
+      if (!response.ok) throw new Error("seen failed");
+      card.classList.add("seen");
+    }).catch(function () {
+      delete card.dataset.seenSent;
+      delete card.dataset.seenWatch;
+      if (seenObserver && card.isConnected) seenObserver.observe(card);
+    });
+  }
+
   initializeReadingTracking(document);
+  initializeSeenCards(document);
   initializeInfiniteScroll(document);
   initializePendingContent(document);
   initializeSummaryActions(document);

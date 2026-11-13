@@ -56,10 +56,13 @@ Use **Mark all read** to apply the current Library scope—not the whole account
 unless the current scope is the whole account. The Older link keeps the active
 filter. With JavaScript, further pages append as you reach the end of the list.
 
-Opening an article marks it seen. That is separate from read: a seen, unread
-card stays in the unread list unless you also mark it read. **Unseen** hides
-articles you have already opened. **Briefing** collects stories that more than
-one of your sources covered.
+A card is marked seen once most of it has been on screen, and opening the
+article does the same. That is separate from read: a seen, unread card stays in
+the unread list unless you also mark it read. **Mark unseen** forgets the
+glance. **Unseen** hides articles you have already glanced at, and does not
+record new glances while you are looking through that list. **Briefing**
+collects stories that more than one source covered and links the copies you
+can open.
 
 ### Reading modes
 

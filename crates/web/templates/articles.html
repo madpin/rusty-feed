@@ -49,7 +49,7 @@
       <p><a class="btn primary" href="/feeds">Manage feeds</a></p>
     </div>
     {% else %}
-    <ul class="article-list" data-infinite-list data-reading-mode="{% if side_panel %}side-panel{% else %}{{ reading_mode }}{% endif %}"{% if side_panel %} data-reading-panel="#reading-pane"{% endif %}>
+    <ul class="article-list" data-infinite-list{% if unseen_only %} data-skip-glance="true"{% endif %} data-reading-mode="{% if side_panel %}side-panel{% else %}{{ reading_mode }}{% endif %}"{% if side_panel %} data-reading-panel="#reading-pane"{% endif %}>
       {% for a in articles %}
       <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_seen && !a.is_read %}seen{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}" data-article-card>
         <button type="button" class="article-drag-handle" draggable="true" data-feed-drag data-feed-id="{{ a.feed_id }}" data-feed-name="{{ a.feed_name }}" aria-label="Move the {{ a.feed_name }} source feed to a folder" title="Drag to a folder, or select to choose one">⠿</button>
@@ -57,7 +57,7 @@
         <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if side_panel %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
         <div class="meta">
           {{ a.feed_name }}{% if let Some(when) = a.published %} · {{ when }}{% endif %}
-          {% if a.is_seen && !a.is_read %} · <span class="badge">Seen</span>{% endif %}
+          <span data-seen-badge> · <span class="badge">Seen</span></span>
           {% if a.story_count > 1 %} · <span class="badge">{{ a.story_count }} sources</span>{% endif %}
           {% if let Some(pct) = a.score %} · <span class="badge">{{ pct }}% for you</span>{% endif %}
         </div>
@@ -73,6 +73,13 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit">{% if a.is_read %}Mark unread{% else %}Mark read{% endif %}</button>
+          </form>
+          <form class="js-action seen-clear" method="post" action="/articles/{{ a.id }}/unseen"
+                data-target="#card-{{ a.id }}" data-toggle-class="seen"
+                data-success-message="Article marked unseen.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <input type="hidden" name="next" value="{{ back_url }}" />
+            <button type="submit">Mark unseen</button>
           </form>
           <form class="js-action" method="post" data-action="bookmark-toggle"
                 action="/articles/{{ a.id }}/{% if a.is_bookmarked %}unbookmark{% else %}bookmark{% endif %}"

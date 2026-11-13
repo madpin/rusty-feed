@@ -26,8 +26,10 @@ struct Unclustered {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
-struct Nearest {
-    cluster_id: Uuid,
+struct Neighbor {
+    article_id: Uuid,
+    content_revision: i64,
+    cluster_id: Option<Uuid>,
     similarity: f64,
 }
 
@@ -77,7 +79,8 @@ pub struct CoverageSource {
 }
 
 /// Drop membership that no longer matches the embedded revision, then attach a
-/// bounded batch of recent embedded articles to an existing story or a new one.
+/// bounded batch of recent embedded articles to an existing story or to one
+/// other unmatched article. A lone article does not become a story.
 pub async fn cluster_recent(pool: &PgPool) -> Result<ClusterStats> {
     sqlx::query(
         "DELETE FROM story_cluster_members AS member \
@@ -87,12 +90,15 @@ pub async fn cluster_recent(pool: &PgPool) -> Result<ClusterStats> {
     )
     .execute(pool)
     .await?;
+    // A single article is not a story. Drop leftovers from an earlier pass that
+    // opened a cluster for every embedded article, and any cluster whose members
+    // were just removed. Membership rows cascade with the cluster.
     sqlx::query(
         "DELETE FROM story_clusters AS cluster \
-         WHERE NOT EXISTS ( \
-             SELECT 1 FROM story_cluster_members AS member \
+         WHERE ( \
+             SELECT count(*) FROM story_cluster_members AS member \
              WHERE member.cluster_id = cluster.id \
-         )",
+         ) < 2",
     )
     .execute(pool)
     .await?;
@@ -141,7 +147,7 @@ enum Attach {
 
 /// Place one embedded article into a shared story. Returns the cluster id.
 pub async fn cluster_article(pool: &PgPool, article_id: Uuid) -> Result<Option<Uuid>> {
-    let Some(model) = active_model(pool).await? else {
+    let Some(model) = model_for_article(pool, article_id).await? else {
         return Ok(None);
     };
     let Some(article) = sqlx::query_as::<_, Unclustered>(
@@ -180,14 +186,15 @@ async fn attach_article(pool: &PgPool, model: &str, article: &Unclustered) -> Re
     if existing.is_some() {
         return Ok(Attach::Skipped);
     }
-    let nearest: Option<Nearest> = sqlx::query_as(
-        "SELECT member.cluster_id, \
+    let nearest: Option<Neighbor> = sqlx::query_as(
+        "SELECT other.article_id, article.content_revision, member.cluster_id, \
                 1 - ((other.embedding <=> mine.embedding) / 2) AS similarity \
          FROM article_embeddings AS mine \
          JOIN article_embeddings AS other \
            ON other.model = mine.model AND other.article_id <> mine.article_id \
-         JOIN story_cluster_members AS member ON member.article_id = other.article_id \
          JOIN articles AS article ON article.id = other.article_id \
+           AND article.content_revision = other.content_revision \
+         LEFT JOIN story_cluster_members AS member ON member.article_id = other.article_id \
          WHERE mine.article_id = $1 AND mine.model = $2 \
            AND coalesce(article.published_at, article.created_at) > now() - interval '14 days' \
          ORDER BY other.embedding <=> mine.embedding \
@@ -197,27 +204,180 @@ async fn attach_article(pool: &PgPool, model: &str, article: &Unclustered) -> Re
     .bind(model)
     .fetch_optional(pool)
     .await?;
-    if let Some(nearest) = nearest.filter(|hit| joins_story_cluster(hit.similarity)) {
-        let inserted = sqlx::query(
-            "INSERT INTO story_cluster_members \
-                (article_id, cluster_id, content_revision, similarity) \
-             VALUES ($1, $2, $3, $4) ON CONFLICT (article_id) DO NOTHING",
-        )
-        .bind(article.id)
-        .bind(nearest.cluster_id)
-        .bind(article.content_revision)
-        .bind(nearest.similarity as f32)
-        .execute(pool)
-        .await?
-        .rows_affected();
-        if inserted > 0 {
-            refresh_count(pool, nearest.cluster_id).await?;
-            return Ok(Attach::Joined);
-        }
+    let Some(nearest) = nearest.filter(|hit| joins_story_cluster(hit.similarity)) else {
+        return Ok(Attach::Skipped);
+    };
+    if let Some(cluster_id) = nearest.cluster_id {
+        return join_cluster(pool, article, cluster_id, nearest.similarity).await;
+    }
+    pair_unclustered(pool, model, article, &nearest).await
+}
+
+async fn join_cluster(
+    pool: &PgPool,
+    article: &Unclustered,
+    cluster_id: Uuid,
+    similarity: f64,
+) -> Result<Attach> {
+    let inserted = insert_member(
+        pool,
+        article.id,
+        cluster_id,
+        article.content_revision,
+        similarity,
+    )
+    .await?;
+    if inserted == 0 {
         return Ok(Attach::Skipped);
     }
-    create_cluster(pool, model, article, 1.0).await?;
+    refresh_count(pool, cluster_id).await?;
+    Ok(Attach::Joined)
+}
+
+/// Open one shared story for two articles that are not in a story yet.
+///
+/// If the neighbor is claimed by another pass before this insert commits, this
+/// article joins that story instead of leaving a one-article cluster behind.
+async fn pair_unclustered(
+    pool: &PgPool,
+    model: &str,
+    article: &Unclustered,
+    neighbor: &Neighbor,
+) -> Result<Attach> {
+    let cluster_id = Uuid::now_v7();
+    let mut tx = pool.begin().await?;
+    let taken: Option<Uuid> =
+        sqlx::query_scalar("SELECT cluster_id FROM story_cluster_members WHERE article_id = $1")
+            .bind(neighbor.article_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if let Some(existing) = taken {
+        let inserted = insert_member_tx(
+            &mut tx,
+            article.id,
+            existing,
+            article.content_revision,
+            neighbor.similarity,
+        )
+        .await?;
+        if inserted > 0 {
+            refresh_count_tx(&mut tx, existing).await?;
+        }
+        tx.commit().await?;
+        return Ok(if inserted > 0 {
+            Attach::Joined
+        } else {
+            Attach::Skipped
+        });
+    }
+    sqlx::query(
+        "INSERT INTO story_clusters \
+            (id, title, representative_article_id, member_count, model) \
+         VALUES ($1, $2, $3, 2, $4)",
+    )
+    .bind(cluster_id)
+    .bind(&article.title)
+    .bind(article.id)
+    .bind(model)
+    .execute(&mut *tx)
+    .await?;
+    let inserted = insert_member_tx(
+        &mut tx,
+        article.id,
+        cluster_id,
+        article.content_revision,
+        neighbor.similarity,
+    )
+    .await?;
+    if inserted == 0 {
+        tx.rollback().await?;
+        return Ok(Attach::Skipped);
+    }
+    let neighbor_inserted = insert_member_tx(
+        &mut tx,
+        neighbor.article_id,
+        cluster_id,
+        neighbor.content_revision,
+        neighbor.similarity,
+    )
+    .await?;
+    if neighbor_inserted == 0 {
+        sqlx::query("DELETE FROM story_clusters WHERE id = $1")
+            .bind(cluster_id)
+            .execute(&mut *tx)
+            .await?;
+        let existing: Option<Uuid> = sqlx::query_scalar(
+            "SELECT cluster_id FROM story_cluster_members WHERE article_id = $1",
+        )
+        .bind(neighbor.article_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(existing) = existing {
+            let joined = insert_member_tx(
+                &mut tx,
+                article.id,
+                existing,
+                article.content_revision,
+                neighbor.similarity,
+            )
+            .await?;
+            if joined > 0 {
+                refresh_count_tx(&mut tx, existing).await?;
+            }
+            tx.commit().await?;
+            return Ok(if joined > 0 {
+                Attach::Joined
+            } else {
+                Attach::Skipped
+            });
+        }
+        tx.commit().await?;
+        return Ok(Attach::Skipped);
+    }
+    tx.commit().await?;
     Ok(Attach::Created)
+}
+
+async fn insert_member(
+    pool: &PgPool,
+    article_id: Uuid,
+    cluster_id: Uuid,
+    content_revision: i64,
+    similarity: f64,
+) -> Result<u64> {
+    Ok(sqlx::query(
+        "INSERT INTO story_cluster_members \
+            (article_id, cluster_id, content_revision, similarity) \
+         VALUES ($1, $2, $3, $4) ON CONFLICT (article_id) DO NOTHING",
+    )
+    .bind(article_id)
+    .bind(cluster_id)
+    .bind(content_revision)
+    .bind(similarity as f32)
+    .execute(pool)
+    .await?
+    .rows_affected())
+}
+
+async fn insert_member_tx(
+    tx: &mut sqlx::PgConnection,
+    article_id: Uuid,
+    cluster_id: Uuid,
+    content_revision: i64,
+    similarity: f64,
+) -> Result<u64> {
+    Ok(sqlx::query(
+        "INSERT INTO story_cluster_members \
+            (article_id, cluster_id, content_revision, similarity) \
+         VALUES ($1, $2, $3, $4) ON CONFLICT (article_id) DO NOTHING",
+    )
+    .bind(article_id)
+    .bind(cluster_id)
+    .bind(content_revision)
+    .bind(similarity as f32)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected())
 }
 
 /// Stories that have several sources and still need a shared summary.
@@ -363,52 +523,25 @@ pub async fn briefing_stories(pool: &PgPool, user_id: Uuid) -> Result<Vec<Briefi
 }
 
 async fn active_model(pool: &PgPool) -> Result<Option<String>> {
-    let configured: Option<String> =
-        sqlx::query_scalar("SELECT model FROM instance_embedding_space WHERE singleton")
-            .fetch_optional(pool)
-            .await?;
-    if configured.is_some() {
-        return Ok(configured);
-    }
     Ok(
-        sqlx::query_scalar("SELECT model FROM article_embeddings LIMIT 1")
+        sqlx::query_scalar("SELECT model FROM instance_embedding_space WHERE singleton")
             .fetch_optional(pool)
             .await?,
     )
 }
 
-async fn create_cluster(
-    pool: &PgPool,
-    model: &str,
-    article: &Unclustered,
-    similarity: f32,
-) -> Result<()> {
-    let cluster_id = Uuid::now_v7();
-    let mut tx = pool.begin().await?;
-    sqlx::query(
-        "INSERT INTO story_clusters \
-            (id, title, representative_article_id, member_count, model) \
-         VALUES ($1, $2, $3, 1, $4)",
+/// Instance model when one is configured; otherwise the model already stored
+/// on this article. Never picks an unrelated model from another row.
+async fn model_for_article(pool: &PgPool, article_id: Uuid) -> Result<Option<String>> {
+    if let Some(model) = active_model(pool).await? {
+        return Ok(Some(model));
+    }
+    Ok(
+        sqlx::query_scalar("SELECT model FROM article_embeddings WHERE article_id = $1")
+            .bind(article_id)
+            .fetch_optional(pool)
+            .await?,
     )
-    .bind(cluster_id)
-    .bind(&article.title)
-    .bind(article.id)
-    .bind(model)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "INSERT INTO story_cluster_members \
-            (article_id, cluster_id, content_revision, similarity) \
-         VALUES ($1, $2, $3, $4) ON CONFLICT (article_id) DO NOTHING",
-    )
-    .bind(article.id)
-    .bind(cluster_id)
-    .bind(article.content_revision)
-    .bind(similarity)
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(())
 }
 
 async fn refresh_count(pool: &PgPool, cluster_id: Uuid) -> Result<()> {
@@ -420,6 +553,19 @@ async fn refresh_count(pool: &PgPool, cluster_id: Uuid) -> Result<()> {
     )
     .bind(cluster_id)
     .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn refresh_count_tx(tx: &mut sqlx::PgConnection, cluster_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "UPDATE story_clusters SET \
+            member_count = (SELECT count(*) FROM story_cluster_members WHERE cluster_id = $1), \
+            updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(cluster_id)
+    .execute(&mut *tx)
     .await?;
     Ok(())
 }

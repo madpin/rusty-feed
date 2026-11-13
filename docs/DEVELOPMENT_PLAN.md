@@ -338,7 +338,7 @@ explicitly partial rather than silently overstated.
 
 ## Post-v1
 
-- **v1.1:** bookmarks, hybrid search, media proxy, public sharing, invitations, and batched health notifications landed in v1. A dedicated "seen" state distinct from read remains optional product work.
+- **v1.1:** bookmarks, hybrid search, media proxy, public sharing, invitations, and batched health notifications landed in v1. A distinct seen state is recorded when a card is on screen or an article is opened.
 - **v2:** configurable keyboard shortcuts, privacy-enhanced and alternative YouTube players, touch gestures, date/number/locale profiles, duration enrichment, Fever compatibility, UI customization, and deeper storage/log administration landed early. Story clustering, daily briefings, ADHD reading format, bare-URL linking, a distinct seen state, password reset, and infinite scroll have since landed. Full translated-string coverage and the remaining turnkey integration adapters remain.
 
 ---

@@ -79,16 +79,66 @@ async fn identical_embeddings_share_one_story() {
     )
     .await
     .unwrap();
-    let vector = vec![0.02_f32; 384];
-    embeddings::upsert(pool, left.id, &vector, &model, left.content_revision)
+    let (unrelated_feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://example.com/stories/{suffix}-c.xml"),
+        "Ledger",
+        None,
+    )
+    .await
+    .unwrap();
+    let (unrelated, _) = articles::upsert(
+        pool,
+        &NewArticle {
+            feed_id: unrelated_feed.id,
+            url: format!("https://example.com/stories/{suffix}-c"),
+            comments_url: None,
+            guid: Some(format!("story-{suffix}-c")),
+            title: "Wheat futures rise".into(),
+            author: None,
+            content: "<p>Wheat futures rose.</p>".into(),
+            excerpt: Some("Wheat futures rose.".into()),
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: published,
+        },
+    )
+    .await
+    .unwrap();
+    // One-hot directions stay orthogonal to each other and to vectors left by
+    // earlier runs, so only the two copies of this story clear 0.82.
+    let slot = (suffix.as_u128() % 380) as usize;
+    let other_slot = (slot + 200) % 384;
+    let mut same = vec![0.0_f32; 384];
+    same[slot] = 1.0;
+    let mut other = vec![0.0_f32; 384];
+    other[other_slot] = 1.0;
+    embeddings::upsert(pool, left.id, &same, &model, left.content_revision)
         .await
         .unwrap();
-    embeddings::upsert(pool, right.id, &vector, &model, right.content_revision)
+    embeddings::upsert(pool, right.id, &same, &model, right.content_revision)
         .await
         .unwrap();
+    embeddings::upsert(
+        pool,
+        unrelated.id,
+        &other,
+        &model,
+        unrelated.content_revision,
+    )
+    .await
+    .unwrap();
 
+    assert!(stories::cluster_article(pool, unrelated.id)
+        .await
+        .unwrap()
+        .is_none());
     let left_cluster = stories::cluster_article(pool, left.id).await.unwrap();
     let right_cluster = stories::cluster_article(pool, right.id).await.unwrap();
     assert_eq!(left_cluster, right_cluster);
     assert!(left_cluster.is_some());
+    assert!(stories::cluster_article(pool, unrelated.id)
+        .await
+        .unwrap()
+        .is_none());
 }

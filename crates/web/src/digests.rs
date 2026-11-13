@@ -7,6 +7,7 @@ use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
+use rusty_feed_core::reading::BriefingStory;
 use rusty_feed_db::{digests, jobs, stories};
 
 use crate::auth::csrf;
@@ -24,6 +25,7 @@ struct DigestsTemplate {
     ui: prefs::Preferences,
     is_admin: bool,
     digests: Vec<DigestRow>,
+    stories: Vec<BriefingStory>,
     notice: Option<String>,
 }
 
@@ -80,16 +82,13 @@ pub async fn refresh(
         3,
     )
     .await?;
+    let grouped = stats.joined + stats.created;
     let notice = if written.is_some() {
-        format!(
-            "Updated today's briefing. Grouped {} recent articles into stories.",
-            stats.considered
-        )
-    } else if stats.considered == 0 {
-        "No recent embedded articles were waiting to be grouped. Refresh feeds, then try again after embeddings finish.".to_string()
+        format!("Updated today's briefing from {grouped} shared stories in this pass.")
+    } else if grouped == 0 {
+        "No second source matched a recent article. Refresh feeds, then try again after embeddings finish.".to_string()
     } else {
-        "Articles were grouped, but none of those stories are in your subscriptions yet."
-            .to_string()
+        "Stories were grouped, but none of them are in your subscriptions yet.".to_string()
     };
     render(&state, &user, jar, Some(notice)).await
 }
@@ -111,6 +110,7 @@ async fn render(
             body: digest.body,
         })
         .collect();
+    let live_stories = stories::briefing_stories(state.db.pool(), user.id).await?;
     let body = DigestsTemplate {
         theme: ui.theme.clone(),
         user_email: user.email.clone(),
@@ -118,6 +118,7 @@ async fn render(
         ui,
         is_admin: user.role == "admin" || user.role == "admin_readonly",
         digests,
+        stories: live_stories,
         notice,
     }
     .render()

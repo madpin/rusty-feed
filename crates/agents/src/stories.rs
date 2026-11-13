@@ -11,7 +11,7 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use serde_json::{json, Value};
 
 use rusty_feed_core::ai_budget::AiBudget;
-use rusty_feed_core::reading::fallback_story_summary;
+use rusty_feed_core::reading::{absolutize_app_paths, fallback_story_summary};
 use rusty_feed_db::{cost_ledger, digests, stories};
 use rusty_feed_llm::{cost_micro_usd, LlmClient};
 
@@ -147,9 +147,12 @@ impl Agent for DailyDigestAgent {
                     break;
                 };
                 let link = format!("{}/digests", self.public_base_url.trim_end_matches('/'));
-                let body = format!(
-                    "{}\n\n{}\n\nOpen the briefing:\n{link}\n",
-                    pending.title, pending.body
+                let body = absolutize_app_paths(
+                    &format!(
+                        "{}\n\n{}\n\nOpen the briefing:\n{link}\n",
+                        pending.title, pending.body
+                    ),
+                    &self.public_base_url,
                 );
                 if let Err(error) = send_briefing(
                     self.smtp_url.as_deref(),

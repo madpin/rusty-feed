@@ -79,7 +79,7 @@ pub async fn claim_pending_email(pool: &PgPool) -> Result<Option<DigestMail>> {
              JOIN users ON users.id = digests.user_id \
              JOIN user_preferences ON user_preferences.user_id = users.id \
              WHERE digests.kind = 'daily' \
-               AND digests.period_start = CURRENT_DATE \
+               AND digests.period_start = (now() AT TIME ZONE 'utc')::date \
                AND digests.emailed_at IS NULL \
                AND users.is_demo = false \
                AND coalesce(user_preferences.preferences->>'digest_email', 'false') = 'true' \

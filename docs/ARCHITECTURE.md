@@ -458,7 +458,7 @@ Notes:
 3. Enqueue it through the idempotent job repository, or publish it in the caller's transaction for outbox dispatch when work must commit atomically with content.
 4. Runs, locks, safe errors, heartbeats, and admin visibility then use the common runtime.
 
-This uniformity is what lets the v2 backlog (clustering, digests) land without touching the framework.
+This uniformity is what lets additional agents, including story clustering and daily briefings, land without touching the framework.
 
 ---
 

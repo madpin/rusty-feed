@@ -429,7 +429,65 @@ async fn reading_actions_and_detail_work() {
         .to_string();
     let list_body = body_string(resp).await;
     assert!(list_body.contains("Hello World Article"));
+    assert!(list_body.contains("data-seen-badge"));
+    assert!(list_body.contains(&format!("/articles/{aid}/unseen")));
     assert!(!list_body.contains("AI summary unavailable"));
+
+    let unseen_list = app
+        .clone()
+        .oneshot(
+            Request::get("/articles?unseen=1")
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unseen_list.status(), StatusCode::OK);
+    let unseen_body = body_string(unseen_list).await;
+    assert!(unseen_body.contains("data-skip-glance=\"true\""));
+    assert!(unseen_body.contains("Hello World Article"));
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{aid}/seen"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(rusty_feed_db::seen_articles::is_seen(pool, user.id, aid)
+        .await
+        .unwrap());
+    assert!(!read_articles::is_read(pool, user.id, aid).await.unwrap());
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/articles/{aid}/unseen"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(!rusty_feed_db::seen_articles::is_seen(pool, user.id, aid)
+        .await
+        .unwrap());
 
     // Mark read (as the JS client would): 204, and it persists.
     let resp = app

@@ -14,12 +14,28 @@
   </form>
 </div>
 {% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
-{% if digests.is_empty() %}
+{% if stories.is_empty() && digests.is_empty() %}
 <div class="empty-state">
   <p><strong>No briefing yet.</strong></p>
-  <p>Rusty Feed groups recent embedded articles that describe the same event. Update the briefing after feeds have been fetched and embedded.</p>
+  <p>Rusty Feed groups an article with another source only when their embeddings describe the same event. Update the briefing after feeds have been fetched and embedded.</p>
 </div>
 {% else %}
+{% if !stories.is_empty() %}
+<section class="stack">
+  <h2>In your feeds now</h2>
+  {% for story in stories %}
+  <article class="story-cluster">
+    <h3>{{ story.headline }}</h3>
+    {% if story.summary != "" %}<p>{{ story.summary }}</p>{% endif %}
+    <ul>
+      {% for source in story.sources %}
+      <li><a href="{{ source.href }}">{{ source.title }}</a> <span class="muted">{{ source.feed_name }}</span></li>
+      {% endfor %}
+    </ul>
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
 {% for digest in digests %}
 <article class="panel stack">
   <header>

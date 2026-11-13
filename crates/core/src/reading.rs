@@ -71,6 +71,19 @@ pub fn format_daily_digest(date_label: &str, stories: &[BriefingStory]) -> (Stri
     (title, body.trim_end().to_string())
 }
 
+/// Prefix same-app article paths so a briefing email can be opened off-site.
+///
+/// Stored briefings keep root-relative paths. Only a `http` or `https` base is
+/// applied, and text that is not a Rusty Feed article path is left unchanged.
+pub fn absolutize_app_paths(body: &str, base_url: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    let absolute = base.starts_with("http://") || base.starts_with("https://");
+    if base.is_empty() || !absolute {
+        return body.to_string();
+    }
+    body.replace(" /articles/", &format!(" {base}/articles/"))
+}
+
 /// A deterministic briefing used when no LLM is configured. Shared, so every
 /// subscriber of the story sees the same sentence.
 pub fn fallback_story_summary(titles: &[String]) -> String {
@@ -375,5 +388,14 @@ mod tests {
         assert_eq!(title, "Briefing for 2026-11-03: 1 story");
         assert!(body.contains("Harbor closed"));
         assert!(body.contains("Port notice (Gazette) /articles/1"));
+    }
+
+    #[test]
+    fn briefing_email_uses_the_public_origin_for_article_paths() {
+        let body = "Port notice (Gazette) /articles/1\nOpen https://publisher.example/articles/1";
+        let mailed = absolutize_app_paths(body, "https://feeds.example/");
+        assert!(mailed.contains("https://feeds.example/articles/1"));
+        assert!(mailed.contains("https://publisher.example/articles/1"));
+        assert_eq!(absolutize_app_paths(body, "feeds.example"), body);
     }
 }

@@ -1228,6 +1228,10 @@ img.enclosure-image[data-image-modal] { cursor: zoom-in; }
 [data-reading-format="adhd"] .article-body p { margin-bottom: 1.45em; }
 [data-reading-format="adhd"] .adhd-lead { font-weight: 750; }
 .article-card.seen:not(.read) { box-shadow: inset 3px 0 0 var(--accent); }
+.article-card [data-seen-badge],
+.article-card .seen-clear { display: none; }
+.article-card.seen:not(.read) [data-seen-badge] { display: inline; }
+.article-card.seen:not(.read) .seen-clear { display: block; }
 .story-cluster { margin: 0 0 1.25rem; padding: 0.9rem 1rem; border: 1px solid var(--border); border-radius: 0.7rem; background: var(--surface-subtle); }
 .story-cluster ul { margin: 0.6rem 0 0; padding-left: 1.2rem; }
 .pager[data-loading="true"] .pager-next { opacity: 0.6; }

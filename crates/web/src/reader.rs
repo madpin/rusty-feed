@@ -2311,6 +2311,40 @@ pub async fn mark_unread(
     Ok(action_response(is_ajax, form.next))
 }
 
+/// `POST /articles/{id}/seen` — record a glance without changing read state.
+pub async fn mark_seen(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Ajax(is_ajax): Ajax,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<ActionForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    authorize_action(&state, user.id, id).await?;
+    seen_articles::mark_seen(state.db.pool(), user.id, id).await?;
+    Ok(action_response(is_ajax, form.next))
+}
+
+/// `POST /articles/{id}/unseen` — forget a glance. Read state stays as it is.
+pub async fn mark_unseen(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Ajax(is_ajax): Ajax,
+    jar: CookieJar,
+    Path(id): Path<Uuid>,
+    Form(form): Form<ActionForm>,
+) -> Result<Response, AppError> {
+    if !csrf::verify(&jar, &form.csrf_token) {
+        return Err(AppError::Forbidden);
+    }
+    authorize_action(&state, user.id, id).await?;
+    seen_articles::clear(state.db.pool(), user.id, id).await?;
+    Ok(action_response(is_ajax, form.next))
+}
+
 /// `POST /articles/{id}/bookmark`.
 pub async fn bookmark(
     State(state): State<AppState>,
