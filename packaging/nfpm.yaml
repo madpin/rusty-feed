@@ -14,14 +14,17 @@ depends:
 contents:
   - src: ${NFPM_BINARY_DIR}/rusty-feed-server
     dst: /usr/bin/rusty-feed-server
+    expand: true
     file_info:
       mode: 0755
   - src: ${NFPM_BINARY_DIR}/rusty-feed-worker
     dst: /usr/bin/rusty-feed-worker
+    expand: true
     file_info:
       mode: 0755
   - src: ${NFPM_BINARY_DIR}/rusty-feed-cli
     dst: /usr/bin/rusty-feed-cli
+    expand: true
     file_info:
       mode: 0755
   - src: contrib/systemd/rusty-feed.service

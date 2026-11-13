@@ -23,8 +23,6 @@ jobs:
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             nfpm_arch: arm64
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
           - runner: macos-14
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
@@ -210,7 +208,7 @@ jobs:
           docker network create rusty-feed-release-smoke
           docker run -d --name rusty-feed-release-db --network rusty-feed-release-smoke \
             -e POSTGRES_USER=rusty_feed -e POSTGRES_PASSWORD=rusty_feed -e POSTGRES_DB=rusty_feed \
-            postgres:17
+            pgvector/pgvector:0.8.6-pg17
           for _ in $(seq 1 45); do
             docker exec rusty-feed-release-db pg_isready -U rusty_feed -d rusty_feed && break
             sleep 1

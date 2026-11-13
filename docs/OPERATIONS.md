@@ -198,8 +198,8 @@ feed failures, and non-zero HTTP 5xx rates. Use the route-template metrics from
 
 ## Release verification
 
-Tagged releases publish checksummed native archives for Linux/macOS on amd64 and
-arm64, Linux Debian/RPM packages, per-architecture SPDX SBOMs, GitHub build
+Tagged releases publish checksummed native archives for Linux on amd64 and arm64 and macOS on Apple
+silicon (arm64), Linux Debian/RPM packages, per-architecture SPDX SBOMs, GitHub build
 provenance, and an SBOM/provenance-bearing `linux/amd64,linux/arm64` image.
 GitHub OIDC signs every file and registry digest with Sigstore/cosign. GHCR is
 mandatory; repository variables plus credentials may mirror the exact digest to
