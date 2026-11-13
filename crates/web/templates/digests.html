@@ -4,11 +4,11 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="eyebrow">Library</p>
+    <p class="eyebrow">Stories across your feeds</p>
     <h1>Briefing</h1>
-    <p class="muted">Stories covered by more than one of your sources, grouped once and assembled for you. Turn on a daily briefing in Preferences.</p>
+    <p class="muted">A story is one event covered by two or more of your feeds. Your briefing lists each story once, with a link to every feed that covered it. Turn on the daily briefing in <a href="/settings/preferences#briefing-settings">Preferences</a>.</p>
   </div>
-  <form method="post" action="/digests/refresh">
+  <form method="post" action="/briefing/refresh">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <button type="submit" class="primary">Update briefing</button>
   </form>
@@ -16,13 +16,19 @@
 {% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
 {% if stories.is_empty() && digests.is_empty() %}
 <div class="empty-state">
-  <p><strong>No briefing yet.</strong></p>
-  <p>Rusty Feed groups an article with another source only when their embeddings describe the same event. Update the briefing after feeds have been fetched and embedded.</p>
+  <p><strong>Nothing to brief yet.</strong></p>
+  <p>A story needs the same event in at least two different feeds you follow. Rusty Feed counts two articles as the same story when their similarity is at least {{ similarity }}. Three things have to be true:</p>
+  <ul>
+    <li><strong>Overlapping feeds.</strong> Follow several feeds that cover the same topics (try <a href="/catalog">Discover</a>).</li>
+    <li><strong>Fetched and indexed.</strong> Your feeds must have been fetched and added to the search index.{% if recent_articles > 0 %} {{ ui.format_number(embedded_articles) }} of {{ ui.format_number(recent_articles) }} articles from your feeds in the last 14 days are indexed.{% else %} None of your feeds has published an article in the last 14 days yet.{% endif %}</li>
+    <li><strong>Daily briefing on.</strong> {% if daily_briefing_on %}It is on. Your briefing is built each morning (07:00 UTC unless your administrator changed it).{% else %}It is off. Turn it on in <a href="/settings/preferences#briefing-settings">Preferences</a>.{% endif %}</li>
+  </ul>
+  <p class="muted">Use <strong>Update briefing</strong> to look for stories now.</p>
 </div>
 {% else %}
 {% if !stories.is_empty() %}
 <section class="stack">
-  <h2>In your feeds now</h2>
+  <h2>Stories in your feeds now</h2>
   {% for story in stories %}
   <article class="story-cluster">
     <h3>{{ story.headline }}</h3>

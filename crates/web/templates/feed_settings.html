@@ -46,7 +46,7 @@
         <option value="infinite"{% if feed.content_lifetime == "infinite" %} selected{% endif %}>Infinite</option>
       </select>
     </label>
-    <p class="muted">For a shared page, the longest lifetime requested by any current subscriber wins. Missing or expired content is queued immediately when you open the article.</p>
+    <p class="muted">For a shared page, the longest lifetime requested by any current subscriber wins. Missing or expired content is fetched as soon as you open the article.</p>
     <label>YouTube playback for this subscription
       <select name="youtube_player_mode">
         <option value="inherit"{% if feed.youtube_player_mode == "inherit" %} selected{% endif %}>Inherit my reading preference</option>
@@ -84,7 +84,7 @@
 
   {% if is_admin %}
   <section class="panel">
-    <h2>Shared acquisition controls</h2>
+    <h2>Shared fetch controls</h2>
     <p class="muted">These administrator-owned safety and pacing controls apply to the one shared public-page request. They do not decide what an individual subscriber reads.</p>
     <label>Optional CSS selector for the article body
       <input type="text" name="selector" value="{{ feed.selector }}" placeholder="article .entry-content" />
@@ -108,7 +108,7 @@
     </label>
     <label class="radio-row">
       <input type="radio" name="respect_robots_txt" value="false"{% if !feed.respect_robots_txt %} checked{% endif %} />
-      <span><strong>Ignore robots.txt for this feed</strong><small>Retain the configured delay and adaptive backoff.</small></span>
+      <span><strong>Ignore robots.txt for this feed</strong><small>Keep the configured delay and automatic slow-down after failures.</small></span>
     </label>
   </section>
   {% endif %}

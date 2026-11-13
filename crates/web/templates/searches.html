@@ -1,11 +1,11 @@
 {% extends "app_base.html" %}
-{% block title %}Saved searches{% endblock %}
+{% block title %}{{ ui.text("saved_searches") }}{% endblock %}
 {% block body_class %}page-searches{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="eyebrow">Discover</p>
-    <h1>Saved searches</h1>
+    <p class="eyebrow">Search</p>
+    <h1>{{ ui.text("saved_searches") }}</h1>
     <p class="muted">Persistent queries that match new articles automatically.</p>
   </div>
 </div>
@@ -20,7 +20,7 @@
       <label>Name <input type="text" name="name" required /></label>
       <label>Query <input type="text" name="query" placeholder="rust, async +tokio -javascript" required /></label>
     </div>
-    <label class="check-row"><input type="checkbox" name="notify" value="true" /><span>Notify me on strong matches</span></label>
+    <label class="check-row"><input type="checkbox" name="notify" value="true" /><span>Alert me on strong matches</span></label>
     <div class="form-actions"><button type="submit" class="primary">Create search</button></div>
   </form>
 </section>
@@ -28,14 +28,14 @@
 <section class="panel">
   <h2>Your searches</h2>
   {% if searches.is_empty() %}
-  <div class="empty-state"><p><strong>No saved searches yet.</strong></p><p>Create one to turn a topic into an ongoing alert.</p></div>
+  <div class="empty-state"><p><strong>No saved searches yet.</strong></p><p>Create one to turn a topic into ongoing alerts.</p></div>
   {% else %}
   <ul class="feed-list">
     {% for s in searches %}
     <li class="feed-row">
       <div>
         <strong><a href="/searches/{{ s.id }}">{{ s.name }}</a></strong>
-        {% if s.notify %}<span class="badge">Notifications on</span>{% endif %}
+        {% if s.notify %}<span class="badge">Alerts on</span>{% endif %}
         <div class="meta"><code>{{ s.query }}</code></div>
       </div>
       <div class="feed-actions">

@@ -994,7 +994,7 @@ pub async fn create_category(
                 is_admin,
                 jar,
                 None,
-                Some("Choose a parent folder in your own library.".to_string()),
+                Some("Choose a parent folder from your own folders.".to_string()),
             )
             .await
         }
@@ -1116,7 +1116,7 @@ pub async fn refresh(
         .await?
         .ok_or(AppError::NotFound)?;
     let message = if feed.health_status == "disabled" {
-        "This source is paused and was not refreshed.".to_string()
+        "This feed is paused and was not refreshed.".to_string()
     } else if enqueue_fetch_feed(&state.db, id).await?.is_some() {
         "Refresh queued.".to_string()
     } else {
@@ -1160,7 +1160,7 @@ pub async fn refresh_all(
         outcome.already_queued
     );
     if paused > 0 {
-        message.push_str(&format!(" {paused} paused source(s) were unchanged."));
+        message.push_str(&format!(" {paused} paused feed(s) were unchanged."));
     }
     if outcome.failed > 0 {
         message.push_str(&format!(" {} could not be queued.", outcome.failed));
@@ -1435,7 +1435,7 @@ pub async fn bulk_content(
             is_admin,
             jar,
             None,
-            Some("Choose a content source and lifetime.".to_string()),
+            Some("Choose which article content to use and its lifetime.".to_string()),
         )
         .await;
     };
@@ -1450,7 +1450,7 @@ pub async fn bulk_content(
             is_admin,
             jar,
             None,
-            Some("Choose a valid content source and lifetime.".to_string()),
+            Some("Choose valid article content and lifetime.".to_string()),
         )
         .await;
     }
@@ -1585,7 +1585,7 @@ pub async fn refresh_selected(
         outcome.queued, outcome.already_queued
     );
     if paused > 0 {
-        message.push_str(&format!(" {paused} paused source(s) were unchanged."));
+        message.push_str(&format!(" {paused} paused feed(s) were unchanged."));
     }
     if outcome.failed > 0 {
         message.push_str(&format!(" {} could not be queued.", outcome.failed));
@@ -1619,7 +1619,7 @@ pub async fn refresh_everything(
     let rescheduled = jobs::run_pending_feed_fetches_now(state.db.pool(), &feed_ids).await?;
     let outcome = queue_refreshes(&state, &feed_ids).await;
     let mut message = format!(
-        "Reset scheduling for {} active shared source(s), queued {} new refresh(es), and released {rescheduled} delayed refresh(es). Paused sources were unchanged.",
+        "Reset scheduling for {} active feed(s), queued {} new refresh(es), and released {rescheduled} delayed refresh(es). Paused feeds were unchanged.",
         feed_ids.len(), outcome.queued
     );
     if outcome.already_queued > 0 {
@@ -1659,7 +1659,7 @@ async fn save_personal_content_settings(
     enclosure_settings: Option<SubscriptionEnclosureSettings>,
 ) -> Result<usize, AppError> {
     let mode = SubscriptionContentMode::parse(content_mode)
-        .ok_or_else(|| AppError::Validation("Choose a valid content source.".to_string()))?;
+        .ok_or_else(|| AppError::Validation("Choose valid article content.".to_string()))?;
     let lifetime = ContentLifetime::parse(content_lifetime)
         .ok_or_else(|| AppError::Validation("Choose a valid content lifetime.".to_string()))?;
     let content = SubscriptionContentSettings { mode, lifetime };
@@ -1821,7 +1821,7 @@ pub async fn update_settings(
                 "Rewrite rules changed; the next shared refresh will rebuild RSS content and {invalidated} stored public-page copy/copies."
             ));
         }
-        messages.push("Shared acquisition safety settings were saved.".to_string());
+        messages.push("Shared feed access safety settings were saved.".to_string());
     }
 
     let refresh_queued = enqueue_fetch_feed(&state.db, id).await?.is_some();

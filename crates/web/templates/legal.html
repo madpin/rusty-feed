@@ -29,7 +29,7 @@
 <p>This policy explains what {{ entity_name }} stores and why.</p>
 <ul>
   <li><strong>Account data:</strong> your email address and (for local accounts) a hashed password.</li>
-  <li><strong>Reading state:</strong> your subscriptions, categories, read/seen/bookmark state, feedback, saved searches, and preferences.</li>
+  <li><strong>Reading state:</strong> your subscriptions, folders, read/seen/bookmark state, feedback, saved searches, and preferences.</li>
   <li><strong>Cookies:</strong> a functional, HTTP-only session cookie and a CSRF cookie. No third-party advertising cookies.</li>
   <li><strong>Processors:</strong> depending on configuration, an SMTP provider (email verification), a CAPTCHA provider (sign-up anti-abuse), and — only if you enable it — an AI provider using your own API key.</li>
   <li><strong>Retention:</strong> shared article content is retained per the instance policy; your personal data is removed when you delete your account.</li>
@@ -43,7 +43,7 @@
 {% else %}
 <p>Contact: {{ contact_email }}.</p>
 {% endif %}
-<p>Signed-in users can also use the <strong>Report</strong> control on any article or feed, which routes to the moderation queue. We remove confirmed illegal or infringing shared content for all users.</p>
+<p>Signed-in users can also use the <strong>Report</strong> control on any article or feed, which is sent to our moderators for review. We remove confirmed illegal or infringing shared content for all users.</p>
 {% endif %}
 
 <p class="muted"><a href="/">Back</a> · <a href="/terms">Terms</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/privacy">Privacy</a> · <a href="/abuse">Abuse</a></p>

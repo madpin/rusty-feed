@@ -17,14 +17,14 @@
   {% if preview.subscribed %}
   <div>
     <p class="eyebrow">Already subscribed</p>
-    <h2>This source is in your library</h2>
+    <h2>You already follow this feed</h2>
     <p class="muted">Your existing content and folder settings are unchanged.</p>
   </div>
   <a href="/feeds" class="btn">Manage subscription</a>
   {% else %}
   <div>
     <p class="eyebrow">Like what you see?</p>
-    <h2>Add this source</h2>
+    <h2>Add this feed</h2>
     <p class="muted">Choose the reading body now. You can change it later without creating another shared feed.</p>
   </div>
   <form method="post" action="/catalog/subscribe" class="preview-subscribe-form">
@@ -36,7 +36,7 @@
       <label><input type="radio" name="content_mode.{{ preview.feed_id }}" value="article_page"{% if preview.article_page_recommended %} checked{% endif %} /> <span><strong>Public article page</strong><small>Shared readable copy with RSS fallback</small></span>{% if preview.article_page_recommended %} <span class="badge">Recommended</span>{% endif %}</label>
       <label><input type="radio" name="content_mode.{{ preview.feed_id }}" value="live" /> <span><strong>Live publisher view</strong><small>Fetch the current page when opened; isolated with RSS fallback</small></span></label>
     </fieldset>
-    <button type="submit" class="primary">Add to my library</button>
+    <button type="submit" class="primary">Add to my feeds</button>
   </form>
   {% endif %}
 </section>
@@ -45,7 +45,7 @@
   <div class="section-heading">
     <div>
       <h2>Anonymous public-content check</h2>
-      <p class="muted">Rusty Feed checks at most three current public article pages in the background. It always respects robots.txt, follows no redirects, and never uses publisher credentials. This check never changes the source’s shared content policy.</p>
+      <p class="muted">Rusty Feed checks at most three current public article pages in the background. It always respects robots.txt, follows no redirects, and never uses publisher credentials. This check never changes the feed’s shared content policy.</p>
     </div>
     {% if preview.needs_analysis %}
     <form method="post" action="/catalog/{{ preview.feed_id }}/preview/analyze?view={% if preview.show_processed %}processed{% else %}rss{% endif %}&amp;articles={{ preview.article_limit }}">
@@ -73,7 +73,7 @@
   </dl>
   <p class="muted">HTTP 401/402/403 are anonymous access observations. They can indicate sign-in, payment, bot protection, geographic restrictions, or publisher policy; Rusty Feed does not bypass them.</p>
   {% else %}
-  <p class="muted">No public-content analysis has run for this source yet. The RSS preview below is available immediately.</p>
+  <p class="muted">No public-content analysis has run for this feed yet. The RSS preview below is available immediately.</p>
   {% endif %}
 </section>
 
@@ -85,16 +85,16 @@
 {% if preview.show_processed %}
 <section class="empty-state">
   <p><strong>Processed preview is an availability report.</strong></p>
-  <p>To preserve source-policy and browser privacy boundaries, Discover does not render a second copy of publisher page content. Subscribe to this source to read its shared processed articles in your Library.</p>
+  <p>To respect each feed’s content policy and your browser’s privacy, Discover does not show a second copy of the publisher’s page. Subscribe to this feed to read its shared processed articles in your Library.</p>
 </section>
 {% else if preview.articles.is_empty() %}
 <div class="empty-state">
   <p><strong>No recent feed items are available yet.</strong></p>
-  <p>Return after this source has been refreshed, then run the public-content analysis.</p>
+  <p>Return after this feed has been refreshed, then run the public-content analysis.</p>
 </div>
 {% else %}
 <div class="preview-articles">
-  <div class="section-heading"><div><p class="eyebrow">Latest from this source</p><h2>Showing {{ preview.articles.len() }} recent article{% if preview.articles.len() != 1 %}s{% endif %}</h2></div></div>
+  <div class="section-heading"><div><p class="eyebrow">Latest from this feed</p><h2>Showing {{ preview.articles.len() }} recent article{% if preview.articles.len() != 1 %}s{% endif %}</h2></div></div>
   {% for article in preview.articles %}
   <details class="preview-article"{% if loop.first %} open{% endif %}>
     <summary><span>{{ article.title }}</span>{% if let Some(published) = article.published %}<span class="muted">{{ published }}</span>{% endif %}</summary>

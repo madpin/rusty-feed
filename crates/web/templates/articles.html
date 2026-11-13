@@ -52,7 +52,7 @@
     <ul class="article-list" data-infinite-list{% if unseen_only %} data-skip-glance="true"{% endif %} data-reading-mode="{% if side_panel %}side-panel{% else %}{{ reading_mode }}{% endif %}"{% if side_panel %} data-reading-panel="#reading-pane"{% endif %}>
       {% for a in articles %}
       <li class="article-card {% if a.is_read %}read{% endif %}{% if a.is_seen && !a.is_read %}seen{% endif %}{% if a.is_bookmarked %} bookmarked{% endif %}{% if a.is_liked %} rated rated-positive{% endif %}{% if a.is_disliked %} rated rated-negative{% endif %}" id="card-{{ a.id }}" data-article-id="{{ a.id }}" data-article-card>
-        <button type="button" class="article-drag-handle" draggable="true" data-feed-drag data-feed-id="{{ a.feed_id }}" data-feed-name="{{ a.feed_name }}" aria-label="Move the {{ a.feed_name }} source feed to a folder" title="Drag to a folder, or select to choose one">⠿</button>
+        <button type="button" class="article-drag-handle" draggable="true" data-feed-drag data-feed-id="{{ a.feed_id }}" data-feed-name="{{ a.feed_name }}" aria-label="Move the {{ a.feed_name }} feed to a folder" title="Drag to a folder, or select to choose one">⠿</button>
         {% if let Some(image_url) = a.image_url %}<img class="article-thumbnail" src="{{ image_url }}" alt="" loading="lazy" />{% endif %}
         <h3><a href="/articles/{{ a.id }}" class="article-link"{% if reading_mode == "inline" %} aria-expanded="false" aria-controls="inline-{{ a.id }}"{% else if side_panel %} aria-expanded="false" aria-controls="reading-pane"{% endif %}>{{ a.title }}</a></h3>
         <div class="meta">
@@ -95,7 +95,7 @@
           <a href="/articles/{{ a.id }}" class="btn summary-card-link">View AI summary</a>
           {% else if a.can_summarize %}
           <form class="js-action" method="post" action="/articles/{{ a.id }}/summarize"
-                data-action="summarize" data-summary-status-url="/articles/{{ a.id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
+                data-action="summarize" data-summary-status-url="/articles/{{ a.id }}/summary/status" data-success-message="AI summary is being generated.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <input type="hidden" name="next" value="{{ back_url }}" />
             <button type="submit" class="summary-button">Summarize with AI</button>
@@ -194,8 +194,8 @@
 
 <dialog class="quick-settings-dialog" data-move-feed-dialog aria-labelledby="move-feed-title">
   <form method="post" action="/feeds/placeholder/folder" class="stack" data-move-feed-form>
-    <div class="dialog-heading"><div><p class="eyebrow">Move source feed</p><h2 id="move-feed-title" data-move-feed-title>Choose a folder</h2></div><button type="button" class="button-quiet" data-move-feed-close aria-label="Close folder picker">Close</button></div>
-    <p class="muted">Folders organize feeds, so every article from this source moves together.</p>
+    <div class="dialog-heading"><div><p class="eyebrow">Move feed</p><h2 id="move-feed-title" data-move-feed-title>Choose a folder</h2></div><button type="button" class="button-quiet" data-move-feed-close aria-label="Close folder picker">Close</button></div>
+    <p class="muted">Folders organize feeds, so every article from this feed moves together.</p>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <label>Destination
       <select name="folder_id" data-move-feed-folder>

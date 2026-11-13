@@ -280,7 +280,7 @@ async fn landing_page_renders_for_anonymous_visitors() {
     let body = String::from_utf8_lossy(&body);
     assert!(body.contains("Create your account"), "hero CTA present");
     assert!(
-        body.contains("Own the feed"),
+        body.contains("understands what you read"),
         "distinct product voice present"
     );
     assert!(

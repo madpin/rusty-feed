@@ -79,9 +79,20 @@ async fn login_page_uses_the_rust_technical_surface() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_string(response).await;
     assert!(body.contains("login-page"));
-    assert!(body.contains("Return to your signal"));
+    assert!(body.contains("Your RSS reader, but it understands what you read"));
     assert!(body.contains("rusty-feed / auth"));
     assert!(body.contains("Rust · Axum · PostgreSQL"));
+}
+
+/// Non-demo accounts among `ids`. Unlike the global `users::count_non_demo`,
+/// this ignores users that tests running in parallel create or delete in the
+/// same database (FND-225).
+async fn non_demo_among(pool: &sqlx::PgPool, ids: &[uuid::Uuid]) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM users WHERE is_demo = false AND id = ANY($1)")
+        .bind(ids)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -90,22 +101,21 @@ async fn demo_accounts_do_not_consume_the_admin_bootstrap_slot() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
-    let before = users::count_non_demo(state.db.pool()).await.unwrap();
+    let pool = state.db.pool();
     let demo = users::create_demo(
-        state.db.pool(),
+        pool,
         &format!("demo-{}@demo.invalid", uuid::Uuid::now_v7()),
         "Bootstrap demo",
         "user",
     )
     .await
     .unwrap();
-    assert_eq!(
-        users::count_non_demo(state.db.pool()).await.unwrap(),
-        before
-    );
+    // The demo row exists but is not counted toward the bootstrap check.
+    assert!(demo.is_demo);
+    assert_eq!(non_demo_among(pool, &[demo.id]).await, 0);
 
     let persistent = users::create(
-        state.db.pool(),
+        pool,
         &format!("persistent-{}@example.test", uuid::Uuid::now_v7()),
         None,
         None,
@@ -114,14 +124,15 @@ async fn demo_accounts_do_not_consume_the_admin_bootstrap_slot() {
     )
     .await
     .unwrap();
-    assert_eq!(
-        users::count_non_demo(state.db.pool()).await.unwrap(),
-        before + 1
-    );
+    assert!(!persistent.is_demo);
+    assert_eq!(non_demo_among(pool, &[demo.id, persistent.id]).await, 1);
+    // A real account now exists, so the first-registered-admin slot is taken
+    // whatever else runs in this database (a lower bound is parallel-safe).
+    assert!(users::count_non_demo(pool).await.unwrap() >= 1);
 
     sqlx::query("DELETE FROM users WHERE id = ANY($1)")
         .bind(vec![demo.id, persistent.id])
-        .execute(state.db.pool())
+        .execute(pool)
         .await
         .unwrap();
 }

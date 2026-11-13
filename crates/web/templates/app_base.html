@@ -19,13 +19,13 @@
   <body class="{% block body_class %}{% endblock %}">
     <a class="skip-link" href="#main-content">{{ ui.text("skip") }}</a>
     <header class="topbar">
-      <a href="/articles" class="brand" aria-label="Rusty Feed home"><span class="brand-mark">R</span><span>Rusty Feed</span></a>
-      <nav class="topbar-nav" aria-label="Primary navigation">
+      <a href="/articles" class="brand" aria-label='{{ ui.text("home") }}'><span class="brand-mark">R</span><span>Rusty Feed</span></a>
+      <nav class="topbar-nav" aria-label='{{ ui.text("primary_nav") }}'>
         <a href="/articles" class="topbar-link nav-articles">{{ ui.text("library") }}</a>
         <a href="/search" class="topbar-link nav-search">{{ ui.text("search") }}</a>
-        <a href="/searches" class="topbar-link nav-saved">{{ ui.text("saved") }}</a>
+        <a href="/searches" class="topbar-link nav-saved">{{ ui.text("saved_searches") }}</a>
         <a href="/notifications" class="topbar-link nav-alerts">{{ ui.text("alerts") }} <span data-notification-count data-url="/notifications/count" aria-live="polite"><span class="notification-badge" aria-label='{{ ui.text("alerts") }}'></span></span></a>
-        <a href="/digests" class="topbar-link nav-briefing">Briefing</a>
+        <a href="/briefing" class="topbar-link nav-briefing">{{ ui.text("briefing") }}</a>
         <a href="/catalog" class="topbar-link nav-catalog">{{ ui.text("discover") }}</a>
         <a href="/feeds" class="topbar-link nav-feeds">{{ ui.text("feeds") }}</a>
       </nav>
@@ -55,10 +55,10 @@
       <main class="content" id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
     </div>
     <div id="action-status" class="action-status" role="status" aria-live="polite"></div>
-    <dialog class="image-lightbox" data-image-lightbox aria-label="Image preview">
-      <button type="button" class="image-lightbox-close" data-image-lightbox-close aria-label="Close image preview">×</button>
+    <dialog class="image-lightbox" data-image-lightbox aria-label='{{ ui.text("image_preview") }}'>
+      <button type="button" class="image-lightbox-close" data-image-lightbox-close aria-label='{{ ui.text("close_image_preview") }}'>×</button>
       <img data-image-lightbox-img src="" alt="" referrerpolicy="no-referrer" />
-      <a class="image-lightbox-open" data-image-lightbox-open href="" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open in a new tab</a>
+      <a class="image-lightbox-open" data-image-lightbox-open href="" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">{{ ui.text("open_new_tab") }}</a>
     </dialog>
   </body>
 </html>

@@ -1,11 +1,11 @@
 {% extends "app_base.html" %}
-{% block title %}API tokens{% endblock %}
+{% block title %}{{ ui.text("api_tokens") }}{% endblock %}
 {% block body_class %}page-tokens{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Account security</p>
-    <h1>API tokens</h1>
+    <h1>{{ ui.text("api_tokens") }}</h1>
     <p class="muted">Create a token for an RSS client or a personal script. Each token is shown only once.</p>
   </div>
 </div>

@@ -1,6 +1,6 @@
 //! # rusty-feed-llm
 //!
-//! LLM access for summaries/digests (M12): an OpenAI-compatible client that also
+//! LLM access for summaries and briefings (M12): an OpenAI-compatible client that also
 //! drives Ollama (via its `/v1/chat/completions` endpoint), robust
 //! summary-JSON parsing, a pricing map, and the shared-article summarize
 //! orchestration (first-writer-wins) with durable cost accounting.

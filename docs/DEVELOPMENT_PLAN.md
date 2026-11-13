@@ -295,7 +295,7 @@ DoD commit: `feat(llm): summarization + durable cost ledger + unified secrets`.
 **Refs:** ARCH §9.1, §17; PRD §5.2/§5.9/§5.11/§5.13; FND-105.
 
 Tasks:
-- [x] Curated feed magazine: 200 verified starter sources, country/category/language facets, automatic facet filtering, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
+- [x] Curated Discover catalog: 200 verified starter feeds, country/topic/language facets, automatic facet filtering, derived feed stats, multi-select subscription, admin publishing/reordering, and unrestricted custom feed URLs.
 - [x] Configurable keyboard shortcuts: arrow-key-first defaults, capture/reset controls, server-side validation, and safe Library article/feed actions.
 - [x] Personal feed organization: stable hierarchical navigation, one current folder per feed, an Unfiled scope, normalized multi-valued tags, scoped Library/mark-all-read filters, cached source icons, and a persisted reduced sidebar.
 - [x] Feed health: structured safe failure history, one-attempt health cycles, daily checks after three failures, weekly checks after 14 failing days, batched notifications, explicit pause/resume, manual-disabled preservation, and reset/queue actions.
@@ -303,7 +303,7 @@ Tasks:
 - [x] OPML 2.0 file/URL import with bounded dry-run preview, new/existing detection, per-feed and folder-group selection, keep/replace policy, partial result reporting, shared refresh dedup, and hierarchy-preserving export.
 - [x] Revocable public article links with encrypted 256-bit bearer tokens, finite/infinite lifetime policy, rotate/revoke, title/metadata/source/image controls, RSS fallback, and anonymous no-store/noindex rendering without visitor-driven work.
 - [x] **ContentCleanupAgent** enforces shared public-page lifetimes without deleting RSS content and applies configurable article retention while preserving every user's bookmarks (FND-005/009).
-- [x] Admin dashboard: overview/storage counts, user roles, shared-feed inventory/cadence, magazine editing, managed provider configuration, worker/lane/queue visibility, safe wide errors, recent completions, costs, and bounded maintenance actions for refresh, cleanup, stalled recovery, and dead-letter retry.
+- [x] Admin dashboard: overview/storage counts, user roles, shared-feed inventory/cadence, Discover catalog editing, managed provider configuration, worker/lane/queue visibility, safe wide errors, recent completions, costs, and bounded maintenance actions for refresh, cleanup, stalled recovery, and dead-letter retry.
 - [x] **GReader API adapter** exposes ClientLogin + T token, subscription/list+edit, tag/list, stream/contents, items/ids, items/contents, edit-tag, mark-all-as-read, and user-info. Stable numeric aliases are assigned once by database triggers; reads/stars/labels stay personal.
 - [x] GReader integration tests replay authentication, subscription, stream, read, and star client request sequences (FND-105).
 

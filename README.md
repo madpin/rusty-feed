@@ -50,18 +50,18 @@ It also fixes a set of real deficiencies found in the reference (unwired conditi
 - Per-user personalization (TF keyword patterns, sigmoid relevance scoring, time-decay)
 - Saved searches with a boolean+semantic DSL (`AND`/`OR`/`NOT`/phrases/groups) and match notifications
 - On-demand and optional automatic LLM article summaries with a reserved low-latency queue, live progress, user → administrator → environment provider fallback, encrypted managed credentials, actionable errors, and durable cost tracking
-- Feed magazine: 200 verified starter sources across news, technology, research, science, security, public-interest, and culture; automatic country/category/language filtering, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
+- Discover catalog: 200 verified starter feeds across news, technology, research, science, security, public-interest, and culture; automatic country/topic/language filtering, observed content/cadence/last-post stats, multi-select subscriptions, and unrestricted custom feed URLs
 - Personal feed organization: stable hierarchical folder navigation, one folder per feed, an Unfiled scope, multi-valued tags, bulk move/tag/refresh actions, drag-to-folder organization, downloaded source icons, and a reduced sidebar mode
 - OPML 2.0 file/URL import with preview, selective nested-folder mapping, duplicate policy and partial results, plus hierarchy-preserving export
 - Feed health tracking (healthy/warning/error/manual-disabled): normal cadence for 1–2 failures, daily after 3, weekly after 14 failing days, resolved structured error history, and last-successful-update timestamps
 - Three reading modes (side panel / inline / standalone), opt-in sandboxed live publisher view, original and RSS-comment links, themes, deep typography/display preferences, and arrow-key-first shortcuts
 - Installable home-screen/desktop experience with instance branding and quick Library/Search/Discover shortcuts; only public application assets are cached
-- Admin dashboard: instance stats, users/roles, shared feed inventory/cadence, feed magazine editing, live worker/queue status, safe operations logs, public-share activity, and AI costs
+- Admin dashboard: instance stats, users/roles, shared feed inventory/cadence, Discover catalog editing, live background-work status, safe operations logs, public-share activity, and AI costs
 - Revocable public article links with finite/infinite lifetimes and configurable RSS/public-page, metadata, source-link, and image policies
 - OAuth (Google/GitHub/Generic) **and** local accounts (Argon2id)
 - A versioned native JSON API and the commonly used GReader client subset, with stable protocol IDs and replay conformance tests
 - Fever-compatible mobile-client API, passwordless WebAuthn passkeys, trusted reverse-proxy auth, and scoped app credentials
-- Personal entry filters, versioned shared rewrite rules with preview/rollback/reprocessing, and opt-in host-pinned cookie/proxy/self-signed-certificate acquisition profiles
+- Personal entry filters, versioned shared rewrite rules with preview/rollback/reprocessing, and opt-in host-pinned cookie/proxy/self-signed-certificate feed access profiles
 - Versioned personal CSS, administrator-managed opt-in JavaScript with Safe Mode, public YouTube duration enrichment, and 20 selectable locale/format profiles
 - Named article destinations and signed event webhooks with encrypted credential rotation, templates, event filters, low-impact retries, dead letters, and delivery history
 
@@ -78,7 +78,7 @@ A smart reading list with **per-feed unread counts**, in-place reading, and one-
 
 ![Library](docs/screenshots/library.png)
 
-| Discover magazine (filter-aware select-all) | Standalone reader |
+| Discover catalog (filter-aware select-all) | Standalone reader |
 |---|---|
 | [![Discover feeds](docs/screenshots/discover.png)](docs/screenshots/discover.png) | [![Article reader](docs/screenshots/article.png)](docs/screenshots/article.png) |
 
@@ -143,7 +143,7 @@ docker compose --env-file .env -f docker/compose.yaml up -d  # full stack
 open http://localhost:8080
 ```
 
-The first account you register becomes the **admin**. New users can choose from 200 curated magazine sources with country and language filters, or add their own feed URL.
+The first account you register becomes the **admin**. New users can choose from 200 curated feeds on Discover with country and language filters, or add their own feed URL.
 
 ### Redis-free single-process mode
 

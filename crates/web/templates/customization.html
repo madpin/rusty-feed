@@ -1,8 +1,8 @@
 {% extends "app_base.html" %}
-{% block title %}Customization{% endblock %}
+{% block title %}{{ ui.text("customization") }}{% endblock %}
 {% block body_class %}page-settings{% endblock %}
 {% block content %}
-<div class="page-header"><div><p class="eyebrow">Appearance</p><h1>Interface customization</h1><p class="muted">Versioned, recoverable customization without weakening the default Content Security Policy.</p></div></div>
+<div class="page-header"><div><p class="eyebrow">Appearance</p><h1>{{ ui.text("customization") }}</h1><p class="muted">Versioned, recoverable customization without weakening the default Content Security Policy.</p></div></div>
 {% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
 {% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 {% if safe_mode %}<p class="alert" role="alert">Safe mode is active: all custom CSS and JavaScript are suppressed. <a href="/safe-mode/leave">Leave safe mode</a>.</p>{% else %}<p class="notice">If a customization makes the UI hard to use, open <a href="/safe-mode">Safe mode</a> directly.</p>{% endif %}

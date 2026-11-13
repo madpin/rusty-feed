@@ -442,7 +442,7 @@ pub trait Agent: Send + Sync + 'static {
     • CleanupAgent       (retention; preserves bookmarks; VACUUM ANALYZE when needed)
     • FeedHealthSweep    (optional; batch notifications and manual-pause maintenance)
     • ClusterStoriesAgent (hourly at :15 UTC; cosine similarity ≥ 0.82 joins a shared story)
-    • DailyDigestAgent   (07:00 UTC; personal briefing from shared stories, email only when SMTP is configured and the user opted in)
+    • DailyDigestAgent   (07:00 UTC; the personal **Briefing** — page `/briefing`, with `/digests` and `/digests/refresh` as permanent redirects — built from shared stories; email only when SMTP is configured and the user opted in)
 ```
 
 Notes:

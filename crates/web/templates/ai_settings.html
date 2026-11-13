@@ -16,7 +16,7 @@
 {% if managing_instance %}
 <section class="panel">
   <h2>Automatic article summaries</h2>
-  <p class="muted">Queue one shared summary while feeds are ingested when the effective article body reaches the minimum readable-text size. The policy is stored in PostgreSQL and standalone workers pick up changes without a restart.</p>
+  <p class="muted">Write one shared summary for each new article when its text reaches the minimum readable length. Changes take effect on the next article, without a restart.</p>
   <form method="post" action="/admin/ai/summary-policy" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <label class="check-row"><input type="checkbox" name="enabled" value="true" {% if auto_summary_enabled %}checked{% endif %} /> Enable automatic summaries for this instance</label>
@@ -49,7 +49,7 @@
       {% if managing_instance %}<label>Base URL<input type="url" name="base_url" placeholder="https://api.openai.com or http://ollama:11434" /></label>{% endif %}
       <label>API key<input type="password" name="api_key" autocomplete="new-password" placeholder="Required for OpenAI" /></label>
     </div>
-    <p class="muted">Keys are encrypted with the instance master secret, never displayed again, and decrypted only inside a summary worker.</p>
+    <p class="muted">Keys are encrypted with the instance master secret, never displayed again, and decrypted only while a summary is being written.</p>
     <div class="form-actions"><button class="primary" type="submit">Save provider</button></div>
   </form>
 </section>

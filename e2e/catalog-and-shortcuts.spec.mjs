@@ -26,7 +26,7 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
     has: page.getByRole("heading", { name: "Go Blog" }),
   });
   await goBlogCard.locator("input[name='feed_id']").check();
-  await page.getByLabel("Category").selectOption("Culture & Arts");
+  await page.getByLabel("Topic").selectOption("Culture & Arts");
   await expect(page).toHaveURL(/category=Culture/);
   await expect(page.getByRole("heading", { name: "Smithsonian Arts and Culture" })).toBeVisible();
   await expect(page.locator("[data-catalog-selection-count]")).toContainText("1 selected");
@@ -37,18 +37,18 @@ test("a reader can browse the catalog and configure guarded shortcuts", async ({
   await smithsonianCard.getByRole("link", { name: "Preview", exact: true }).click();
   await expect(page).toHaveURL(/\/catalog\/[^/]+\/preview/);
   await expect(page.getByRole("heading", { name: "Preview Smithsonian Arts and Culture" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Add to my library" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add to my feeds" })).toBeVisible();
   await expect(page.getByRole("link", { name: "RSS preview" })).toHaveAttribute("aria-current", "page");
   await page.getByRole("link", { name: "Processed availability" }).click();
   await expect(page).toHaveURL(/view=processed/);
   await expect(page.getByText("Processed preview is an availability report")).toBeVisible();
   await expect(page.getByRole("link", { name: "Processed availability" })).toHaveAttribute("aria-current", "page");
   await page.getByRole("link", { name: "Back to Discover" }).click();
-  await expect(page.getByLabel("Category")).toHaveValue("Culture & Arts");
+  await expect(page.getByLabel("Topic")).toHaveValue("Culture & Arts");
   await expect(page.locator("[data-catalog-selection-count]")).toContainText("1 selected");
 
   await smithsonianCard.locator(".catalog-card-heading").dblclick();
-  await expect(page.getByRole("status").filter({ hasText: "Subscribed to 2 source" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Subscribed to 2 feed" })).toBeVisible();
 
   await page.getByLabel("Country").selectOption("Brazil");
   await expect(page).toHaveURL(/country=Brazil/);
@@ -629,7 +629,7 @@ test("the reader presents actions, sharing, summary, and content as one surface"
             <details class="share-controls reader-share"><summary><span>Public share</span></summary><div class="share-controls-body"><p>Share settings remain part of this reader.</p></div></details>
           </div>
           <div class="reader-document" data-reader-view-content>
-            <section class="reader-summary"><header class="reader-section-heading"><p class="reader-section-kicker">At a glance</p><h2>AI summary</h2></header><div class="reader-summary-copy"><p>A short integrated summary.</p></div></section>
+            <section class="reader-summary"><header class="reader-section-heading"><p class="reader-section-kicker">TL;DR</p><h2>AI summary</h2></header><div class="reader-summary-copy"><p>A short integrated summary.</p></div></section>
             <section class="reader-article-copy"><div class="article-body"><p>The article begins here.</p></div></section>
           </div>
         </div>
@@ -744,7 +744,7 @@ test("admin queue uses the wide layout and refreshes in place", async ({ page })
       <div class="layout no-context-sidebar">
         <main class="content">
           <div class="page-header">
-            <h1>Queue &amp; logs</h1>
+            <h1>Background work &amp; logs</h1>
             <button type="button" data-admin-queue-refresh>Refresh now</button>
             <span data-admin-refresh-status></span>
           </div>

@@ -1763,11 +1763,11 @@ pub async fn summary_status(
         },
         Some(job) if job.status == "pending" && job.attempts > 0 => SummaryStatus {
             state: "retrying",
-            message: "The first attempt failed. Retrying in the priority queue…",
+            message: "The first attempt failed. Trying again shortly…",
         },
         Some(job) if job.status == "pending" => SummaryStatus {
             state: "queued",
-            message: "Waiting for a priority worker…",
+            message: "Waiting for its turn…",
         },
         Some(job) if job.status == "dead" => SummaryStatus {
             state: "failed",

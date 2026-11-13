@@ -1,5 +1,5 @@
 {% extends "app_base.html" %}
-{% block title %}Administration{% endblock %}
+{% block title %}{{ ui.text("administration") }}{% endblock %}
 {% block body_class %}page-admin page-admin-dashboard{% endblock %}
 {% macro flag(on, yes, no) %}<span class="status-badge{% if on %} is-on{% else %} is-off{% endif %}">{% if on %}{{ yes }}{% else %}{{ no }}{% endif %}</span>{% endmacro %}
 {% block content %}
@@ -8,7 +8,7 @@
   <div>
     <p class="eyebrow">Administration</p>
     <h1>Instance overview</h1>
-    <p class="muted">Members, shared sources, the discovery magazine, background work, and instance policy at a glance.</p>
+    <p class="muted">Members, shared feeds, the Discover catalog, background work, and instance policy in one view.</p>
   </div>
 </div>
 
@@ -19,7 +19,7 @@
     <a class="admin-stat admin-stat-people" href="/admin/feeds" title="Total per-user subscriptions across all members. Content is still fetched once and shared."><span class="admin-stat-icon" aria-hidden="true">🔖</span><strong>{{ ui.format_number(stats.subscriptions) }}</strong><span>Subscriptions</span></a>
     <a class="admin-stat admin-stat-content" href="/admin/feeds" title="Distinct shared feeds fetched once and shared across all subscribers. Click to inspect them."><span class="admin-stat-icon" aria-hidden="true">📡</span><strong>{{ ui.format_number(stats.feeds) }}</strong><span>Shared feeds</span></a>
     <span class="admin-stat admin-stat-content" title="Total shared article rows stored across every feed."><span class="admin-stat-icon" aria-hidden="true">📰</span><strong>{{ ui.format_number(stats.articles) }}</strong><span>Articles</span></span>
-    <a class="admin-stat admin-stat-content" href="/admin/catalog" title="Sources published in the discovery magazine. Click to curate."><span class="admin-stat-icon" aria-hidden="true">🗂️</span><strong>{{ ui.format_number(stats.catalog_entries) }}</strong><span>Catalog entries</span></a>
+    <a class="admin-stat admin-stat-content" href="/admin/catalog" title="Feeds published in Discover. Click to curate."><span class="admin-stat-icon" aria-hidden="true">🗂️</span><strong>{{ ui.format_number(stats.catalog_entries) }}</strong><span>Discover entries</span></a>
     <span class="admin-stat admin-stat-content" title="Public share links that are currently live (not expired or revoked)."><span class="admin-stat-icon" aria-hidden="true">🌐</span><strong>{{ ui.format_number(stats.active_public_shares) }}</strong><span>Active public shares</span></span>
     <a class="admin-stat admin-stat-work" href="/admin/costs" title="Instance-funded AI spend over the last 30 days (excludes bring-your-own-key usage)."><span class="admin-stat-icon" aria-hidden="true">💲</span><strong>{{ stats.ai_spend_30d }}</strong><span>AI spend · 30 days</span></a>
   </div>
@@ -31,13 +31,13 @@
     <span class="admin-health-badge tone-{{ stats.queue_health_tone }}">{{ stats.queue_health }}</span>
   </div>
   <div class="admin-stat-grid">
-    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Worker processes with a live heartbeat, and their combined job slots (background + interactive)."><span class="admin-stat-icon" aria-hidden="true">🖥️</span><strong>{{ stats.workers_online }}</strong><span>Workers · {{ stats.worker_capacity }} slots</span></a>
-    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Jobs due now and waiting for a free worker slot."><span class="admin-stat-icon" aria-hidden="true">⏳</span><strong>{{ ui.format_number(stats.pending_due) }}</strong><span>Pending now</span></a>
-    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Jobs scheduled to run at a later time."><span class="admin-stat-icon" aria-hidden="true">🗓️</span><strong>{{ ui.format_number(stats.pending_scheduled) }}</strong><span>Scheduled</span></a>
-    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Jobs a worker is executing right now."><span class="admin-stat-icon" aria-hidden="true">⚙️</span><strong>{{ ui.format_number(stats.running_jobs) }}</strong><span>Running</span></a>
-    <a class="admin-stat admin-stat-content" href="/admin/logs" title="Jobs completed in the last hour — recent throughput."><span class="admin-stat-icon" aria-hidden="true">✅</span><strong>{{ ui.format_number(stats.finished_last_hour) }}</strong><span>Done · last hour</span></a>
-    <a class="admin-stat admin-stat-warn" href="/admin/logs" title="Jobs claimed by a worker that stopped heartbeating; they are reclaimed automatically."><span class="admin-stat-icon" aria-hidden="true">♻️</span><strong>{{ ui.format_number(stats.stalled_jobs) }}</strong><span>Stalled</span></a>
-    <a class="admin-stat admin-stat-warn" href="/admin/logs" title="Jobs that exhausted their retries and were moved to the dead-letter state for inspection."><span class="admin-stat-icon" aria-hidden="true">⚰️</span><strong>{{ ui.format_number(stats.dead_jobs) }}</strong><span>Dead-letter</span></a>
+    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Workers are the processes that run background tasks. This counts workers that checked in recently and their combined task slots (background + priority)."><span class="admin-stat-icon" aria-hidden="true">🖥️</span><strong>{{ stats.workers_online }}</strong><span>Workers · {{ stats.worker_capacity }} slots</span></a>
+    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Tasks due now and waiting for a free worker slot."><span class="admin-stat-icon" aria-hidden="true">⏳</span><strong>{{ ui.format_number(stats.pending_due) }}</strong><span>Pending now</span></a>
+    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Tasks scheduled to run at a later time."><span class="admin-stat-icon" aria-hidden="true">🗓️</span><strong>{{ ui.format_number(stats.pending_scheduled) }}</strong><span>Scheduled</span></a>
+    <a class="admin-stat admin-stat-work" href="/admin/logs" title="Tasks a worker is running right now."><span class="admin-stat-icon" aria-hidden="true">⚙️</span><strong>{{ ui.format_number(stats.running_jobs) }}</strong><span>Running</span></a>
+    <a class="admin-stat admin-stat-content" href="/admin/logs" title="Tasks completed in the last hour — recent throughput."><span class="admin-stat-icon" aria-hidden="true">✅</span><strong>{{ ui.format_number(stats.finished_last_hour) }}</strong><span>Done · last hour</span></a>
+    <a class="admin-stat admin-stat-warn" href="/admin/logs" title="Tasks claimed by a worker that stopped checking in; they are recovered automatically."><span class="admin-stat-icon" aria-hidden="true">♻️</span><strong>{{ ui.format_number(stats.stalled_jobs) }}</strong><span>Stalled</span></a>
+    <a class="admin-stat admin-stat-warn" href="/admin/logs" title="Tasks that used up all their retries and were set aside for inspection."><span class="admin-stat-icon" aria-hidden="true">⚰️</span><strong>{{ ui.format_number(stats.dead_jobs) }}</strong><span>Failed</span></a>
   </div>
 </section>
 
@@ -58,17 +58,17 @@
       <li><span class="badge admin-badge-muted">Disabled</span> {{ ui.format_number(stats.feeds_disabled) }}</li>
     </ul>
     {% else %}
-    <p class="muted">No shared feeds yet. Publish sources from the <a href="/admin/catalog">feed catalog</a> or let members add their own.</p>
+    <p class="muted">No shared feeds yet. Publish feeds from the <a href="/admin/catalog">Discover catalog</a> or let members add their own.</p>
     {% endif %}
   </section>
 
   <section class="panel admin-overview-actions">
     <h2>Quick administration</h2>
     <div class="row-actions">
-      <a class="btn" href="/admin/catalog">Edit feed magazine</a>
+      <a class="btn" href="/admin/catalog">Edit Discover catalog</a>
       <a class="btn" href="/admin/feeds">Inspect shared feeds</a>
       <a class="btn" href="/admin/users">Manage user roles</a>
-      <a class="btn" href="/admin/logs">View queue and logs</a>
+      <a class="btn" href="/admin/logs">View background work and logs</a>
       <a class="btn" href="/admin/costs">View AI costs</a>
       <a class="btn" href="/admin/ai">Configure AI providers</a>
     </div>
@@ -77,7 +77,7 @@
   <section class="panel admin-panel-wide admin-storage-panel">
     <div class="admin-metric-head"><h2>Storage &amp; memory</h2><span class="muted">{{ stats.database_size }} on disk · {{ stats.process_memory }} RAM</span></div>
     {% if stats.storage_has_data %}
-    <div class="stat-bar" role="img" aria-label="Database composition: articles {{ stats.storage_articles_pct }}%, embeddings {{ stats.storage_embeddings_pct }}%, media cache {{ stats.storage_media_pct }}%, other {{ stats.storage_other_pct }}%">
+    <div class="stat-bar" role="img" aria-label="Database composition: articles {{ stats.storage_articles_pct }}%, search index {{ stats.storage_embeddings_pct }}%, media cache {{ stats.storage_media_pct }}%, other {{ stats.storage_other_pct }}%">
       <span class="stat-bar-seg seg-articles w-{{ stats.storage_articles_pct }}"></span>
       <span class="stat-bar-seg seg-embeddings w-{{ stats.storage_embeddings_pct }}"></span>
       <span class="stat-bar-seg seg-media w-{{ stats.storage_media_pct }}"></span>
@@ -85,14 +85,14 @@
     </div>
     {% endif %}
     <dl class="definition-list admin-storage-list">
-      <div><dt title="Article table plus its indexes and full-text search vectors."><span class="legend-dot seg-articles" aria-hidden="true"></span>Articles + indexes</dt><dd>{{ stats.article_storage }} <span class="muted">· {{ stats.avg_article_size }}</span></dd></div>
-      <div><dt title="Stored embedding vectors plus the pgvector HNSW index used for semantic search."><span class="legend-dot seg-embeddings" aria-hidden="true"></span>Embeddings + HNSW</dt><dd>{{ stats.embedding_storage }}</dd></div>
+      <div><dt title="Article table plus its database indexes and keyword-search data."><span class="legend-dot seg-articles" aria-hidden="true"></span>Articles + indexes</dt><dd>{{ stats.article_storage }} <span class="muted">· {{ stats.avg_article_size }}</span></dd></div>
+      <div><dt title="Embeddings (a numeric fingerprint of each article that lets search match by meaning) plus the pgvector HNSW index that makes them fast to search."><span class="legend-dot seg-embeddings" aria-hidden="true"></span>Search index (embeddings + HNSW)</dt><dd>{{ stats.embedding_storage }}</dd></div>
       <div><dt title="Bytes cached by the privacy media proxy."><span class="legend-dot seg-media" aria-hidden="true"></span>Shared media cache</dt><dd>{{ stats.media_storage }} <span class="muted">· {{ stats.media_cache_note }}</span></dd></div>
-      <div><dt title="Everything else: accounts, subscriptions, jobs, sessions, saved searches, and other operational tables."><span class="legend-dot seg-other" aria-hidden="true"></span>Other tables</dt><dd>{{ stats.storage_other }}</dd></div>
+      <div><dt title="Everything else: accounts, subscriptions, background tasks, sessions, saved searches, and other operational tables."><span class="legend-dot seg-other" aria-hidden="true"></span>Other tables</dt><dd>{{ stats.storage_other }}</dd></div>
       <div><dt title="Total on-disk size of the PostgreSQL database.">PostgreSQL total</dt><dd>{{ stats.database_size }}</dd></div>
       <div><dt title="Resident set size (RSS) of this web/worker process right now.">Process memory (RSS)</dt><dd>{{ stats.process_memory }}</dd></div>
     </dl>
-    <p class="muted">A typical loaded process sits around 250–300&nbsp;MB. The largest resident consumers are the local embedding model and ONNX runtime (loaded once into RAM), the SQLx/Redis connection pools, and template/asset buffers. Headless Chromium runs as a <strong>separate</strong> container, so it does not count toward this figure. To trim memory, set <code>EMBEDDINGS_ENABLED=false</code> if you don't need semantic/hybrid search or saved-search ranking (skips the model/ONNX runtime entirely), use a hosted embedding provider instead (<code>EMBEDDING_PROVIDER=openai</code>), or lower <code>FEED_REFRESH_CONCURRENCY</code>. Historical/container memory is also exported via <a href="/metrics">Prometheus metrics</a>.</p>
+    <p class="muted">A typical loaded process sits around 250–300&nbsp;MB. The largest memory users are the on-device model that builds the search index (loaded once into RAM), the database and cache connection pools, and page and asset buffers. Headless Chromium runs as a <strong>separate</strong> container, so it does not count toward this figure. To trim memory, set <code>EMBEDDINGS_ENABLED=false</code> if you don't need meaning-based (semantic or hybrid) search or saved-search ranking (this skips the on-device model entirely), use a hosted provider for the search index instead (<code>EMBEDDING_PROVIDER=openai</code>), or lower <code>FEED_REFRESH_CONCURRENCY</code>. Historical/container memory is also exported via <a href="/metrics">Prometheus metrics</a>.</p>
   </section>
 
   <section class="panel">
@@ -122,10 +122,10 @@
   <section class="panel">
     <h2>Publisher fetch policy</h2>
     <dl class="definition-list">
-      <div><dt>User agent</dt><dd><code>{{ outbound_user_agent }}</code></dd></div>
+      <div><dt>User agent <span class="muted">(how Rusty Feed identifies itself to publishers)</span></dt><dd><code>{{ outbound_user_agent }}</code></dd></div>
       <div><dt>Protocol</dt><dd>{{ outbound_protocol }}</dd></div>
     </dl>
-    <p class="muted">This identity and protocol policy applies to the one shared SSRF-safe client used for feeds, public pages, robots, icons, Live View, and proxied media. Configure <code>OUTBOUND_USER_AGENT</code> and <code>OUTBOUND_HTTP1_ONLY</code> at startup.</p>
+    <p class="muted">This identity and protocol policy applies to the one shared safe-fetch client, which refuses private and internal network addresses, used for feeds, public pages, robots, icons, Live View, and proxied media. Configure <code>OUTBOUND_USER_AGENT</code> and <code>OUTBOUND_HTTP1_ONLY</code> at startup.</p>
   </section>
 
   <section class="panel">
@@ -147,11 +147,11 @@
       <div><dt>Positive cache lifetime</dt><dd>{{ media_proxy_cache_ttl_hours }} hours</dd></div>
       <div><dt>Additional passive MIME types</dt><dd>{{ media_proxy_extra_mime_types }}</dd></div>
       <div><dt>YouTube embeds</dt><dd>{% call flag(youtube_embeds_enabled, "Enabled", "Disabled") %}</dd></div>
-      <div><dt>Approved source domains</dt><dd>{{ youtube_source_host_count }}</dd></div>
+      <div><dt>Approved video-site domains</dt><dd>{{ youtube_source_host_count }}</dd></div>
       <div><dt>Built-in player origin</dt><dd><code>youtube-nocookie.com</code> (fixed)</dd></div>
       <div><dt>Alternative player</dt><dd>{{ youtube_alternative_player }}</dd></div>
     </dl>
-    <p class="muted">Attachment cache misses are coalesced across processes with PostgreSQL advisory locks. The configurable MIME extension list accepts only documented passive audio, video, and raster-image types; active document types cannot be enabled. Users may inherit or override delivery and loading per subscription.</p>
+    <p class="muted">When several processes need the same uncached attachment, they share one download. The configurable MIME extension list accepts only documented passive audio, video, and raster-image types; active document types cannot be enabled. Users may inherit or override delivery and loading per subscription.</p>
   </section>
 </div>
 

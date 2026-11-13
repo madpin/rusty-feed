@@ -1082,7 +1082,7 @@ img.enclosure-image[data-image-modal] { cursor: zoom-in; }
 [data-summary-progress].error { color: var(--danger); }
 
 /* Reader: a plain status line while a summary is generating — intentionally
-   not styled as the "At a glance / AI summary" section, since that heading
+   not styled as the "TL;DR / AI summary" section, since that heading
    is reserved for when the summary actually exists. */
 .reader-summary-status { margin: 0.75rem 0; color: var(--muted); font-size: 0.95rem; line-height: 1.5; overflow-wrap: anywhere; }
 

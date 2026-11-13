@@ -468,6 +468,34 @@ pub async fn coverage_for_user(
     Ok(ArticleCoverage { summary, sources })
 }
 
+/// How many of one reader's recent articles exist and how many have a current
+/// search-index entry. Stories can only form among embedded articles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::FromRow)]
+pub struct EmbeddingCoverage {
+    pub recent: i64,
+    pub embedded: i64,
+}
+
+/// Count articles from the user's feeds inside the story window (14 days) and
+/// how many of them are embedded at their current revision.
+pub async fn embedding_coverage_for_user(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> Result<EmbeddingCoverage> {
+    Ok(sqlx::query_as(
+        "SELECT count(*) AS recent, count(embedding.article_id) AS embedded \
+         FROM articles AS article \
+         JOIN user_feeds AS subscription \
+           ON subscription.feed_id = article.feed_id AND subscription.user_id = $1 \
+         LEFT JOIN article_embeddings AS embedding ON embedding.article_id = article.id \
+          AND embedding.content_revision = article.content_revision \
+         WHERE coalesce(article.published_at, article.created_at) > now() - interval '14 days'",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Recent multi-source stories visible to one user, for a personal briefing.
 pub async fn briefing_stories(pool: &PgPool, user_id: Uuid) -> Result<Vec<BriefingStory>> {
     let rows: Vec<DigestRow> = sqlx::query_as(

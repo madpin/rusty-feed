@@ -324,7 +324,7 @@ pub async fn create(
         &user,
         jar,
         Some(
-            "Acquisition profile created. Secrets are encrypted and will not be shown again."
+            "Feed access profile created. Secrets are encrypted and will not be shown again."
                 .into(),
         ),
         None,
@@ -360,7 +360,7 @@ pub async fn assign(
         &state,
         &user,
         jar,
-        Some("Shared feed acquisition policy updated.".into()),
+        Some("Shared feed access settings updated.".into()),
         None,
     )
     .await
@@ -384,7 +384,7 @@ pub async fn delete(
         &user,
         jar,
         Some(
-            "Acquisition profile deleted; assigned feeds returned to the safe public client."
+            "Feed access profile deleted; assigned feeds returned to the standard public fetch."
                 .into(),
         ),
         None,

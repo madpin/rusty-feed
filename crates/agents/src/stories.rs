@@ -146,7 +146,7 @@ impl Agent for DailyDigestAgent {
                 let Some(pending) = digests::claim_pending_email(ctx.db.pool()).await? else {
                     break;
                 };
-                let link = format!("{}/digests", self.public_base_url.trim_end_matches('/'));
+                let link = format!("{}/briefing", self.public_base_url.trim_end_matches('/'));
                 let body = absolutize_app_paths(
                     &format!(
                         "{}\n\n{}\n\nOpen the briefing:\n{link}\n",

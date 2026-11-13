@@ -229,7 +229,7 @@ pub async fn category_create(
     let name = input.name.trim();
     if name.is_empty() || name.chars().count() > 80 {
         return Err(AppError::Validation(
-            "category name must contain 1–80 characters".into(),
+            "folder name must contain 1–80 characters".into(),
         ));
     }
     let category = categories::create(state.db.pool(), user.id, name, input.parent_id).await?;

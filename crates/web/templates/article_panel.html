@@ -51,7 +51,7 @@
     </form>
         <a class="reader-action-button ra-send" href="/articles/{{ id }}/send" data-article-send-trigger data-modal-url="/articles/{{ id }}/send/modal" aria-haspopup="dialog" aria-label="{{ ui.text("send_to") }}"><span class="ra-icon" aria-hidden="true">📤</span></a>
         {% if summary.is_none() && can_summarize %}
-        <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" data-summary-status-url="/articles/{{ id }}/summary/status" data-success-message="AI summary is being generated in the priority queue.">
+        <form method="post" action="/articles/{{ id }}/summarize" class="summary-action js-action" data-action="summarize" data-refresh-panel="true" data-panel-url="/articles/{{ id }}/panel" data-summary-status-url="/articles/{{ id }}/summary/status" data-success-message="AI summary is being generated.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <input type="hidden" name="next" value="/articles/{{ id }}" />
           <button type="submit" class="reader-action-button summary-button" aria-label="{{ ui.text("generate_summary") }}"><span class="ra-icon" aria-hidden="true">✨</span></button>

@@ -1,12 +1,12 @@
 {% extends "app_base.html" %}
-{% block title %}Notifications{% endblock %}
+{% block title %}{{ ui.text("alerts") }}{% endblock %}
 {% block body_class %}page-notifications{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="eyebrow">Library</p>
-    <h1>Notifications</h1>
-    <p class="muted">Strong matches from your saved searches appear here.</p>
+    <p class="eyebrow">Saved searches</p>
+    <h1>{{ ui.text("alerts") }}</h1>
+    <p class="muted">Strong matches from your <a href="/searches">saved searches</a> appear here.</p>
   </div>
   {% if !notifications.is_empty() %}
   <form method="post" action="/notifications/read">
@@ -17,7 +17,7 @@
 </div>
 
 {% if notifications.is_empty() %}
-<div class="empty-state"><p><strong>No notifications.</strong></p><p>Save a search and enable notifications to receive high-confidence matches.</p></div>
+<div class="empty-state"><p><strong>No alerts yet.</strong></p><p>Create a saved search and turn on alerts to be told about strong matches.</p></div>
 {% else %}
 <ul class="article-list">
   {% for n in notifications %}

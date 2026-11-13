@@ -1,9 +1,9 @@
 {% extends "app_base.html" %}
-{% block title %}Feed blocklist &amp; moderation{% endblock %}
+{% block title %}{{ ui.text("admin_blocklist") }}{% endblock %}
 {% block body_class %}page-admin{% endblock %}
 {% block content %}
 {% include "admin_nav.html" %}
-<div class="page-header"><div><p class="eyebrow">Administration</p><h1>Feed blocklist &amp; moderation</h1><p class="muted">Because content is shared, one abuser's feed or article is everyone's. Block domains/URLs, review reports, and take down shared content. All actions are audited.</p></div></div>
+<div class="page-header"><div><p class="eyebrow">Administration</p><h1>{{ ui.text("admin_blocklist") }}</h1><p class="muted">Because content is shared, one abuser's feed or article is everyone's. Block domains/URLs, review reports, and take down shared content. All actions are audited.</p></div></div>
 {% if admin_readonly %}<p class="notice" role="status">Read-only view — moderation actions are disabled.</p>{% endif %}
 {% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}{% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 
@@ -31,7 +31,7 @@
   <h2>Blocklist entries</h2>
   {% if entries.is_empty() %}<p class="muted">No blocklist entries.</p>{% else %}
   <div class="table-scroll"><table>
-    <thead><tr><th>Kind</th><th>Pattern</th><th>Reason</th><th>Source</th>{% if !admin_readonly %}<th>Actions</th>{% endif %}</tr></thead>
+    <thead><tr><th>Kind</th><th>Pattern</th><th>Reason</th><th>Origin</th>{% if !admin_readonly %}<th>Actions</th>{% endif %}</tr></thead>
     <tbody>
     {% for entry in entries %}
       <tr>

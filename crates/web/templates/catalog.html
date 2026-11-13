@@ -6,7 +6,7 @@
   <div>
     <p class="eyebrow">Curated by your administrator</p>
     <h1>Discover feeds</h1>
-    <p class="muted">Browse a magazine of trusted sources. Compare their observed posting cadence and RSS depth, then subscribe to several at once.</p>
+    <p class="muted">Browse hand-picked feeds from trusted publishers. Compare how often they post and how much of each article their feed includes, then subscribe to several at once.</p>
   </div>
   <a class="btn" href="/feeds">Add your own feed URL</a>
 </div>
@@ -15,9 +15,9 @@
 {% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
 
 <form method="get" action="/catalog" class="catalog-filters panel" data-catalog-filters>
-  <label>Category
+  <label>Topic
     <select name="category">
-      <option value="">All categories</option>
+      <option value="">All topics</option>
       {% for category in categories %}<option value="{{ category.value }}"{% if category.selected %} selected{% endif %}>{{ category.value }}</option>{% endfor %}
     </select>
   </label>
@@ -38,14 +38,14 @@
 
 {% if entries.is_empty() %}
 <div class="empty-state">
-  <p><strong>No curated sources match these filters.</strong></p>
+  <p><strong>No feeds match these filters.</strong></p>
   <p>Try a broader filter, or <a href="/feeds">add a feed URL yourself</a>.</p>
 </div>
 {% else %}
 <form method="post" action="/catalog/subscribe" class="catalog-selection" data-catalog-storage-key="{{ selection_key }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
   <div class="catalog-selection-bar">
-    <div><strong>{{ entries.len() }} sources</strong><span data-catalog-selection-count>No sources selected. Double-click a card to subscribe immediately.</span></div>
+    <div><strong>{{ entries.len() }} feeds</strong><span data-catalog-selection-count>No feeds selected. Double-click a card to subscribe immediately.</span></div>
     <div class="catalog-selection-actions">
       <label class="catalog-select-all"><input type="checkbox" data-catalog-select-all /> <span data-catalog-select-all-label>Select all</span></label>
       <button type="button" class="button-quiet" data-catalog-clear>Clear selection</button>
@@ -86,7 +86,7 @@
       {% endif %}
       <label class="catalog-choice">
         <input type="checkbox" name="feed_id" value="{{ entry.feed_id }}"{% if entry.subscribed %} checked disabled{% endif %} />
-        <span>{% if entry.subscribed %}Already in your library{% else %}Subscribe to this source{% endif %}</span>
+        <span>{% if entry.subscribed %}Already in your feeds{% else %}Subscribe to this feed{% endif %}</span>
       </label>
     </article>
     {% endfor %}

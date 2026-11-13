@@ -1,5 +1,5 @@
 <div class="reader-document" data-reader-view-content>
-  <nav class="reader-content-switch" aria-label="Article content source" data-reader-content-switch>
+  <nav class="reader-content-switch" aria-label="Article content version" data-reader-content-switch>
     <span class="reader-content-switch-label">Content</span>
     <a href="/articles/{{ id }}?content=rss" data-content-view-link data-content-panel-url="/articles/{{ id }}/panel?content=rss"{% if content_mode == "rss" %} class="active" aria-current="true"{% endif %}>RSS</a>
     <a href="/articles/{{ id }}?content=article_page" data-content-view-link data-content-panel-url="/articles/{{ id }}/panel?content=article_page"{% if content_mode == "article_page" %} class="active" aria-current="true"{% endif %}>Page content</a>
@@ -21,7 +21,7 @@
   </nav>
   <div data-stored-content>
   {% if !story_sources.is_empty() %}
-  <section class="story-cluster" aria-label="Same story in other sources">
+  <section class="story-cluster" aria-label="Same story in other feeds">
     <p class="reader-section-kicker">Same story</p>
     {% if let Some(text) = story_summary %}<p>{{ text }}</p>{% endif %}
     <ul>
@@ -34,7 +34,7 @@
   {% if let Some(text) = summary %}
   <section class="reader-summary" aria-labelledby="summary-heading-{{ id }}">
     <header class="reader-section-heading">
-      <p class="reader-section-kicker">At a glance</p>
+      <p class="reader-section-kicker">TL;DR</p>
       <h2 id="summary-heading-{{ id }}">AI summary</h2>
     </header>
     <div class="reader-summary-copy">
@@ -48,7 +48,7 @@
     </div>
   </section>
   {% else if can_summarize %}
-  <!-- Live status for an in-flight summarize job — no "At a glance / AI
+  <!-- Live status for an in-flight summarize job — no "TL;DR / AI
        summary" heading here, since that framing is reserved for when the
        summary actually exists, not while it's still generating. Empty and
        invisible until the toolbar's summarize action starts polling and

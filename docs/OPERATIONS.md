@@ -16,7 +16,7 @@ and extraction tiers. PostgreSQL is always the source of truth.
 
 Never run both an embedded worker and an unintended standalone worker merely to
 “make jobs move.” Multiple workers are supported, but capacity should be an
-intentional choice visible under **Administration → Queue & logs**.
+intentional choice visible under **Administration → Background work** (the admin page says *tasks* and *priority*; see `docs/GLOSSARY.md` for the mapping to jobs and lanes).
 
 ## Startup and health
 
@@ -26,7 +26,7 @@ intentional choice visible under **Administration → Queue & logs**.
 3. Check `/api/health` for process liveness and `/api/health/ready` for database
    readiness. Redis, LLM, and Chromium failures do not make core reading
    unavailable.
-4. Check `/metrics` and **Administration → Queue & logs** for worker heartbeats,
+4. Check `/metrics` and **Administration → Background work** for worker heartbeats,
    lane capacity, waiting/running/stalled/dead work, recent completions, and
    sanitized failures.
 

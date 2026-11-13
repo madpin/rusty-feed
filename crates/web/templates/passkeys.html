@@ -1,8 +1,8 @@
 {% extends "app_base.html" %}
-{% block title %}Passkeys{% endblock %}
+{% block title %}{{ ui.text("passkeys") }}{% endblock %}
 {% block body_class %}page-settings{% endblock %}
 {% block content %}
-<div class="page-header"><div><p class="eyebrow">Security</p><h1>Passkeys</h1><p class="muted">Use Touch ID, Windows Hello, a security key, or a password manager to sign in without sending a password.</p></div></div>
+<div class="page-header"><div><p class="eyebrow">Account security</p><h1>{{ ui.text("passkeys") }}</h1><p class="muted">Use Touch ID, Windows Hello, a security key, or a password manager to sign in without sending a password.</p></div></div>
 {% if let Some(message) = notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
 {% if let Some(message) = error %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
 {% if !enabled %}<p class="alert">Passkeys are disabled by the instance administrator.</p>{% else %}

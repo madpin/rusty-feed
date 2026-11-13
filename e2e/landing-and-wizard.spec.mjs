@@ -6,7 +6,7 @@ test("anonymous landing page shows the pitch, CTA, and Miniflux comparison", asy
 }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "Own the feed",
+    "understands what you read",
   );
   await expect(
     page.getByRole("link", { name: "Create your account" }).first(),

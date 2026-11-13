@@ -335,7 +335,8 @@ async fn create(
         jar,
         managing_instance,
         Some(
-            "AI provider saved. New summary jobs use the updated cascade immediately.".to_string(),
+            "AI provider saved. New summaries use the updated provider order immediately."
+                .to_string(),
         ),
         None,
     )

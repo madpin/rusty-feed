@@ -1,13 +1,13 @@
 {% extends "app_base.html" %}
-{% block title %}Costs — Admin{% endblock %}
+{% block title %}{{ ui.text("admin_costs") }}{% endblock %}
 {% block body_class %}page-admin page-admin-costs{% endblock %}
 {% block content %}
 {% include "admin_nav.html" %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Administration</p>
-    <h1>LLM and embedding costs</h1>
-    <p class="muted">Durable usage accounting across the instance.</p>
+    <h1>AI costs</h1>
+    <p class="muted">What AI summaries and the search index have cost across the instance. “Embedding” rows are the calls that build the search index.</p>
   </div>
   <div class="panel"><strong>{{ total_usd }}</strong><span class="muted"> total</span></div>
 </div>

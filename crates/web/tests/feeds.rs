@@ -802,7 +802,7 @@ async fn bulk_feed_actions_are_scoped_and_preserve_personal_organization() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(body_string(response)
         .await
-        .contains("Reset schedules and refresh every source"));
+        .contains("Reset schedules and refresh every feed"));
 
     let response = app
         .clone()

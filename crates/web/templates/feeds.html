@@ -4,9 +4,9 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="eyebrow">Sources</p>
+    <p class="eyebrow">Your feeds</p>
     <h1>Manage feeds</h1>
-    <p class="muted">Subscribe to the publications you want Rusty Feed to follow. Refreshes and enrichment are queued once per shared feed.</p>
+    <p class="muted">Subscribe to the feeds you want Rusty Feed to follow. Each feed is fetched and processed once, however many people follow it.</p>
   </div>
   {% if !feeds.is_empty() %}
   <div class="header-actions">
@@ -15,9 +15,9 @@
       <button type="submit">Refresh my feeds now</button>
     </form>
     {% if is_admin %}
-    <form method="post" action="/feeds/refresh-everything" data-confirm="Reset the refresh schedule and queue every active shared source now? Paused sources stay paused.">
+    <form method="post" action="/feeds/refresh-everything" data-confirm="Reset the refresh schedule and queue every active feed now? Paused feeds stay paused.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-      <button type="submit">Reset schedules and refresh every source</button>
+      <button type="submit">Reset schedules and refresh every feed</button>
     </form>
     {% endif %}
   </div>
@@ -54,7 +54,7 @@
   <div class="section-heading">
     <div>
       <h2>Import or export subscriptions</h2>
-      <p class="muted">Preview an OPML file before anything changes, choose exactly which sources to import, and preserve its folder hierarchy. Existing subscriptions stay untouched unless you choose to replace their personal name and folder.</p>
+      <p class="muted">Preview an OPML file before anything changes, choose exactly which feeds to import, and preserve its folder hierarchy. Existing subscriptions stay untouched unless you choose to replace their personal name and folder.</p>
     </div>
     <a class="btn" href="/feeds/opml/export">Export OPML</a>
   </div>
@@ -73,7 +73,7 @@
 </section>
 
 <section class="panel">
-  <h2>Folders and categories</h2>
+  <h2>Folders and tags</h2>
   <p class="muted">Folders are personal and can be nested. Each feed has one folder; tags remain flexible and multi-valued.</p>
   <form method="post" action="/feeds/categories" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
@@ -127,7 +127,7 @@
       <input type="text" name="tags" maxlength="819" placeholder="technology, work" />
     </label>
     <button type="submit" formaction="/feeds/bulk-tags" data-bulk-action>Update tags</button>
-    <label>Content source
+    <label>Article content
       <select name="content_mode">
         <option value="rss">RSS content</option>
         <option value="article_page">Public article page</option>
@@ -152,7 +152,7 @@
   {% if feeds.is_empty() %}
   <div class="empty-state">
     <p><strong>You have not subscribed to any feeds yet.</strong></p>
-    <p>Add a feed URL above to start building your library.</p>
+    <p>Add a feed URL above to start filling your Library.</p>
   </div>
   {% else %}
   <ul class="feed-list">

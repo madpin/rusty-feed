@@ -1976,7 +1976,7 @@ async fn summarize_enqueues_a_job() {
     let body = body_string(response).await;
     assert!(body.contains("AI-generated article summary"));
     assert!(body.contains("class=\"reader-summary\""));
-    assert!(body.contains("class=\"reader-section-kicker\">At a glance"));
+    assert!(body.contains("class=\"reader-section-kicker\">TL;DR"));
     assert!(body.contains("class=\"reader-article-copy\""));
     assert!(!body.contains("summary-box"));
 }
@@ -2015,4 +2015,138 @@ async fn static_css_is_served() {
     assert!(js.contains("shortcutFromEvent"));
     assert!(js.contains("data-shortcuts-enabled"));
     assert!(!js.contains("arguments.callee"));
+}
+
+#[tokio::test]
+async fn legacy_digests_addresses_redirect_permanently_to_briefing() {
+    // No DB needed — build a lazy-pool state.
+    let db = Db::connect_lazy("postgres://u:p@localhost/none").unwrap();
+    let app = router(AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    ));
+    for (method, from, to) in [
+        ("GET", "/digests", "/briefing"),
+        ("POST", "/digests/refresh", "/briefing/refresh"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(from)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // 308 keeps the method, so a bookmarked form post still reaches the new route.
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT, "{from}");
+        assert_eq!(response.headers().get("location").unwrap(), to);
+    }
+}
+
+#[tokio::test]
+async fn empty_briefing_explains_why_and_what_is_needed() {
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{articles, embeddings, feeds, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let get = |app: Router, sid: String| async move {
+        let response = app
+            .oneshot(
+                Request::get("/briefing")
+                    .header("cookie", format!("rusty_feed_sid={sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        body_string(response).await
+    };
+
+    let body = get(app.clone(), sid.clone()).await;
+    assert!(body.contains("<h1>Briefing</h1>"));
+    assert!(!body.contains("class=\"eyebrow\">Library"));
+    assert!(body.contains("Nothing to brief yet."));
+    assert!(body.contains("similarity is at least 0.82"));
+    assert!(body.contains("href=\"/settings/preferences#briefing-settings\""));
+    assert!(body.contains("It is off."));
+    assert!(body.contains("None of your feeds has published an article in the last 14 days"));
+    assert!(body.contains("action=\"/briefing/refresh\""));
+    assert!(!body.contains("/digests"));
+
+    user_preferences::upsert(pool, user.id, &serde_json::json!({ "daily_digest": true }))
+        .await
+        .unwrap();
+    let suffix = uuid::Uuid::now_v7();
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://briefing-empty.example/{suffix}.xml"),
+        "Briefing feed",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let mut indexed = None;
+    for (slug, title) in [
+        ("indexed", "Indexed article"),
+        ("waiting", "Waiting article"),
+    ] {
+        let (article, _) = articles::upsert(
+            pool,
+            &NewArticle {
+                feed_id: feed.id,
+                url: format!("https://briefing-empty.example/{suffix}/{slug}"),
+                comments_url: None,
+                guid: None,
+                title: title.to_string(),
+                author: None,
+                content: format!("<p>{title}</p>"),
+                excerpt: None,
+                image_url: None,
+                enclosures: Vec::new(),
+                published_at: Some(time::OffsetDateTime::now_utc()),
+            },
+        )
+        .await
+        .unwrap();
+        indexed.get_or_insert(article);
+    }
+    let indexed = indexed.unwrap();
+    let model: String =
+        sqlx::query_scalar("SELECT model FROM instance_embedding_space WHERE singleton")
+            .fetch_optional(pool)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| "briefing-empty-test".to_string());
+    embeddings::upsert(
+        pool,
+        indexed.id,
+        &vec![0.5_f32; 384],
+        &model,
+        indexed.content_revision,
+    )
+    .await
+    .unwrap();
+
+    let body = get(app, sid).await;
+    assert!(body.contains("It is on."));
+    assert!(
+        body.contains("1 of 2 articles from your feeds in the last 14 days are indexed."),
+        "{body}"
+    );
 }

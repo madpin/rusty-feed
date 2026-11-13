@@ -283,7 +283,7 @@ cannot contain control/non-ASCII bytes, so configuration cannot inject another
 request header.
 
 Administrators configure sensitive per-feed acquisition under
-**Administration → Acquisition profiles**, not through environment variables.
+**Administration → Feed access** (feed access profiles), not through environment variables.
 Profiles may contain an encrypted authorized cookie, explicit HTTP(S)/SOCKS
 proxy, and/or invalid-certificate exception. Host pins are always required;
 cookies also require an absolute path pin and 1–365 day expiry, while certificate

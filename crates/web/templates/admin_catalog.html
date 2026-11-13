@@ -1,43 +1,43 @@
 {% extends "app_base.html" %}
-{% block title %}Feed catalog{% endblock %}
+{% block title %}{{ ui.text("admin_catalog") }}{% endblock %}
 {% block body_class %}page-admin page-admin-catalog{% endblock %}
 {% block content %}
 {% include "admin_nav.html" %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Administration</p>
-    <h1>Feed magazine</h1>
-    <p class="muted">Editorial metadata lives here, separate from the feed’s fetched title. Draft entries stay private until published; new entries receive one shared validation refresh.</p>
+    <h1>{{ ui.text("admin_catalog") }}</h1>
+    <p class="muted">These are the feeds readers see on the Discover page. Editorial details live here, separate from the feed’s fetched title. Draft entries stay private until published; new entries receive one shared validation refresh.</p>
   </div>
-  <a class="btn" href="/catalog">Preview magazine</a>
+  <a class="btn" href="/catalog">Preview Discover</a>
 </div>
 {% if let Some(msg) = message %}<p class="notice" role="status">{{ msg }}</p>{% endif %}
 {% if let Some(msg) = error %}<p class="alert" role="alert">{{ msg }}</p>{% endif %}
 
 <div class="admin-stat-grid">
-  <span class="admin-stat admin-stat-content" title="Total curated magazine entries (published and drafts)."><strong>{{ summary.total }}</strong><span>Entries</span></span>
+  <span class="admin-stat admin-stat-content" title="Total Discover catalog entries (published and drafts)."><strong>{{ summary.total }}</strong><span>Entries</span></span>
   <span class="admin-stat admin-stat-content" title="Entries visible to users on the Discover page."><strong>{{ summary.published }}</strong><span>Published</span></span>
   <span class="admin-stat admin-stat-work" title="Entries kept private until you publish them."><strong>{{ summary.drafts }}</strong><span>Drafts</span></span>
-  <span class="admin-stat admin-stat-people" title="Entries highlighted as featured in the magazine."><strong>{{ summary.featured }}</strong><span>Featured</span></span>
-  <span class="admin-stat admin-stat-content" title="Total articles fetched across all magazine sources."><strong>{{ ui.format_number(summary.posts) }}</strong><span>Posts</span></span>
+  <span class="admin-stat admin-stat-people" title="Entries highlighted as featured in Discover."><strong>{{ summary.featured }}</strong><span>Featured</span></span>
+  <span class="admin-stat admin-stat-content" title="Total articles fetched across all catalog feeds."><strong>{{ ui.format_number(summary.posts) }}</strong><span>Posts</span></span>
 </div>
 
 <section class="panel">
-  <h2>Add a source to the magazine</h2>
+  <h2>Add a feed to Discover</h2>
   <form method="post" action="/admin/catalog" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="form-grid">
       <label>RSS/Atom/JSON Feed URL <input type="url" name="url" placeholder="https://example.com/feed.xml" required /></label>
-      <label>Magazine title <input type="text" name="title" maxlength="200" required /></label>
-      <label>Category <input type="text" name="category" maxlength="80" placeholder="Technology" required /></label>
+      <label>Title in Discover <input type="text" name="title" maxlength="200" required /></label>
+      <label>Topic <input type="text" name="category" maxlength="80" placeholder="Technology" required /></label>
       <label>Country or region <input type="text" name="country" maxlength="80" placeholder="Global" required /></label>
       <label>Language <input type="text" name="language" maxlength="35" value="en" required /></label>
       <label>Display order <input type="number" name="sort_order" value="0" min="-10000" max="10000" /></label>
     </div>
-    <label>Description <textarea name="description" maxlength="2000" rows="2" placeholder="Explain why this source belongs in the magazine."></textarea></label>
+    <label>Description <textarea name="description" maxlength="2000" rows="2" placeholder="Explain why this feed belongs in Discover."></textarea></label>
     <div class="check-options">
-      <label class="check-row"><input type="checkbox" name="featured" value="true" /> <span>Feature this source</span></label>
-      <label class="check-row"><input type="checkbox" name="published" value="true" /> <span>Publish it in the magazine now</span></label>
+      <label class="check-row"><input type="checkbox" name="featured" value="true" /> <span>Feature this feed</span></label>
+      <label class="check-row"><input type="checkbox" name="published" value="true" /> <span>Publish it in Discover now</span></label>
     </div>
     <div class="form-actions"><button type="submit" class="primary">Add catalog entry</button></div>
   </form>
@@ -54,23 +54,23 @@
     <form method="post" action="/admin/catalog/{{ entry.id }}" class="stack">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <div class="form-grid">
-        <label>Magazine title <input type="text" name="title" maxlength="200" value="{{ entry.title }}" required /></label>
-        <label>Category <input type="text" name="category" maxlength="80" value="{{ entry.category }}" required /></label>
+        <label>Title in Discover <input type="text" name="title" maxlength="200" value="{{ entry.title }}" required /></label>
+        <label>Topic <input type="text" name="category" maxlength="80" value="{{ entry.category }}" required /></label>
         <label>Country or region <input type="text" name="country" maxlength="80" value="{{ entry.country }}" required /></label>
         <label>Language <input type="text" name="language" maxlength="35" value="{{ entry.language }}" required /></label>
         <label>Display order <input type="number" name="sort_order" min="-10000" max="10000" value="{{ entry.sort_order }}" /></label>
       </div>
       <label>Description <textarea name="description" maxlength="2000" rows="2">{{ entry.description }}</textarea></label>
-      <p class="muted">{{ entry.url }} · {{ entry.average_content }} · {{ entry.frequency }} · <a href="/feeds/{{ entry.feed_id }}/settings">Source policy</a></p>
+      <p class="muted">{{ entry.url }} · {{ entry.average_content }} · {{ entry.frequency }} · <a href="/feeds/{{ entry.feed_id }}/settings">Feed settings</a></p>
       <div class="check-options">
-        <label class="check-row"><input type="checkbox" name="featured" value="true"{% if entry.featured %} checked{% endif %} /> <span>Feature this source</span></label>
-        <label class="check-row"><input type="checkbox" name="published" value="true"{% if entry.published %} checked{% endif %} /> <span>Published in magazine</span></label>
+        <label class="check-row"><input type="checkbox" name="featured" value="true"{% if entry.featured %} checked{% endif %} /> <span>Feature this feed</span></label>
+        <label class="check-row"><input type="checkbox" name="published" value="true"{% if entry.published %} checked{% endif %} /> <span>Published in Discover</span></label>
       </div>
       <div class="form-actions"><button type="submit" class="primary">Save catalog entry</button></div>
     </form>
   </details>
   {% else %}
-  <div class="empty-state"><p><strong>No catalog entries yet.</strong></p><p>Add a source above to begin your magazine.</p></div>
+  <div class="empty-state"><p><strong>No catalog entries yet.</strong></p><p>Add a feed above to start your catalog.</p></div>
   {% endfor %}
 </section>
 {% endblock %}

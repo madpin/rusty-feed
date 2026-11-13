@@ -1,13 +1,14 @@
-//! Personal daily briefings assembled from shared stories.
+//! Personal daily briefings assembled from shared stories. The user-facing
+//! word is "Briefing" (`/briefing`); the `digest` names below are internal.
 
 use askama::Template;
 use axum::extract::State;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
-use rusty_feed_core::reading::BriefingStory;
+use rusty_feed_core::reading::{BriefingStory, STORY_CLUSTER_MIN_SIMILARITY};
 use rusty_feed_db::{digests, jobs, stories};
 
 use crate::auth::csrf;
@@ -27,6 +28,10 @@ struct DigestsTemplate {
     digests: Vec<DigestRow>,
     stories: Vec<BriefingStory>,
     notice: Option<String>,
+    daily_briefing_on: bool,
+    similarity: String,
+    recent_articles: i64,
+    embedded_articles: i64,
 }
 
 struct DigestRow {
@@ -38,6 +43,16 @@ struct DigestRow {
 #[derive(Deserialize)]
 pub(crate) struct CsrfForm {
     csrf_token: String,
+}
+
+/// Permanent redirect from the former `/digests` address.
+pub async fn moved_page() -> Redirect {
+    Redirect::permanent("/briefing")
+}
+
+/// Permanent redirect (method-preserving) from the former `/digests/refresh`.
+pub async fn moved_refresh() -> Redirect {
+    Redirect::permanent("/briefing/refresh")
 }
 
 pub async fn page(
@@ -59,7 +74,7 @@ pub async fn refresh(
     }
     if user.is_demo {
         return Err(AppError::Validation(
-            "Briefings are disabled in the demo.".into(),
+            "The briefing is disabled in the demo.".into(),
         ));
     }
     let stats = stories::cluster_recent(state.db.pool()).await?;
@@ -84,11 +99,11 @@ pub async fn refresh(
     .await?;
     let grouped = stats.joined + stats.created;
     let notice = if written.is_some() {
-        format!("Updated today's briefing from {grouped} shared stories in this pass.")
+        format!("Updated today's briefing from {grouped} stories found in this pass.")
     } else if grouped == 0 {
-        "No second source matched a recent article. Refresh feeds, then try again after embeddings finish.".to_string()
+        "No story found yet: no two of your feeds covered the same event. Refresh your feeds, then try again once the search index has caught up.".to_string()
     } else {
-        "Stories were grouped, but none of them are in your subscriptions yet.".to_string()
+        "Stories were found, but none of them involve your feeds yet.".to_string()
     };
     render(&state, &user, jar, Some(notice)).await
 }
@@ -100,8 +115,9 @@ async fn render(
     notice: Option<String>,
 ) -> Result<Response, AppError> {
     let ui = prefs::load(&state.db, user.id).await;
+    let daily_briefing_on = ui.daily_digest;
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
-    let digests = digests::list_for_user(state.db.pool(), user.id, 14)
+    let digests: Vec<DigestRow> = digests::list_for_user(state.db.pool(), user.id, 14)
         .await?
         .into_iter()
         .map(|digest| DigestRow {
@@ -111,6 +127,14 @@ async fn render(
         })
         .collect();
     let live_stories = stories::briefing_stories(state.db.pool(), user.id).await?;
+    let coverage = if live_stories.is_empty() && digests.is_empty() {
+        stories::embedding_coverage_for_user(state.db.pool(), user.id).await?
+    } else {
+        stories::EmbeddingCoverage {
+            recent: 0,
+            embedded: 0,
+        }
+    };
     let body = DigestsTemplate {
         theme: ui.theme.clone(),
         user_email: user.email.clone(),
@@ -120,6 +144,10 @@ async fn render(
         digests,
         stories: live_stories,
         notice,
+        daily_briefing_on,
+        similarity: format!("{STORY_CLUSTER_MIN_SIMILARITY:.2}"),
+        recent_articles: coverage.recent,
+        embedded_articles: coverage.embedded,
     }
     .render()
     .map(Html)

@@ -1,15 +1,15 @@
 {% extends "app_base.html" %}
-{% block title %}Shared feeds{% endblock %}
+{% block title %}{{ ui.text("admin_feeds") }}{% endblock %}
 {% block body_class %}page-admin page-admin-feeds{% endblock %}
 {% block content %}
 {% include "admin_nav.html" %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Administration</p>
-    <h1>Shared feeds</h1>
-    <p class="muted">One feed row and acquisition policy is shared by every subscriber. Catalog entries can be edited separately in the feed magazine.</p>
+    <h1>{{ ui.text("admin_feeds") }}</h1>
+    <p class="muted">Each feed is fetched once and shared by everyone who follows it, along with any feed access profile. Discover catalog entries are edited separately.</p>
   </div>
-  <a class="btn" href="/admin/catalog">Edit catalog</a>
+  <a class="btn" href="/admin/catalog">Edit Discover catalog</a>
 </div>
 
 <div class="admin-stat-grid">
@@ -55,7 +55,7 @@
         <td>{{ feed.last_post }}</td>
         <td>{{ feed.last_checked }}</td>
         <td>
-          <a href="/feeds/{{ feed.id }}/settings">Source policy</a>
+          <a href="/feeds/{{ feed.id }}/settings">Feed settings</a>
           <form method="post" action="/admin/feeds/{{ feed.id }}/status">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             {% if feed.health == "disabled" %}

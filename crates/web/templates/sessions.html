@@ -1,11 +1,11 @@
 {% extends "app_base.html" %}
-{% block title %}Sessions{% endblock %}
+{% block title %}{{ ui.text("sessions") }}{% endblock %}
 {% block body_class %}page-sessions{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Account security</p>
-    <h1>Signed-in sessions</h1>
+    <h1>{{ ui.text("sessions") }}</h1>
     <p class="muted">Review where your account is signed in and revoke access you no longer use.</p>
   </div>
 </div>

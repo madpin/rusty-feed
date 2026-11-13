@@ -223,9 +223,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(body_string(response)
-        .await
-        .contains("Subscribed to 2 source"));
+    assert!(body_string(response).await.contains("Subscribed to 2 feed"));
     assert!(
         subscriptions::is_subscribed(state.db.pool(), user.id, feed.id)
             .await
@@ -380,11 +378,11 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["cache-control"], "no-store");
     let logs = body_string(response).await;
-    assert!(logs.contains("Queue &amp; logs"));
+    assert!(logs.contains("Background work &amp; logs"));
     assert!(logs.contains("Workers online"));
-    assert!(logs.contains("Execution slots"));
-    assert!(logs.contains("Active queue"));
-    assert!(logs.contains("Queue by job type"));
+    assert!(logs.contains("Task slots"));
+    assert!(logs.contains("Waiting and running tasks"));
+    assert!(logs.contains("Tasks by type"));
     assert!(logs.contains("Just finished"));
     assert!(logs.contains(&worker_id));
     assert!(logs.contains(&queue_kind));
@@ -421,7 +419,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
         .to_string();
     assert!(body_string(response)
         .await
-        .contains("Add a source to the magazine"));
+        .contains("Add a feed to Discover"));
     let admin_catalog_url = format!(
         "https://admin-catalog.example/{}/feed.xml",
         uuid::Uuid::now_v7()
@@ -468,7 +466,7 @@ async fn users_browse_select_catalog_and_admin_manages_instance() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(body_string(response)
         .await
-        .contains("Shared acquisition controls"));
+        .contains("Shared fetch controls"));
 
     let member = users::create(
         state.db.pool(),
@@ -731,7 +729,7 @@ async fn catalog_preview_is_shared_safe_and_queues_one_probe() {
     assert!(page.contains("/preview?view=processed"));
     assert!(page.contains("aria-current=\"page\""));
     assert!(page.contains("Analyze up to 3 articles"));
-    assert!(page.contains("Add to my library"));
+    assert!(page.contains("Add to my feeds"));
     assert!(!page.contains("leak.jpg"));
     assert!(!page.contains("CATALOG_SCRIPT_SENTINEL"));
     assert!(!page.contains("CATALOG_PRIVATE_PAGE_SENTINEL"));

@@ -301,8 +301,8 @@
   }
 
   // Whether finishing this job will show the actual summary right on this
-  // view (a panel refresh, or the standalone article reloading into "At a
-  // glance") rather than just swapping in a "View AI summary" link (the list
+  // view (a panel refresh, or the standalone article reloading into "TL;DR
+  // summary") rather than just swapping in a "View AI summary" link (the list
   // card case, where the content itself stays off-screen). Used to skip a
   // redundant "ready" toast when the summary is already visible in place.
   function summaryShowsInPlace(form) {
@@ -759,7 +759,7 @@
       handle.addEventListener("click", function () {
         if (movedByDrag) return;
         var feedId = handle.getAttribute("data-feed-id");
-        var feedName = handle.getAttribute("data-feed-name") || "source feed";
+        var feedName = handle.getAttribute("data-feed-name") || "feed";
         if (!feedId) return;
         form.action = "/feeds/" + encodeURIComponent(feedId) + "/folder";
         form.setAttribute("data-feed-id", feedId);
@@ -1480,7 +1480,7 @@
       window.location.assign(next ? next.value : window.location.href);
       return null;
     }).catch(function () {
-      announce("The content source could not be changed. Please try again.", true);
+      announce("The article content could not be changed. Please try again.", true);
       setPending(form, false);
     });
   });
@@ -1626,7 +1626,7 @@
       }
       if (label) label.textContent = checked.length > 0 ? "Select all (" + checked.length + " shown selected)" : "Select all";
       if (count) count.textContent = selected === 0
-        ? "No sources selected. Double-click a card to subscribe immediately."
+        ? "No feeds selected. Double-click a card to subscribe immediately."
         : selected + " selected across filters. Your choices stay selected while you browse and preview.";
       if (clear) clear.disabled = selected === 0;
       if (submit) submit.disabled = selected === 0;
@@ -1646,7 +1646,7 @@
         else delete state.feeds[box.value];
       });
       sync();
-      announce(check ? "Selected all filtered sources." : "Cleared the filtered selection.", false);
+      announce(check ? "Selected all filtered feeds." : "Cleared the filtered selection.", false);
     });
     form.addEventListener("change", function (event) {
       if (!event.target) return;
@@ -1675,7 +1675,7 @@
         checkbox.checked = true;
         checkbox.dispatchEvent(new Event("change", { bubbles: true }));
       }
-      announce("Subscribing to the selected sources.", false);
+      announce("Subscribing to the selected feeds.", false);
       form.requestSubmit(submit);
     });
     form.addEventListener("submit", function () {

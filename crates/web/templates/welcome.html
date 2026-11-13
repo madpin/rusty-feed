@@ -72,10 +72,10 @@
   <fieldset class="panel" data-wizard-suggestions>
     <legend>{% if !categories.is_empty() %}5{% else %}4{% endif %}. Subscribe to a few feeds</legend>
     {% if is_demo && !starter_feeds.is_empty() %}
-    <p class="notice">This demo starts with {{ starter_feeds.len() }} showcase feed{% if starter_feeds.len() != 1 %}s{% endif %}, already filed into topic folders ({{ starter_feeds_preview }}). You can explore or reorganize them from the <a href="/articles">library</a>.</p>
+    <p class="notice">This demo starts with {{ starter_feeds.len() }} showcase feed{% if starter_feeds.len() != 1 %}s{% endif %}, already filed into topic folders ({{ starter_feeds_preview }}). You can explore or reorganize them from the <a href="/articles">Library</a>.</p>
     {% endif %}
     {% if !suggestions.is_empty() %}
-    <p class="muted">Hand-picked, trusted sources. Select any that look good, or skip and add your own later. You can browse the full <a href="/catalog">feed catalog</a> anytime.</p>
+    <p class="muted">Hand-picked feeds from trusted publishers. Select any that look good, or skip and add your own later. You can browse the full <a href="/catalog">Discover</a> anytime.</p>
     <div class="wizard-content-modes" role="radiogroup" aria-label="Default article content for selected feeds">
       <span>Open selected feeds with</span>
       <label><input type="radio" name="content_mode" value="rss" checked> RSS</label>

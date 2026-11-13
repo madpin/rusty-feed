@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>Rusty Feed — a self-hosted RSS reader built like infrastructure</title>
-    <meta name="description" content="A Rust-native, self-hosted RSS reader with shared-content deduplication, semantic search, durable workers, optional AI summaries, GReader and Fever APIs, and a server-rendered interface." />
-    <meta property="og:title" content="Rusty Feed — own the feed, keep the signal" />
-    <meta property="og:description" content="Rust-native RSS infrastructure with a fast reader on top: shared ingestion, personal state, semantic search, durable jobs, and optional AI." />
+    <title>Rusty Feed — your RSS reader, but it understands what you read</title>
+    <meta name="description" content="Your RSS reader, but it actually understands what you read — and it runs as a single fast binary you own. Self-hosted, with semantic search, daily briefings, optional AI summaries, GReader and Fever APIs, and a fast server-rendered interface." />
+    <meta property="og:title" content="Rusty Feed — your RSS reader, but it understands what you read" />
+    <meta property="og:description" content="A self-hosted RSS reader that understands what you read: shared ingestion, private reading state, semantic search, daily briefings, and optional AI." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="/static/screenshots/library.webp" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -30,9 +30,9 @@
     <main id="main-content">
       <section class="landing-hero">
         <div class="landing-hero-copy">
-          <p class="eyebrow">RSS, compiled differently</p>
-          <h1>Own the feed.<br />Keep the signal.</h1>
-          <p class="lede">Rusty Feed is a multi-user RSS reader built in Rust for people who want modern discovery without handing their reading history to an algorithmic platform.</p>
+          <p class="eyebrow">Self-hosted · one fast binary you own</p>
+          <h1>Your RSS reader,<br />but it understands what you read.</h1>
+          <p class="lede">Rusty Feed is a self-hosted, multi-user RSS reader that learns what you care about and runs as a single fast binary you own — modern discovery without handing your reading history to an algorithmic platform.</p>
           <p class="landing-hero-detail">It fetches shared content once, keeps every reader's state private, and layers in full-text extraction, semantic search, learned ranking, and optional summaries — all on infrastructure you control.</p>
           <div class="landing-cta">
             {% if registration_open %}<a class="btn primary" href="/register">Create your account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
@@ -51,8 +51,8 @@
             <span>rusty-feed / runtime</span>
             <span class="runtime-live"><span aria-hidden="true"></span>ready</span>
           </div>
-          <div class="runtime-pipeline" aria-label="Fetch, extract, enrich, and read pipeline">
-            <span>fetch</span><i aria-hidden="true">→</i><span>extract</span><i aria-hidden="true">→</i><span>enrich</span><i aria-hidden="true">→</i><span>read</span>
+          <div class="runtime-pipeline" aria-label="Fetch, extract, index, and read pipeline">
+            <span>fetch</span><i aria-hidden="true">→</i><span>extract</span><i aria-hidden="true">→</i><span>index</span><i aria-hidden="true">→</i><span>read</span>
           </div>
           <dl class="runtime-spec">
             <div><dt>http</dt><dd>Axum + Tokio</dd></div>
@@ -204,9 +204,9 @@
       </section>
 
       <section class="landing-final-cta">
-        <p class="eyebrow">No feed algorithm. Your feed infrastructure.</p>
+        <p class="eyebrow">A single fast binary you own.</p>
         <h2>Read on your terms.</h2>
-        <p>Start empty and choose your sources, import an OPML archive, or inspect the isolated demo before creating an account.</p>
+        <p>Start empty and choose your feeds, import an OPML archive, or inspect the isolated demo before creating an account.</p>
         <div class="landing-cta">
           {% if registration_open %}<a class="btn primary" href="/register">Create your account</a>{% else %}<a class="btn primary" href="/login">Sign in</a>{% endif %}
           {% if demo_mode %}

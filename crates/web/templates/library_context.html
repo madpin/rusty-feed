@@ -1,20 +1,20 @@
 <div class="sidebar-context">
   {% if ui.sidebar_collapsed %}
-  <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="library-sidebar" aria-expanded="false" aria-label="Expand sidebar"><span data-sidebar-toggle-glyph aria-hidden="true">›</span><span class="sidebar-text" data-sidebar-toggle-label>Expand sidebar</span></button>
+  <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="library-sidebar" aria-expanded="false" aria-label="{{ ui.text("expand_sidebar") }}"><span data-sidebar-toggle-glyph aria-hidden="true">›</span><span class="sidebar-text" data-sidebar-toggle-label>{{ ui.text("expand_sidebar") }}</span></button>
   {% else %}
-  <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="library-sidebar" aria-expanded="true" aria-label="Reduce sidebar"><span data-sidebar-toggle-glyph aria-hidden="true">‹</span><span class="sidebar-text" data-sidebar-toggle-label>Reduce sidebar</span></button>
+  <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="library-sidebar" aria-expanded="true" aria-label="{{ ui.text("reduce_sidebar") }}"><span data-sidebar-toggle-glyph aria-hidden="true">‹</span><span class="sidebar-text" data-sidebar-toggle-label>{{ ui.text("reduce_sidebar") }}</span></button>
   {% endif %}
   <div class="sidebar-group">
-    <p class="sidebar-label">View</p>
-    <a href="{{ recent_url }}" aria-label="Most recent"{% if !unread_only && sort == "recent" %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">●</span><span class="sidebar-text">Most recent</span></a>
-    <a href="{{ unread_url }}" aria-label="Unread only"{% if unread_only && !summary_only && !unseen_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">○</span><span class="sidebar-text">Unread only</span></a>
-    <a href="{{ unseen_url }}" aria-label="Unseen"{% if unseen_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">◌</span><span class="sidebar-text">Unseen</span></a>
-    <a href="{{ relevance_url }}" aria-label="Personalized"{% if sort == "relevance" %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">✦</span><span class="sidebar-text">Personalized</span></a>
-    <a href="{{ summary_url }}" aria-label="Unread AI summaries"{% if summary_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">✨</span><span class="sidebar-text">Unread AI summaries</span></a>
+    <p class="sidebar-label">{{ ui.text("view") }}</p>
+    <a href="{{ recent_url }}" aria-label="{{ ui.text("most_recent") }}"{% if !unread_only && sort == "recent" %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">●</span><span class="sidebar-text">{{ ui.text("most_recent") }}</span></a>
+    <a href="{{ unread_url }}" aria-label="{{ ui.text("unread_only") }}"{% if unread_only && !summary_only && !unseen_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">○</span><span class="sidebar-text">{{ ui.text("unread_only") }}</span></a>
+    <a href="{{ unseen_url }}" aria-label="{{ ui.text("unseen") }}"{% if unseen_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">◌</span><span class="sidebar-text">{{ ui.text("unseen") }}</span></a>
+    <a href="{{ relevance_url }}" aria-label="{{ ui.text("personalized") }}"{% if sort == "relevance" %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">✦</span><span class="sidebar-text">{{ ui.text("personalized") }}</span></a>
+    <a href="{{ summary_url }}" aria-label="{{ ui.text("unread_summaries") }}"{% if summary_only %} class="nav-link active"{% else %} class="nav-link"{% endif %}><span class="sidebar-nav-icon" aria-hidden="true">✨</span><span class="sidebar-text">{{ ui.text("unread_summaries") }}</span></a>
   </div>
   {% if !folders.is_empty() || !unfiled_feeds.is_empty() %}
   <div class="sidebar-group">
-    <p class="sidebar-label">Folders</p>
+    <p class="sidebar-label">{{ ui.text("folders") }}</p>
     <div class="folder-tree">
       {% for folder in folders %}
       <div class="folder-tree-node feed-folder-drop depth-{{ folder.depth }}" data-feed-drop data-folder-id="{{ folder.id }}" data-folder-label="{{ folder.name }}" data-folder-collapsed="{% if folder.collapsed %}true{% else %}false{% endif %}">
@@ -48,7 +48,7 @@
   {% endif %}
   {% if !tags.is_empty() %}
   <div class="sidebar-group">
-    <p class="sidebar-label">Tags</p>
+    <p class="sidebar-label">{{ ui.text("tags") }}</p>
     <div class="feed-nav-list">
       {% for tag in tags %}
       <a href="{{ tag.href }}" data-library-tag-nav{% if tag.active %} class="nav-link active" aria-current="page"{% else %} class="nav-link"{% endif %} aria-label="{{ tag.name }}"><span class="sidebar-nav-icon" aria-hidden="true">#</span><span class="sidebar-text">{{ tag.name }}</span><span class="sidebar-count">{{ tag.feed_count }}</span></a>
@@ -56,6 +56,6 @@
     </div>
   </div>
   {% endif %}
-  <button type="button" class="sidebar-quick-toggle" data-sidebar-quick-toggle aria-pressed="{{ ui.quick_tools_visible }}"><span aria-hidden="true">⚙</span><span class="sidebar-text">Quick feed tools</span></button>
-  <a href="/feeds" class="sidebar-link" aria-label="Manage feeds"><span class="sidebar-nav-icon" aria-hidden="true">+</span><span class="sidebar-text">Manage feeds</span></a>
+  <button type="button" class="sidebar-quick-toggle" data-sidebar-quick-toggle aria-pressed="{{ ui.quick_tools_visible }}"><span aria-hidden="true">⚙</span><span class="sidebar-text">{{ ui.text("quick_feed_tools") }}</span></button>
+  <a href="/feeds" class="sidebar-link" aria-label="{{ ui.text("manage_feeds") }}"><span class="sidebar-nav-icon" aria-hidden="true">+</span><span class="sidebar-text">{{ ui.text("manage_feeds") }}</span></a>
 </div>

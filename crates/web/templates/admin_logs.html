@@ -1,13 +1,13 @@
 {% extends "app_base.html" %}
-{% block title %}Queue & logs{% endblock %}
+{% block title %}{{ ui.text("admin_background") }} &amp; logs{% endblock %}
 {% block body_class %}page-admin page-admin-logs{% endblock %}
 {% block content %}
 {% include "admin_nav.html" %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Administration</p>
-    <h1>Queue & logs</h1>
-    <p class="muted">Live capacity by queue lane, queued work, recent completions, and sanitized operational errors. Payloads, unreviewed legacy errors, URL credentials, and secret-bearing details are never shown.</p>
+    <h1>{{ ui.text("admin_background") }} &amp; logs</h1>
+    <p class="muted">Live capacity by priority, waiting tasks, recent completions, and sanitized errors. A <strong>worker</strong> is a process that runs background tasks; <strong>priority</strong> tasks run when a reader asks for something (such as opening an article) and <strong>background</strong> tasks run on a schedule. Task details, unreviewed legacy errors, URL credentials, and secrets are never shown.</p>
   </div>
   <div class="header-actions">
     <span class="muted admin-refresh-status" data-admin-refresh-status>Updates every 10 seconds</span>
@@ -17,19 +17,19 @@
 
 <section class="panel">
   <h2>Maintenance controls</h2>
-  <p class="muted">Actions enqueue or recover bounded durable work. They do not run publisher fetches inside this web request.</p>
+  <p class="muted">These actions queue or recover a bounded amount of background work. They do not fetch from publishers inside this web request.</p>
   <div class="row-actions">
     <form method="post" action="/admin/maintenance"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="refresh_due" /><button type="submit">Scan due feeds</button></form>
-    <form method="post" action="/admin/maintenance"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="cleanup" /><button type="submit">Queue cleanup</button></form>
-    <form method="post" action="/admin/maintenance" data-confirm="Recover jobs whose worker heartbeat has been absent for at least 10 minutes?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="reclaim_stalled" /><button type="submit">Recover stalled jobs</button></form>
-    <form method="post" action="/admin/maintenance" data-confirm="Retry up to 100 most recent dead-letter jobs?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="retry_dead" /><button type="submit">Retry dead letters</button></form>
+    <form method="post" action="/admin/maintenance"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="cleanup" /><button type="submit">Run cleanup</button></form>
+    <form method="post" action="/admin/maintenance" data-confirm="Recover tasks whose worker has not checked in for at least 10 minutes?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="reclaim_stalled" /><button type="submit">Recover stalled tasks</button></form>
+    <form method="post" action="/admin/maintenance" data-confirm="Retry up to 100 of the most recent tasks that failed after all their retries?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /><input type="hidden" name="action" value="retry_dead" /><button type="submit">Retry failed tasks</button></form>
   </div>
 </section>
 
 <div data-admin-queue-snapshot>
-  <section class="admin-stat-grid" aria-label="Queue status">
+  <section class="admin-stat-grid" aria-label="Background work status">
     <span class="admin-stat"><strong>{{ queue.workers_online }}</strong><span>Workers online</span></span>
-    <span class="admin-stat"><strong>{{ queue.worker_capacity }}</strong><span>Execution slots</span></span>
+    <span class="admin-stat"><strong>{{ queue.worker_capacity }}</strong><span>Task slots</span></span>
     <span class="admin-stat"><strong>{{ queue.background_capacity }}</strong><span>Background slots</span></span>
     <span class="admin-stat"><strong>{{ queue.interactive_capacity }}</strong><span>Priority slots</span></span>
     <span class="admin-stat"><strong>{{ queue.interactive_pending }}</strong><span>Priority waiting</span></span>
@@ -41,17 +41,17 @@
     <span class="admin-stat"><strong>{{ queue.running }}</strong><span>Running</span></span>
     <span class="admin-stat"><strong>{{ queue.stalled }}</strong><span>Stalled</span></span>
     <span class="admin-stat"><strong>{{ queue.finished_last_hour }}</strong><span>Finished in 1 hour</span></span>
-    <span class="admin-stat"><strong>{{ queue.dead }}</strong><span>Dead-letter jobs</span></span>
+    <span class="admin-stat"><strong>{{ queue.dead }}</strong><span>Failed tasks (no retries left)</span></span>
   </section>
 
   <details class="panel admin-log-section" data-admin-section="workers" open>
-    <summary><span><strong>Workers</strong><span class="muted">{{ workers.len() }} online process(es), {{ queue.worker_capacity }} execution slot(s)</span></span></summary>
+    <summary><span><strong>Workers</strong><span class="muted">{{ workers.len() }} online process(es), {{ queue.worker_capacity }} task slot(s)</span></span></summary>
     {% if workers.is_empty() %}
-    <p class="notice error">No worker heartbeat has been received in the last 15 seconds. Pending work will remain queued until an embedded or standalone worker is online.</p>
+    <p class="notice error">No worker has checked in during the last 15 seconds. Pending tasks wait until a worker is online (one built into the web server, or the separate worker program).</p>
     {% else %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Worker</th><th>Total slots</th><th>Background</th><th>Priority</th><th>Scheduler</th><th>Started</th><th>Last heartbeat</th></tr></thead>
+        <thead><tr><th>Worker</th><th>Total slots</th><th>Background</th><th>Priority</th><th>Scheduler</th><th>Started</th><th>Last check-in</th></tr></thead>
         <tbody>
         {% for worker in workers %}
           <tr><td><code>{{ worker.id }}</code></td><td>{{ worker.concurrency }}</td><td>{{ worker.background_concurrency }}</td><td>{{ worker.interactive_concurrency }}</td><td>{{ worker.scheduler }}</td><td>{{ worker.started_at }}</td><td>{{ worker.heartbeat_at }}</td></tr>
@@ -63,13 +63,13 @@
   </details>
 
   <details class="panel admin-log-section" data-admin-section="active" open>
-    <summary><span><strong>Active queue</strong><span class="muted">{{ active_jobs.len() }} visible due, scheduled, or running job(s)</span></span></summary>
+    <summary><span><strong>Waiting and running tasks</strong><span class="muted">{{ active_jobs.len() }} visible task(s) due, scheduled, or running</span></span></summary>
     {% if active_jobs.is_empty() %}
     <p class="muted">No work is pending or running.</p>
     {% else %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Lane</th><th>Job</th><th title="The feed or article this job is working on">Target</th><th>State</th><th>Attempts</th><th>Queued</th><th>Available at</th><th>Worker slot</th><th>Updated</th><th>Last error</th></tr></thead>
+        <thead><tr><th>Priority</th><th>Task</th><th title="The feed or article this task is working on">Target</th><th>State</th><th>Attempts</th><th>Queued</th><th>Available at</th><th>Worker slot</th><th>Updated</th><th>Last error</th></tr></thead>
         <tbody>
         {% for job in active_jobs %}
           <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td class="admin-log-target">{{ job.target }}</td><td><span class="badge{% if !job.tone.is_empty() %} health-{{ job.tone }}{% endif %}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.run_at }}</td><td><code>{{ job.worker }}</code></td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
@@ -81,13 +81,13 @@
   </details>
 
   <details class="panel admin-log-section" data-admin-section="kinds" open>
-    <summary><span><strong>Queue by job type</strong><span class="muted">Pending, running, and dead-letter totals</span></span></summary>
+    <summary><span><strong>Tasks by type</strong><span class="muted">Waiting, running, and failed totals</span></span></summary>
     {% if queue_by_kind.is_empty() %}
     <p class="muted">The queue is empty.</p>
     {% else %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Lane</th><th>Job</th><th>Pending now</th><th>Scheduled</th><th>Running</th><th>Stalled</th><th>Dead</th></tr></thead>
+        <thead><tr><th>Priority</th><th>Task</th><th>Pending now</th><th>Scheduled</th><th>Running</th><th>Stalled</th><th>Failed</th></tr></thead>
         <tbody>
         {% for row in queue_by_kind %}
           <tr><td><span class="badge">{{ row.lane }}</span></td><td><code>{{ row.kind }}</code></td><td>{{ row.pending_due }}</td><td>{{ row.pending_scheduled }}</td><td>{{ row.running }}</td><td>{{ row.stalled }}</td><td>{{ row.dead }}</td></tr>
@@ -99,13 +99,13 @@
   </details>
 
   <details class="panel admin-log-section" data-admin-section="finished" open>
-    <summary><span><strong>Just finished</strong><span class="muted">{{ recent_jobs.len() }} most recent completed or dead-letter job(s)</span></span></summary>
+    <summary><span><strong>Just finished</strong><span class="muted">{{ recent_jobs.len() }} most recent completed or failed task(s)</span></span></summary>
     {% if recent_jobs.is_empty() %}
-    <p class="muted">No jobs have finished yet.</p>
+    <p class="muted">No tasks have finished yet.</p>
     {% else %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Lane</th><th>Job</th><th title="The feed or article this job worked on">Target</th><th>State</th><th>Attempts</th><th>Queued</th><th>Finished</th><th>Error</th></tr></thead>
+        <thead><tr><th>Priority</th><th>Task</th><th title="The feed or article this task worked on">Target</th><th>State</th><th>Attempts</th><th>Queued</th><th>Finished</th><th>Error</th></tr></thead>
         <tbody>
         {% for job in recent_jobs %}
           <tr><td><span class="badge">{{ job.lane }}</span></td><td><code>{{ job.kind }}</code></td><td class="admin-log-target">{{ job.target }}</td><td><span class="badge health-{{ job.tone }}">{{ job.status }}</span></td><td>{{ job.attempts }}</td><td>{{ job.created_at }}</td><td>{{ job.updated_at }}</td><td class="admin-log-error">{{ job.error }}</td></tr>
@@ -117,13 +117,13 @@
   </details>
 
   <details class="panel admin-log-section" data-admin-section="runs" open>
-    <summary><span><strong>Agent runs</strong><span class="muted">{{ agent_runs.len() }} recent background and priority run(s)</span></span></summary>
+    <summary><span><strong>Background runs</strong><span class="muted">{{ agent_runs.len() }} recent background and priority run(s)</span></span></summary>
     {% if agent_runs.is_empty() %}
     <p class="muted">No background runs have been recorded.</p>
     {% else %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Agent</th><th>Outcome</th><th>Started</th><th>Duration</th><th>Safe result details</th><th>Sanitized error</th></tr></thead>
+        <thead><tr><th>Task type</th><th>Outcome</th><th>Started</th><th>Duration</th><th>Safe result details</th><th>Sanitized error</th></tr></thead>
         <tbody>
         {% for run in agent_runs %}
           <tr><td><code>{{ run.agent_name }}</code></td><td><span class="badge health-{{ run.tone }}">{{ run.status }}</span></td><td>{{ run.started_at }}</td><td>{{ run.duration }}</td><td class="admin-log-details"><code>{{ run.stats }}</code></td><td class="admin-log-error">{{ run.error }}</td></tr>

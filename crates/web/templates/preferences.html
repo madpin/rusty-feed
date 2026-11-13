@@ -1,11 +1,11 @@
 {% extends "app_base.html" %}
-{% block title %}Preferences{% endblock %}
+{% block title %}{{ ui.text("preferences") }}{% endblock %}
 {% block body_class %}page-settings{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
     <p class="eyebrow">Settings</p>
-    <h1>Reading preferences</h1>
+    <h1>{{ ui.text("preferences") }}</h1>
     <p class="muted">Make Rusty Feed look and read the way you prefer.</p>
     <p class="muted"><a href="/settings/ai">AI &amp; summaries</a> · <a href="/settings/account">Account &amp; data (export / delete)</a> · <a href="/welcome">Re-run setup</a></p>
   </div>
@@ -182,15 +182,18 @@
       </select>
     </label>
     <p class="muted">ADHD-friendly reading shortens the measure, opens the paragraphs, and bolds the start of longer words. A card is marked seen when most of it is on screen or you open it, without changing its read state.</p>
+    <div id="briefing-settings">
     <input type="hidden" name="briefing_settings_present" value="1" />
     <label class="check-row">
       <input type="checkbox" name="daily_digest" value="true"{% if ui.daily_digest %} checked{% endif %} />
-      <span>Build a daily briefing from stories covered by more than one source</span>
+      <span>Build a daily briefing from stories covered by more than one of my feeds</span>
     </label>
     <label class="check-row">
       <input type="checkbox" name="digest_email" value="true"{% if ui.digest_email %} checked{% endif %} />
-      <span>Email that briefing when this instance can send mail</span>
+      <span>Email me the briefing (needs email delivery to be set up on this instance)</span>
     </label>
+    <p class="muted">Read it any time on the <a href="/briefing">Briefing</a> page.</p>
+    </div>
     {% if external_links_new_tab_required %}<p class="notice">This instance requires publisher links to open in a new tab.</p>{% endif %}
     <p class="muted">Rusty Feed keeps the publisher-provided URL for provenance. Clean links remove analytics parameters according to the instance policy; same-tab and new-tab links always suppress the referrer and opener relationship.</p>
   </fieldset>
@@ -257,7 +260,7 @@
     </div>
     <p class="muted">Keyword search supports quoted phrases, uppercase <code>OR</code>, and a leading minus to exclude a term. Language-neutral matching is the safest choice for multilingual feeds.</p>
     {% else %}
-    <p class="notice">The instance administrator has disabled meaning-based search (<code>EMBEDDINGS_ENABLED=false</code>). Search uses exact PostgreSQL matching for everyone.</p>
+    <p class="notice">The instance administrator has turned off meaning-based search, so search uses exact keyword matching for everyone.</p>
     <div class="form-grid">
       <label>Text matching
         <select name="search_text_config">

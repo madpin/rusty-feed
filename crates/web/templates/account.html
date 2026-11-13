@@ -20,7 +20,7 @@
 
 <section class="panel">
   <h2>Export your data</h2>
-  <p class="muted">Downloads your profile, preferences, subscriptions, categories, and saved searches as JSON. Your feeds are also available as <a href="/feeds/opml/export">OPML</a>.</p>
+  <p class="muted">Downloads your profile, preferences, subscriptions, folders, and saved searches as JSON. Your feeds are also available as <a href="/feeds/opml/export">OPML</a>.</p>
   <form method="post" action="/settings/account/export">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <button type="submit" class="primary">Download JSON export</button>

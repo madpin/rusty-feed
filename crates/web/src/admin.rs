@@ -490,15 +490,15 @@ fn queue_health(
     workers: usize,
 ) -> &'static str {
     if dead > 0 {
-        "Dead-letter jobs need review"
+        "Failed tasks need review"
     } else if stalled > 0 {
-        "Stalled jobs being reclaimed"
+        "Stalled tasks being recovered"
     } else if pending_due > 0 && workers == 0 {
-        "Work waiting — no workers online"
+        "Tasks waiting — no workers online"
     } else if pending_due > 0 || running > 0 {
-        "Processing work"
+        "Processing tasks"
     } else {
-        "Idle — queue clear"
+        "Idle — nothing waiting"
     }
 }
 
@@ -638,9 +638,14 @@ fn queue_item(item: jobs::QueueItemSummary) -> QueueItemRow {
     } else {
         item.status
     };
+    let status = if status == "dead" {
+        "failed".to_string()
+    } else {
+        status
+    };
     let tone = match status.as_str() {
         "done" => "healthy",
-        "dead" => "error",
+        "failed" => "error",
         "stalled" => "error",
         "running" => "warning",
         _ => "",
@@ -866,7 +871,7 @@ fn catalog_draft<'a>(fields: CatalogFields<'a>) -> Result<catalog::CatalogDraft<
     Ok(catalog::CatalogDraft {
         title: required(fields.title, "Title", 200)?,
         description,
-        category: required(fields.category, "Category", 80)?,
+        category: required(fields.category, "Topic", 80)?,
         country: required(fields.country, "Country", 80)?,
         language: required(fields.language, "Language", 35)?,
         featured: fields.featured,
@@ -1828,7 +1833,7 @@ mod tests {
     fn queue_health_prioritizes_the_most_serious_signal() {
         // dead-letter dominates everything else.
         assert_eq!(queue_health_tone(2, 3, 5, 4), "warn");
-        assert!(queue_health(5, 1, 2, 3, 4).contains("Dead-letter"));
+        assert!(queue_health(5, 1, 2, 3, 4).contains("Failed tasks"));
         // stalled without dead.
         assert!(queue_health(0, 0, 4, 0, 2).contains("Stalled"));
         // work waiting but no workers online.
@@ -1836,7 +1841,7 @@ mod tests {
         assert!(queue_health(6, 0, 0, 0, 0).contains("no workers"));
         // healthy: processing or idle.
         assert_eq!(queue_health_tone(0, 0, 3, 2), "ok");
-        assert_eq!(queue_health(0, 1, 0, 0, 2), "Processing work");
-        assert_eq!(queue_health(0, 0, 0, 0, 2), "Idle — queue clear");
+        assert_eq!(queue_health(0, 1, 0, 0, 2), "Processing tasks");
+        assert_eq!(queue_health(0, 0, 0, 0, 2), "Idle — nothing waiting");
     }
 }

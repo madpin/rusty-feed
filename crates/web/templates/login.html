@@ -3,13 +3,13 @@
 {% block body_class %}login-page{% endblock %}
 {% block content %}
 <section class="login-context" aria-labelledby="login-context-heading">
-  <p class="eyebrow">Private state / shared intelligence</p>
-  <h1 id="login-context-heading">Return to your signal.</h1>
-  <p>Your subscriptions, folders, reading history, rankings, and credentials stay scoped to your account. Shared articles are fetched and enriched once.</p>
+  <p class="eyebrow">Welcome back</p>
+  <h1 id="login-context-heading">Your RSS reader, but it understands what you read.</h1>
+  <p>Your feeds, folders, reading history, and credentials stay private to your account. Shared articles are fetched and processed once.</p>
   <dl class="login-runtime" aria-label="Authentication and runtime properties">
     <div><dt>session</dt><dd>opaque · database-backed</dd></div>
     <div><dt>transport</dt><dd>same-origin · CSRF-protected</dd></div>
-    <div><dt>content</dt><dd>sanitized · SSRF-guarded</dd></div>
+    <div><dt>content</dt><dd>sanitized · safe fetching</dd></div>
     <div><dt>runtime</dt><dd>Rust · Axum · PostgreSQL</dd></div>
   </dl>
   <p class="login-context-note"><span aria-hidden="true"></span> Your reader is waiting.</p>

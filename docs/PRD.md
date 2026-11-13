@@ -25,6 +25,10 @@ continues to define Rusty Feed-specific architecture, priorities, and invariants
 
 > Your RSS reader, but it actually understands what you read — and it runs as a single fast binary you own.
 
+**Taglines.** Every tagline on the product surface is derived from this one-liner: the landing page and sign-in headline say "Your RSS reader, but it understands what you read." and the landing eyebrows say "Self-hosted · one fast binary you own." The earlier lines "Return to your signal.", "Own the feed. Keep the signal.", and "RSS, compiled differently" are retired.
+
+**Terminology.** User-facing words (Briefing, Story, Feed, Folder, Tag, Topic, Saved search, Alert, Seen/Read, Library, Discover) are defined once in [`docs/GLOSSARY.md`](GLOSSARY.md) and enforced against the templates by `crates/web/tests/vocabulary.rs`. This PRD uses those words; internal names (`daily_digest`, `DailyDigestAgent`, `user_categories`, "lane", "agent") appear only where a requirement is about the implementation.
+
 ### 1.2 Confirmed product decisions (this cycle)
 
 | Decision | Choice | Rationale |
@@ -126,7 +130,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-FEED-6 (P0):** OPML 2.0 import (auto-create categories, dedupe feeds) and export (grouped by category).
 - **FR-FEED-7 (P0):** Feed **health tracking**: states `healthy | warning | error | disabled`, consecutive-failure counting, structured per-error audit log, manual enable/disable/reset, optional error notifications, daily checks after three unresolved failures, and weekly checks after 14 failing days. `disabled` is a manual pause rather than an automatic terminal transition.
 - **FR-FEED-8 (P1):** OPML import with explicit **category selection** and correct category import (fixes a known reference bug).
-- **FR-FEED-9 (P0):** Admin-curated feed magazine: editorial title/description, country/category/language facets, featured/order/publish controls, live shared-feed stats (post count, RSS body depth, posting cadence, latest post), privacy-safe article previews with bounded on-demand expansion, and idempotent multi-select subscriptions that persist while filtering or previewing. Catalog membership never restricts custom URL subscriptions.
+- **FR-FEED-9 (P0):** Admin-curated **Discover catalog**: editorial title/description, country/topic/language facets (topic is stored as the catalog `category`), featured/order/publish controls, live shared-feed stats (post count, RSS body depth, posting cadence, latest post), privacy-safe article previews with bounded on-demand expansion, and idempotent multi-select subscriptions that persist while filtering or previewing. Catalog membership never restricts custom URL subscriptions.
 - **FR-FEED-10 (P1):** Preserve multiple ordered RSS/Atom/JSON Feed and Media RSS attachments once per shared article. Readers choose on-demand, metadata-preload, or links-only behavior and allowed inline audio/video/image players; autoplay is never enabled.
 
 ### 5.3 Feed Refresh (background)
@@ -167,7 +171,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 ### 5.7 Saved Searches
 - **FR-SS-1 (P0):** Persistent saved searches with a **query DSL**: OR (`,`), required AND (`+`), NOT (`-`), phrases (`"..."`), and groups (`(...)`), parsed to an AST.
 - **FR-SS-2 (P0):** Auto-match **new** articles on refresh; score = `0.6·semantic + 0.4·keyword` (title-boosted keyword tf); match iff ≥ threshold (default 0.6).
-- **FR-SS-3 (P0):** Optional notifications when a match's relevance ≥ notify threshold (default 0.85); daily-digest flag; recency bias; priority sources.
+- **FR-SS-3 (P0):** Optional notifications when a match's relevance ≥ notify threshold (default 0.85); daily-briefing flag; recency bias; priority sources.
 - **FR-SS-4 (P0):** Interactive execution with pagination; re-match ("rematch") over a recent window (e.g., 90 days); starter **templates**.
 - **FR-SS-5 (P0):** Match storage dedupes by `(savedSearch, article)`; indexed for fast retrieval.
 
@@ -177,7 +181,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-LLM-3 (P0):** Encrypted per-user and system API keys.
 - **FR-LLM-4 (P0):** **Cost tracking** (per user, per provider, daily/monthly) that is **durable** (persisted, not in-process only — fixes a known reference gap). Admin cost visibility.
 - **FR-LLM-5 (P1):** Optional auto-summarization during feed ingestion, gated by a PostgreSQL-backed instance policy and configurable minimum normalized plain-text length (default 2,000 characters). Eligible shared article revisions created or materially updated by that consumption are queued once; policy changes require an explicit bounded admin backfill for existing articles.
-- **FR-LLM-6 (P2):** **News clustering + cluster digests.** Recent embeddings join one shared story at cosine similarity 0.82 only when a second source matches. The shared summary is computed once. A personal briefing lists the copies that reader can open and is emailed only when SMTP is configured and the reader opted in.
+- **FR-LLM-6 (P2):** **Stories and the Briefing.** Recent articles join one shared story at cosine similarity 0.82 only when a second feed matches. The shared summary is computed once. The personal **Briefing** (`/briefing`; `/digests` redirects permanently) lists the copies that reader can open and is emailed only when SMTP is configured and the reader opted in. An empty Briefing explains why: a story needs the same event from two different feeds, feeds must be fetched and indexed (with the reader's indexed/recent article count), and the daily briefing must be on in Preferences.
 
 ### 5.9 Notifications
 - **FR-NOTIF-1 (P0):** In-app notifications (feed refresh stats, feed health error/disabled, general info/warn/error/success), stored per user, unread counts, mark read / mark all read, retention (keep last 100/user).
@@ -187,7 +191,7 @@ Requirements are labeled `FR-<area>-<n>`. **P0** = required for v1 parity, **P1*
 - **FR-UX-1 (P0):** Three reading modes: **side panel** (resizable), **inline** (accordion), **standalone** (full page).
 - **FR-UX-2 (P0):** Extensive user preferences (30+ fields): theme (8 shipped themes incl. system and Rusty), font sizes, reading typography (family, size, line-height, paragraph/break spacing), article list density/borders/spacing/section order, sidebar width/collapse, articles-per-page, infinite-scroll mode, sort order/direction, show/hide read, auto-mark-read, related excerpts, reading-time display, learning knobs (bounce threshold, recency weight/decay, low-relevance visibility), and per-user LLM/embedding config.
 - **FR-UX-3 (P0):** Preferences applied server-side to rendered pages (theme/typography) and persisted; theme choices provide an immediate visual preview in onboarding and Preferences before saving.
-- **FR-UX-4 (P1):** "Seen" state (card viewed) distinct from "read". A card is marked seen once most of it is on screen or the article is opened, and the reader can clear that glance without changing read state. The Unseen list does not record new glances while it is open.
+- **FR-UX-4 (P1):** "Seen" state (card viewed) distinct from "read". A card is marked seen once most of it is on screen or the article is opened, and the reader can mark it unseen again without changing read state. The Unseen list does not mark more cards seen while it is open.
 - **FR-UX-5 (P0):** Configurable keyboard shortcuts with server-side conflict validation, safe editable-control/IME/modifier guards, and an easy preference capture/reset UI. Default commands cover next/previous article, save for later, mark unread, and next/previous feed.
 - **FR-UX-6 (P2):** Optional bounded touch article navigation, 20 selectable locale profiles, fallback locale, IANA time zone, date/number formats, language metadata, RTL direction, localized primary navigation/reader actions, and an ADHD-friendly reading format are implemented. Complete localization of feature/admin/validation/notification/accessibility copy remains backlog.
 - **FR-UX-7 (P0):** Installable home-screen/desktop experience with an instance-branded web manifest, standalone display, application shortcuts, and a discoverable browser-native install flow. A service worker may cache only public versioned application assets; authenticated pages, articles, APIs, and publisher content remain network-only until offline reading is explicitly designed.
@@ -376,7 +380,7 @@ Rusty Feed explicitly corrects these behaviors discovered during analysis of `ne
 4. **Client API compatibility:** ✅ A **new, clean native API** *plus* a **Google Reader (GReader)-compatible** adapter for open-standard client interoperability (FR-API-5).
 
 ### 12.2 Still open
-1. **Digest delivery (v2):** in-app only, or also email? (Affects whether we add an SMTP dependency.)
+1. **Briefing delivery (v2):** in-app only, or also email? (Affects whether we add an SMTP dependency.)
 2. **Local model choice/default:** confirm BGE-small-en-v1.5 (384-dim) as the shipped default vs. an alternative (e.g., `all-MiniLM-L6-v2`); both are fastembed-supported.
 3. **GReader auth mapping — resolved:** `ClientLogin` accepts local-account credentials or an existing revocable app API token. OAuth-only users create an app token from Account settings; successful local login mints the same token class. GReader never receives or stores OAuth provider credentials.
 

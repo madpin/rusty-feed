@@ -1,16 +1,16 @@
 {% extends "app_base.html" %}
-{% block title %}Search{% endblock %}
+{% block title %}{{ ui.text("search") }}{% endblock %}
 {% block body_class %}page-search{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="eyebrow">Discover</p>
-    <h1>Search</h1>
-    <p class="muted">Find exact words, quoted phrases, exclusions, or meaning across your subscriptions.</p>
+    <p class="eyebrow">Find articles</p>
+    <h1>{{ ui.text("search") }}</h1>
+    <p class="muted">Find exact words, quoted phrases, exclusions, or meaning across your feeds.</p>
   </div>
 </div>
 <form method="get" action="/search" class="stack panel">
-  <label>Search your subscriptions
+  <label>Search your feeds
     <input type="search" name="q" value="{{ query }}" maxlength="512" placeholder="What is new in async Rust?" autofocus />
   </label>
   {% if embeddings_enabled %}

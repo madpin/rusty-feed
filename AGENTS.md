@@ -22,6 +22,7 @@ Read these before coding (in order):
 3. `docs/DEVELOPMENT_PLAN.md` — the milestone-by-milestone plan; pick up the current milestone.
 4. `docs/MINIFLUX_PARITY.md` — living feature-parity and customization status; update it with parity work.
 5. `docs/FINDINGS.md` — known smells/bugs/risks. **Add to it** whenever you find something.
+6. `docs/GLOSSARY.md` — one user-facing word per concept (Briefing, Story, Feed, Folder, …). Interface text, emails, and user docs use these words; `crates/web/tests/vocabulary.rs` fails on internal jargon in templates.
 
 ---
 

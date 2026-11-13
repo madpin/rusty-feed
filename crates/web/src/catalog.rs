@@ -292,7 +292,7 @@ fn analysis_message(value: Option<&str>) -> Option<String> {
         ),
         Some("current") => Some("The shared preview analysis is already current.".to_string()),
         Some("no_articles") => Some(
-            "This source has no recent items available for analysis yet. Return after it has refreshed."
+            "This feed has no recent items available for analysis yet. Return after it has refreshed."
                 .to_string(),
         ),
         _ => None,
@@ -391,18 +391,18 @@ fn parse_subscription_form(
             "csrf_token" if csrf_token.is_none() => csrf_token = Some(value),
             "feed_id" => {
                 let feed_id =
-                    Uuid::parse_str(&value).map_err(|_| "The selected source was invalid.")?;
+                    Uuid::parse_str(&value).map_err(|_| "The selected feed was invalid.")?;
                 feed_ids.insert(feed_id);
             }
             _ if name.starts_with("content_mode.") => {
                 let feed_id = name
                     .strip_prefix("content_mode.")
                     .and_then(|value| Uuid::parse_str(value).ok())
-                    .ok_or_else(|| "A content-source choice was invalid.".to_string())?;
+                    .ok_or_else(|| "An article-content choice was invalid.".to_string())?;
                 let mode = SubscriptionContentMode::parse(&value)
                     .ok_or_else(|| "Choose RSS, public article page, or Live View.".to_string())?;
                 if content_modes.insert(feed_id, mode).is_some() {
-                    return Err("Choose one content source for each feed.".to_string());
+                    return Err("Choose which article content to use for each feed.".to_string());
                 }
             }
             _ => return Err("The catalog selection could not be processed.".to_string()),
@@ -411,20 +411,19 @@ fn parse_subscription_form(
     let csrf_token =
         csrf_token.ok_or_else(|| "The catalog selection could not be processed.".to_string())?;
     if feed_ids.is_empty() {
-        return Err("Choose at least one source to subscribe.".to_string());
+        return Err("Choose at least one feed to subscribe to.".to_string());
     }
     if feed_ids.len() > MAX_CATALOG_SELECTION {
         return Err(format!(
-            "Choose at most {MAX_CATALOG_SELECTION} sources at once."
+            "Choose at most {MAX_CATALOG_SELECTION} feeds at once."
         ));
     }
     let choices = feed_ids
         .into_iter()
         .map(|feed_id| {
-            let mode = content_modes
-                .get(&feed_id)
-                .copied()
-                .ok_or_else(|| "Choose a content source for each selected feed.".to_string())?;
+            let mode = content_modes.get(&feed_id).copied().ok_or_else(|| {
+                "Choose which article content to use for each selected feed.".to_string()
+            })?;
             Ok(catalog::CatalogSubscriptionChoice {
                 feed_id,
                 content: SubscriptionContentSettings {
@@ -652,7 +651,7 @@ pub async fn subscribe(
                     language: None,
                 },
                 None,
-                Some("One or more selected sources are no longer available.".to_string()),
+                Some("One or more selected feeds are no longer available.".to_string()),
             )
             .await;
         }
@@ -684,12 +683,12 @@ pub async fn subscribe(
     }
     let message = if existing == 0 {
         format!(
-            "Subscribed to {} source(s); queued {queued} shared refresh(es).",
+            "Subscribed to {} feed(s); queued {queued} shared refresh(es).",
             result.created
         )
     } else {
         format!(
-            "Subscribed to {} new source(s); {} were already in your library. Queued {queued} shared refresh(es).",
+            "Subscribed to {} new feed(s); {} were already in your feeds. Queued {queued} shared refresh(es).",
             result.created, existing
         )
     };

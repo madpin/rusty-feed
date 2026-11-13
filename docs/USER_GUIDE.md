@@ -13,7 +13,7 @@ This guide covers the v1 web application. Administrators should also keep the
 Open the Rusty Feed address supplied by your administrator. You can sign in with a
 local email/password or an enabled OAuth provider. On an open instance, the
 first registered account becomes the administrator. Regular accounts start with
-an empty library and choose sources in the setup wizard, Discover catalog, OPML
+an empty Library and choose feeds in the setup wizard, Discover catalog, OPML
 import, or direct-add flow. Only temporary demo accounts receive the instance's
 featured showcase feeds; those are pre-organized into topic folders. Invitation-only
 instances require a one-use invite.
@@ -23,16 +23,21 @@ Local accounts can use **Forgot password** on the sign-in page. The reset link l
 The main navigation contains:
 
 - **Library** — your article list and reader;
-- **Discover** — the curated feed magazine;
+- **Search** — keyword, semantic, or hybrid search across your feeds;
+- **Saved searches** — persistent queries and their matches;
+- **Alerts** — strong saved-search matches and feed-health changes;
+- **Briefing** — today's stories, each covered by two or more of your feeds
+  (see [Briefing](#6-briefing));
+- **Discover** — the curated catalog of feeds;
 - **Feeds** — subscriptions, folders, tags, OPML, and bulk actions;
-- **Search** — keyword, semantic, or hybrid discovery;
-- **Saved searches** — persistent queries and matches;
-- **Account** — reading preferences, customization, AI providers, integrations,
-  passkeys, sessions, and API tokens;
+- **Account** — preferences, customization, AI providers, integrations,
+  API tokens, sessions, and passkeys;
 - **Administration** — visible only to administrators.
 
-Your account menu also shows unread notifications. Rusty Feed updates the count in
+The Alerts entry shows how many alerts are unread. Rusty Feed updates the count in
 place and groups repeated feed-health changes so they do not overwhelm you.
+The words used throughout this guide are defined in
+[`GLOSSARY.md`](GLOSSARY.md).
 
 ## 2. Read from the Library
 
@@ -41,9 +46,9 @@ filter. Use it to switch between:
 
 - **Most recent**, **Unread only**, **Unseen**, or **Personalized** ranking;
 - **Unread AI summaries** — jump straight to the summaries that finished generating while you moved on to other articles, skipping ones you've already read or that don't have a summary yet;
-- a folder and all of its nested sources;
+- a folder and all of its nested feeds;
 - **Unfiled feeds**;
-- one source;
+- one feed;
 - one tag across every subscribed feed.
 
 **Unread only** is the default for new accounts. Choose **Most recent** to include read items for the current view, or enable **Show read articles** in Preferences to make that the saved default.
@@ -58,11 +63,11 @@ filter. With JavaScript, further pages append as you reach the end of the list.
 
 A card is marked seen once most of it has been on screen, and opening the
 article does the same. That is separate from read: a seen, unread card stays in
-the unread list unless you also mark it read. **Mark unseen** forgets the
-glance. **Unseen** hides articles you have already glanced at, and does not
-record new glances while you are looking through that list. **Briefing**
-collects stories that more than one source covered and links the copies you
-can open.
+the unread list unless you also mark it read. **Mark unseen** forgets that the
+card was seen. **Unseen** hides articles you have already seen, and does not
+mark more cards seen while you are looking through that list. The
+[Briefing](#6-briefing) collects stories that more than one of your feeds
+covered and links the articles you can open.
 
 ### Reading modes
 
@@ -79,9 +84,9 @@ live system light/dark—combine with sans-serif or serif typography. Font famil
 density, sidebar width, and reader-panel width are personal settings rendered
 before JavaScript loads.
 
-The article itself is one continuous reading surface. Source metadata and the
+The article itself is one continuous reading surface. Feed details and the
 primary actions form one compact header; public-share settings open from that
-same toolbar; an available AI summary appears as the article's **At a glance**
+same toolbar; an available AI summary appears as the article's **TL;DR**
 preamble; attachments and video follow the same section rhythm before the
 publisher body. The standalone, side-panel, and anonymous shared views use the
 same typography and spacing, while private controls and reading state never
@@ -89,7 +94,7 @@ appear on a public link.
 
 ### RSS, processed content, and Live View
 
-Each subscription chooses its preferred reading source. The article reader's
+Each subscription chooses which version of an article to read. The article reader's
 **RSS / Page content / Live** switch changes only the current article. When that
 temporary view differs from the subscription, choose **Make default for this
 feed** to persist it for later articles from that feed. Opening the next or
@@ -128,22 +133,22 @@ Open **Feeds** to create hierarchical folders and manage many subscriptions.
 Folder names are unique among siblings, so `Work / News` and `Personal / News`
 can coexist.
 
-For one source, choose **Organize** to set:
+For one feed, choose **Organize** to set:
 
 - one folder or **Unfiled**;
 - a personal display name;
 - any number of normalized tags;
-- content source and public-page lifetime;
+- which article content to open (RSS, page, or Live) and the public-page lifetime;
 - optional display/media overrides.
 
-The same source settings page has a personal **Entry filters** JSON editor. A
+The same feed settings page has a personal **Entry filters** JSON editor. A
 rule has a name, target (`title`, `content`, `author`, or `url`), mode (`include`
 or `exclude`), bounded regular expression, optional case-insensitive flag, and
 enabled flag. Use **Preview rules** first: Rusty Feed reports how many of the 20 most
 recent shared articles would disappear from your Library. The filter changes
 only your view; the shared article remains available to every other subscriber.
 
-Administrators also see **Shared rewrite rules** for that source. Ordered rules
+Administrators also see **Shared rewrite rules** for that feed. Ordered rules
 can remove a CSS-selected element or replace selected text with a bounded regex.
 Every save creates a restorable version and runs the sanitizer afterward. A
 change forces one shared rebuild of current publisher feed entries and requested
@@ -158,9 +163,9 @@ hide-read preference, matches catalog and personal tag casing consistently,
 loads all read and unread subscribed articles under that tag, and updates only the article-results
 region so the sidebar itself is not rebuilt or repositioned.
 
-To move a feed while reading, drag the article's source handle onto a sidebar
+To move a feed while reading, drag the article's feed handle onto a sidebar
 folder. Keyboard and touch users can activate the same handle to open an
-accessible folder picker. The operation moves the source subscription, never a
+accessible folder picker. The operation moves the feed subscription, never a
 copy of the article.
 
 ### Touch navigation
@@ -192,8 +197,8 @@ shared feed or its content for other subscribers.
 
 ## 4. Discover, add, import, and export feeds
 
-**Discover** contains at least 200 curated sources. Filter automatically by
-category, country, and language; cards show observed article count, RSS body
+**Discover** contains at least 200 curated feeds. Filter automatically by
+topic, country, and language; cards show observed article count, RSS body
 size, cadence, last post, and subscription state. Select several cards and
 subscribe once. **Preview** distinguishes RSS examples from the separate
 processed-content availability report.
@@ -222,13 +227,13 @@ reads at most 2 MiB. When no feed is advertised, paste a known feed URL into
 From **Feeds**, upload an OPML file or supply a public OPML URL. The preview:
 
 1. normalizes and deduplicates up to 2,000 subscriptions;
-2. shows new versus already-subscribed sources;
+2. shows new versus already-subscribed feeds;
 3. preserves nested folders;
-4. lets you select individual sources or folder groups;
+4. lets you select individual feeds or folder groups;
 5. offers keep/replace behavior for existing personal names and folders.
 
 The result reports every success and failure. **Export OPML** creates a portable
-file containing subscriptions, nested folders, and personal source names. OPML
+file containing subscriptions, nested folders, and personal feed names. OPML
 does not contain passwords, API keys, read state, feedback, or summaries.
 
 ## 5. Search and saved searches
@@ -237,20 +242,70 @@ Search supports three modes:
 
 - **Keyword** uses PostgreSQL full-text indexes and supports quoted phrases,
   uppercase `OR`, implicit `AND`, and `-excluded` terms.
-- **Semantic** searches by meaning in the active, guarded embedding space.
+- **Semantic** searches by meaning, using the instance's search index.
 - **Hybrid** combines both and keeps exact keyword matches visible even while
-  an embedding is missing.
+  an article has not been added to the search index yet.
 
 Choose an instance-inherited default or personal mode, text stemming, and
-hybrid meaning weight under preferences. If embedding a query fails, Rusty Feed
+hybrid meaning weight under preferences. If the meaning search for a query fails, Rusty Feed
 continues with keyword results and explains the fallback.
 
 A saved search accepts boolean groups, phrases, `AND`, `OR`, and `NOT`. Set its
-threshold and notification policy, then edit, run, paginate, or rematch it from
+threshold and alert policy, then edit, run, paginate, or rematch it from
 **Saved searches**. New shared articles are evaluated without duplicating
-content per user; only matches and notifications are personal.
+content per user; only matches and alerts are personal.
 
-## 6. Generate AI summaries
+## 6. Briefing
+
+The **Briefing** is a page (and, if you want, an email) that lists today's
+**stories**. A story is one event covered by two or more of the feeds you
+follow, shown once with a link to every article that covered it. It saves you
+from reading the same news four times.
+
+How it works:
+
+1. Rusty Feed fetches your feeds and adds each new article to the search index.
+2. Two articles from *different feeds* join one story when their similarity is
+   at least 0.82 (on a 0–1 scale; the notification bar is 0.85). A single
+   article never forms a story, and the story is shared by everyone who
+   follows those feeds: it is computed once per instance, not once per reader.
+3. Your Briefing shows the stories that include at least one of your feeds, with
+   a short summary (written by the AI provider when one is configured, otherwise
+   a plain headline list) and links only to articles you can open.
+
+To turn it on:
+
+- Open **Account → Preferences** and tick **Build a daily briefing from
+  stories covered by more than one of my feeds**. Your briefing is then built
+  once a day (07:00 UTC unless your administrator changed the schedule).
+- Or open **Briefing** and choose **Update briefing** to look for stories right
+  now; it also queues a fresh pass for everyone.
+- Tick **Email me the briefing** in the same place to receive each morning's
+  briefing by email. Email is **opt-in** and only works if your administrator
+  has set up email delivery for the instance. The message links back to the
+  Briefing page, and its article links use the instance's public address.
+  Demo accounts cannot update the Briefing.
+
+**Why is my Briefing empty?** The page tells you what is missing, and shows how
+many of your articles from the last 14 days are already in the search index.
+The usual reasons are:
+
+- **No overlapping feeds.** A story needs the same event in two *different*
+  feeds. Subscribe to several feeds that cover the same topics (try Discover).
+- **Not fetched or indexed yet.** New feeds take a few minutes to be fetched
+  and indexed. If the count shows 0 of N articles indexed, wait for the
+  background workers to catch up (or ask your administrator whether search
+  indexing is enabled).
+- **The daily briefing is off.** The page still lists live stories when it is
+  off, but no daily briefing is built or emailed until you turn it on in
+  Preferences.
+- **Articles are too different or too old.** Only articles from the last 14
+  days are compared and only stories updated in the last 36 hours are listed.
+
+Old bookmarks and emailed links to `/digests` still work: they permanently
+redirect to `/briefing`.
+
+## 7. Generate AI summaries
 
 Choose **Summarize with AI** on an article card or reader. The button stays live:
 it reports queued, generating, retrying, ready, or failed state without making
@@ -280,16 +335,16 @@ automatic threshold. Users cannot supply arbitrary endpoints. Every exhausted
 failure is sanitized and visible both beside the article and in the administrator
 queue/log view.
 
-## 7. Privacy, media, and sharing
+## 8. Privacy, media, and sharing
 
 Rusty Feed strips common tracking parameters, removes configured pixel trackers,
 sets no-referrer policy, sanitizes publisher HTML, blocks external scripts from
 stored reader content, and adds opener isolation to external links. You can show
-the number of removed tracking images for each selected content source.
+the number of removed tracking images for each selected article content.
 
 Enclosure audio, video, images, and downloads can use the same-origin shared
 media proxy. Global attachment preferences can be inherited or reset per feed
-from **Feeds → source settings**, including proxy/direct delivery and
+from **Feeds → feed settings**, including proxy/direct delivery and
 on-demand/metadata/links-only loading. Nothing is fetched merely because a second subscriber opens the
 article. Player policy can require explicit consent and always retains a
 publisher link.
@@ -331,7 +386,7 @@ encrypted token rather than plaintext, copies no article body, performs no
 visitor-triggered extraction, and serves the public page as no-store/noindex.
 Revoke the link to invalidate it immediately.
 
-## 8. Preferences, shortcuts, sessions, and installation
+## 9. Preferences, shortcuts, sessions, and installation
 
 **Account → Reading & display** contains theme, typography, density, reading
 mode, the ADHD-friendly format, daily briefing options, sidebar, external-link,
@@ -389,7 +444,7 @@ install prompt. Otherwise follow the shown browser-menu/Add to Home Screen
 instructions. The service worker caches only public CSS, JavaScript, and icons;
 it never caches authenticated pages, articles, APIs, media, or Live View.
 
-## 9. Mobile clients and automation
+## 10. Mobile clients and automation
 
 New integrations should use the versioned native API documented in
 [`API.md`](API.md). Create a token under **Account → API tokens** and send it as
@@ -429,7 +484,7 @@ Discord, Slack, Telegram, Ntfy, and signed webhooks have native payload shapes;
 other catalog entries should be treated as generic compatible endpoints until
 their exact hosted-service contract is marked complete in the parity tracker.
 
-## 10. Administration
+## 11. Administration
 
 The administration area separates configuration from live operations:
 
@@ -440,29 +495,32 @@ The administration area separates configuration from live operations:
   another account's learned ranking, and issues invitation links when
   registration is invite-only.
 - **Feeds** shows shared health, cadence, failures, pause state, and safe actions.
-- **Catalog** publishes, orders, and previews curated sources.
+- **Discover catalog** publishes, orders, and previews the curated feeds readers see on Discover.
 - **AI providers** manages prioritized instance fallback profiles.
-- **Acquisition profiles** creates and assigns one shared, host-pinned policy
+- **Feed access** (profiles) creates and assigns one shared, host-pinned policy
   for an authorized cookie, explicit HTTP(S)/SOCKS proxy, or temporary invalid
   certificate exception. Cookies require a path and expiry; certificate
   exceptions require expiry. Values are encrypted, never redisplayed, and safe
   assignment/profile facts appear in the audit table. Never use this feature to
   bypass a paywall or access control.
-- **Queue & logs** is a wide, auto-refreshing operations view with lane/kind
-  depth, scheduled/running/stalled/dead work, live heartbeats, recent
-  completions, and sanitized actionable errors.
+- **Background work & logs** is a wide, auto-refreshing operations view with
+  waiting, scheduled, running, stalled, and failed tasks by priority and type,
+  which workers have checked in, recent completions, and sanitized actionable
+  errors. A *worker* is a process that runs background tasks; *priority* tasks
+  answer something a reader just asked for (such as an AI summary) and
+  *background* tasks run on a schedule.
 
-Queue maintenance buttons are deliberately bounded: scan due feeds, queue
-cleanup, recover locks older than ten minutes, or retry at most 100 dead
-letters. A web request never performs the publisher crawl itself.
+The maintenance buttons are deliberately bounded: scan due feeds, run cleanup,
+recover tasks whose worker has not checked in for ten minutes, or retry at most
+100 failed tasks. A web request never performs the publisher crawl itself.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 - **“Showing feed-provided content…”** means public-page extraction is queued or
   retrying. RSS remains available. Check the live state, then ask an
-  administrator to inspect the extraction job if it remains failed.
+  administrator to inspect the extraction task if it remains failed.
 - **AI summary failed**: open its live failure message. An administrator can see
-  the same sanitized error, lane, attempts, and provider fallback history.
+  the same sanitized error, priority, attempts, and provider fallback history.
 - **A feed is stale**: check whether it is paused, then use **Refresh selected**.
   Repeated failures move to daily and eventually weekly checks rather than
   hammering the publisher.
@@ -470,7 +528,7 @@ letters. A web request never performs the publisher crawl itself.
   resource is unavailable, continue in Reader View or open the no-referrer
   original link.
 - **Semantic search is unavailable**: keyword search remains functional. An
-  administrator should verify the active model and background embedding lane.
+  administrator should verify the active model and that background workers are running.
 - **The install button is missing**: use the browser's install/Add to Home
   Screen menu; browser support is intentionally described rather than guessed.
 - **Customization broke the page**: navigate directly to `/safe-mode`, reset or
