@@ -11,6 +11,7 @@ use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::HeaderName;
 use axum_extra::extract::cookie::CookieJar;
+use time::{Duration, OffsetDateTime};
 
 use rusty_feed_db::{users, User};
 
@@ -31,23 +32,29 @@ pub struct AdminUser(pub User);
 /// A required admin **or** read-only admin, for admin GET (read) routes (§7.6).
 pub struct AdminReadUser(pub User);
 
+/// Minimum gap between `last_used_at` / `last_seen_at` refreshes (matches the SQL throttle).
+const TOUCH_INTERVAL: Duration = Duration::minutes(1);
+
 async fn load_session_user(state: &AppState, parts: &Parts) -> Option<User> {
     let jar = CookieJar::from_headers(&parts.headers);
     let raw = jar.get(SESSION_COOKIE)?.value().to_string();
     let hash = token::hash(&raw);
 
-    let session = rusty_feed_db::sessions::find_valid(state.db.pool(), &hash)
+    let loaded = rusty_feed_db::sessions::find_valid_with_user(state.db.pool(), &hash)
         .await
         .ok()
         .flatten()?;
-    let user = rusty_feed_db::users::find_by_id(state.db.pool(), session.user_id)
-        .await
-        .ok()
-        .flatten()?;
+    let (session, user) = (loaded.session, loaded.user);
 
-    // Best-effort: refresh last_used_at and the user's last-seen (throttled).
-    let _ = rusty_feed_db::sessions::touch(state.db.pool(), session.id).await;
-    let _ = rusty_feed_db::users::touch_last_seen(state.db.pool(), user.id).await;
+    // Best-effort and throttled to once a minute: decided from the values just
+    // loaded, so a hot request costs exactly one round trip.
+    let stale = OffsetDateTime::now_utc() - TOUCH_INTERVAL;
+    if session.last_used_at < stale {
+        let _ = rusty_feed_db::sessions::touch(state.db.pool(), session.id).await;
+    }
+    if user.last_seen_at.is_none_or(|seen| seen < stale) {
+        let _ = rusty_feed_db::users::touch_last_seen(state.db.pool(), user.id).await;
+    }
     Some(user)
 }
 
