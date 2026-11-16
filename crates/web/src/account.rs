@@ -178,6 +178,7 @@ pub async fn delete(
         )
         .await;
     }
+    crate::search::invalidate_user_results(&state, user.id).await;
     let jar = session::logout(jar, &state.db).await;
     Ok((jar, Redirect::to("/login?deleted=1")).into_response())
 }

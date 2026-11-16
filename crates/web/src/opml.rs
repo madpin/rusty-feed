@@ -420,6 +420,7 @@ pub async fn import(
             }
         }
     }
+    crate::search::invalidate_user_results(&state, user.id).await;
     report.folders_created = categories.created;
     let additional_failures = report.failed.saturating_sub(report.failures.len());
     render_result(&state, user, jar, report, additional_failures).await

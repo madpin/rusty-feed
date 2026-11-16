@@ -444,6 +444,10 @@ pub async fn takedown_article(
     .await?;
     state.invalidate_blocklist();
     articles::delete_by_id(state.db.pool(), id).await?;
+    state
+        .cache
+        .delete_prefix(rusty_feed_cache::keys::ALL_SEARCH_PREFIX)
+        .await;
     moderation::record(
         state.db.pool(),
         Some(user.id),

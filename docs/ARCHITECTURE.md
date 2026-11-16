@@ -545,7 +545,7 @@ Two-tier cache behind a single `Cache` port, with **shared vs. per-user key sepa
 | `feed:articles:{feed_id}:{page}` | shared | 5m |
 | `embedding:{article_id}` | shared | 24h |
 | `summary:{article_id}` / `keypoints` / `topics` | shared | 7d |
-| `search:{hash(query,opts)}` | shared | 30m |
+| `search:{user}:{hash(query,mode,text config,weight,model,limit)}` (rendered search page hits; never stored when the page fell back to keyword search; cleared on the user's subscribe/unsubscribe/OPML import/rename/account deletion and for everyone on an article takedown; FND-233) | per-user | 5m |
 | `related:{article_id}:{opts}` | shared | 24h |
 | `savedsearch:ast:{hash(query)}` | shared | 24h |
 | `savedsearch:results:{id}` | per-user | 5m |

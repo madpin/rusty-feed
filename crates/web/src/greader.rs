@@ -388,6 +388,7 @@ pub async fn subscription_edit(
                 feeds::upsert_by_url(state.db.pool(), &normalized, title.unwrap_or(&host), None)
                     .await?;
             subscriptions::subscribe(state.db.pool(), user.id, feed.id, title).await?;
+            crate::search::invalidate_user_results(&state, user.id).await;
             if let Some(label) = first(&pairs, "a") {
                 let category = category_for_label(&state, user.id, label).await?;
                 subscriptions::update_organization(
@@ -410,6 +411,7 @@ pub async fn subscription_edit(
                     subscriptions::unsubscribe(state.db.pool(), user.id, feed_id).await?;
                 }
             }
+            crate::search::invalidate_user_results(&state, user.id).await;
         }
         "edit" => {
             let protocol_id = parse_feed_protocol_id(stream)?;
@@ -425,6 +427,7 @@ pub async fn subscription_edit(
                     (!title.is_empty()).then_some(title),
                 )
                 .await?;
+                crate::search::invalidate_user_results(&state, user.id).await;
             }
             if let Some(label) = first(&pairs, "a") {
                 let category = category_for_label(&state, user.id, label).await?;
