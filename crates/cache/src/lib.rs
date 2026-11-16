@@ -507,6 +507,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn search_keys_are_per_user_and_prefix_invalidated() {
+        let cache = Cache::in_memory().await;
+        let (first, second) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        let ttl = keys::ttl::SEARCH;
+        assert_eq!(ttl, Duration::from_secs(300));
+        assert_ne!(keys::search(first, "q"), keys::search(second, "q"));
+        cache.set(&keys::search(first, "q"), &1u8, ttl).await;
+        cache.set(&keys::search(first, "r"), &2u8, ttl).await;
+        cache.set(&keys::search(second, "q"), &3u8, ttl).await;
+
+        cache.delete_prefix(&keys::user_search_prefix(first)).await;
+        assert_eq!(cache.get::<u8>(&keys::search(first, "q")).await, None);
+        assert_eq!(cache.get::<u8>(&keys::search(first, "r")).await, None);
+        assert_eq!(cache.get::<u8>(&keys::search(second, "q")).await, Some(3));
+
+        cache.delete_prefix(keys::ALL_SEARCH_PREFIX).await;
+        assert_eq!(cache.get::<u8>(&keys::search(second, "q")).await, None);
+    }
+
+    #[tokio::test]
     async fn get_or_set_fetches_once() {
         let cache = Cache::in_memory().await;
         let calls = AtomicUsize::new(0);

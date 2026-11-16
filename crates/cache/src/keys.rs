@@ -72,6 +72,21 @@ pub fn user_categories(user_id: Uuid) -> String {
     format!("categories:{user_id}")
 }
 
+/// A user's search page result for one request fingerprint. Per-user, never
+/// shared: results depend on the user's subscriptions.
+pub fn search(user_id: Uuid, fingerprint: &str) -> String {
+    format!("search:{user_id}:{fingerprint}")
+}
+
+/// Prefix covering a user's cached search results (invalidated when their
+/// subscriptions change).
+pub fn user_search_prefix(user_id: Uuid) -> String {
+    format!("search:{user_id}:")
+}
+
+/// Prefix covering every user's cached search results (shared content removed).
+pub const ALL_SEARCH_PREFIX: &str = "search:";
+
 /// Default TTLs per namespace (docs/ARCHITECTURE.md §10).
 pub mod ttl {
     use std::time::Duration;
@@ -81,7 +96,7 @@ pub mod ttl {
     pub const ARTICLE_EMBEDDING: Duration = Duration::from_secs(86_400);
     pub const SUMMARY: Duration = Duration::from_secs(7 * 24 * 3_600);
     pub const RELATED: Duration = Duration::from_secs(86_400);
-    pub const SEARCH: Duration = Duration::from_secs(1_800);
+    pub const SEARCH: Duration = Duration::from_secs(300);
     pub const SCORE: Duration = Duration::from_secs(3_600);
     pub const USER_PATTERNS: Duration = Duration::from_secs(900);
     pub const USER_PREFERENCES: Duration = Duration::from_secs(3_600);

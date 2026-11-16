@@ -4,10 +4,11 @@ use askama::Template;
 use axum::extract::{Query, State};
 use axum::response::{Html, IntoResponse, Response};
 use axum_extra::extract::cookie::CookieJar;
+use rusty_feed_cache::keys;
 use rusty_feed_core::ai_budget::AiBudget;
 use rusty_feed_core::config::{SearchMode, SearchTextConfig};
 use rusty_feed_db::{cost_ledger, embeddings, search as article_search};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::csrf;
@@ -16,6 +17,10 @@ use crate::error::AppError;
 use crate::prefs;
 use crate::state::{AppSettings, AppState};
 
+/// Number of hits the search page shows.
+const RESULT_LIMIT: i64 = 30;
+
+#[derive(Serialize, Deserialize)]
 struct Hit {
     id: String,
     title: String,
@@ -42,6 +47,8 @@ struct SearchTemplate {
     effective_text_config: String,
     semantic_weight_percent: u8,
     fallback_notice: Option<String>,
+    /// More keyword matches than the ranking cap: only the newest were ranked.
+    results_limited: bool,
     searched: bool,
     hits: Vec<Hit>,
 }
@@ -52,6 +59,54 @@ pub struct SearchQuery {
     q: Option<String>,
     #[serde(default)]
     mode: Option<String>,
+}
+
+/// A rendered, non-degraded search result kept per user for `ttl::SEARCH`
+/// (FND-233), so a repeated search skips the query embedding and the database.
+#[derive(Serialize, Deserialize)]
+struct CachedSearch {
+    results_limited: bool,
+    hits: Vec<Hit>,
+}
+
+/// Everything that changes which hits a search returns for one user. The
+/// query is kept as typed (trimmed only): case and spacing can change both
+/// `websearch_to_tsquery` operators and the query embedding.
+struct SearchFingerprint<'a> {
+    query: &'a str,
+    requested_mode: &'a str,
+    effective_mode: SearchMode,
+    text_config: SearchTextConfig,
+    semantic_weight_percent: u8,
+    model: &'a str,
+    limit: i64,
+}
+
+impl SearchFingerprint<'_> {
+    fn key(&self, user_id: Uuid) -> String {
+        let material = serde_json::json!([
+            self.query,
+            self.requested_mode,
+            self.effective_mode.as_str(),
+            self.text_config.as_str(),
+            self.semantic_weight_percent,
+            self.model,
+            self.limit,
+        ]);
+        keys::search(
+            user_id,
+            &rusty_feed_core::hash::sha256_hex(material.to_string().as_bytes()),
+        )
+    }
+}
+
+/// Drop a user's cached search results after their subscriptions change, so
+/// they never see hits from a feed they just removed (or miss a new one).
+pub(crate) async fn invalidate_user_results(state: &AppState, user_id: Uuid) {
+    state
+        .cache
+        .delete_prefix(&keys::user_search_prefix(user_id))
+        .await;
 }
 
 fn preferred_mode(preferences: &prefs::Preferences, settings: &AppSettings) -> SearchMode {
@@ -149,7 +204,28 @@ pub async fn page(
     let semantic_weight = f64::from(semantic_weight_percent) / 100.0;
     let mut fallback_notice = None;
 
-    let want_semantic = !trimmed.is_empty()
+    // A repeated search is served from the per-user cache before any
+    // embedding work, so it is neither metered nor counted against the daily
+    // meaning-search cap (FND-233).
+    let cache_key = (!trimmed.is_empty()).then(|| {
+        SearchFingerprint {
+            query: trimmed,
+            requested_mode: &requested_mode,
+            effective_mode: mode,
+            text_config,
+            semantic_weight_percent,
+            model: state.embedder.model(),
+            limit: RESULT_LIMIT,
+        }
+        .key(user.id)
+    });
+    let cached = match &cache_key {
+        Some(key) => state.cache.get::<CachedSearch>(key).await,
+        None => None,
+    };
+
+    let want_semantic = cached.is_none()
+        && !trimmed.is_empty()
         && (matches!(mode, SearchMode::Semantic)
             || (mode == SearchMode::Hybrid && semantic_weight_percent > 0));
 
@@ -181,12 +257,14 @@ pub async fn page(
         }
     };
 
-    let (searched, hits) = if trimmed.is_empty() {
-        (false, Vec::new())
+    let (searched, results_limited, hits) = if trimmed.is_empty() {
+        (false, false, Vec::new())
+    } else if let Some(cached) = cached {
+        (true, cached.results_limited, cached.hits)
     } else {
-        let results = match (mode, semantic_weight_percent, query_vector.as_ref()) {
+        let page = match (mode, semantic_weight_percent, query_vector.as_ref()) {
             (SearchMode::Hybrid, weight, Some(vector)) if weight > 0 && weight < 100 => {
-                article_search::hybrid_for_user(
+                article_search::hybrid_page_for_user(
                     state.db.pool(),
                     &article_search::HybridSearch {
                         user_id: user.id,
@@ -195,18 +273,18 @@ pub async fn page(
                         model: state.embedder.model(),
                         text_config,
                         semantic_weight,
-                        limit: 30,
+                        limit: RESULT_LIMIT,
                     },
                 )
                 .await?
             }
             (SearchMode::Semantic, _, Some(vector)) | (SearchMode::Hybrid, 100, Some(vector)) => {
-                embeddings::search_for_user(
+                let hits = embeddings::search_for_user(
                     state.db.pool(),
                     user.id,
                     vector,
                     state.embedder.model(),
-                    30,
+                    RESULT_LIMIT,
                 )
                 .await?
                 .into_iter()
@@ -222,14 +300,33 @@ pub async fn page(
                     keyword_score: None,
                     final_score: hit.similarity,
                 })
-                .collect()
+                .collect();
+                article_search::SearchPage {
+                    hits,
+                    truncated: false,
+                }
             }
             _ => {
-                article_search::keyword_for_user(state.db.pool(), user.id, trimmed, text_config, 30)
-                    .await?
+                article_search::keyword_page_for_user(
+                    state.db.pool(),
+                    user.id,
+                    trimmed,
+                    text_config,
+                    RESULT_LIMIT,
+                )
+                .await?
             }
         };
-        (true, results.into_iter().map(ranked_hit).collect())
+        let result = CachedSearch {
+            results_limited: page.truncated,
+            hits: page.hits.into_iter().map(ranked_hit).collect(),
+        };
+        // Degraded (keyword fallback) results are never cached, so meaning
+        // search comes back as soon as the embedder or the daily cap recovers.
+        if let (Some(key), None) = (&cache_key, &fallback_notice) {
+            state.cache.set(key, &result, keys::ttl::SEARCH).await;
+        }
+        (true, result.results_limited, result.hits)
     };
 
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
@@ -246,6 +343,7 @@ pub async fn page(
         effective_text_config: text_config.as_str().to_string(),
         semantic_weight_percent,
         fallback_notice,
+        results_limited,
         searched,
         hits,
     }

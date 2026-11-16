@@ -364,3 +364,264 @@ async fn embeddings_disabled_forces_keyword_search_regardless_of_request_or_pref
     assert!(!body.contains("% meaning"));
     assert!(body.contains("disabled by the instance administrator"));
 }
+
+/// More keyword matches than the ranking cap (FND-231) still return results,
+/// and the page says that only the most recent matches were ranked.
+#[tokio::test]
+async fn search_says_when_only_the_most_recent_matches_were_ranked() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db.clone(),
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    );
+    let app = router(state);
+    let (sid, email) = register(&app).await;
+    let user = users::find_by_email(db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "F",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+    let cap = rusty_feed_db::search::KEYWORD_CANDIDATE_CAP;
+    sqlx::query(
+        "INSERT INTO articles (id, feed_id, url, original_url, title, content, published_at) \
+         SELECT gen_random_uuid(), $1, $2 || n, $2 || n, 'Lumenword note ' || n, \
+                'lumenword body', now() - make_interval(mins => n) \
+         FROM generate_series(1, $3) AS n",
+    )
+    .bind(feed.id)
+    .bind(format!("https://ex.com/{}/", uuid::Uuid::now_v7()))
+    .bind(i32::try_from(cap + 1).unwrap())
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let search = |query: &'static str| {
+        app.clone().oneshot(
+            Request::get(format!("/search?q={query}&mode=keyword"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+    let notice = "these results come from the most recent matches only";
+    let resp = search("lumenword").await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains(notice), "the capped search should say so");
+    assert!(
+        body.contains("Lumenword note 1<"),
+        "the newest match is kept"
+    );
+
+    let resp = search("%22lumenword%20note%2042%22").await.unwrap();
+    let body = body_string(resp).await;
+    assert!(body.contains("Lumenword note 42<"));
+    assert!(!body.contains(notice), "a narrow search is not capped");
+}
+
+async fn subscribed_article(db: &Db, user_id: uuid::Uuid, title: &str) -> (uuid::Uuid, uuid::Uuid) {
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "Cache feed",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), user_id, feed.id, None)
+        .await
+        .unwrap();
+    let (article, _) = articles::upsert(
+        db.pool(),
+        &NewArticle {
+            feed_id: feed.id,
+            url: format!("https://ex.com/{}", uuid::Uuid::now_v7()),
+            comments_url: None,
+            guid: None,
+            title: title.into(),
+            author: None,
+            content: "A body about caching.".into(),
+            excerpt: None,
+            image_url: None,
+            enclosures: Vec::new(),
+            published_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    (feed.id, article.id)
+}
+
+async fn search_body(app: &Router, sid: &str, query: &str) -> (String, Option<String>) {
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/search?q={query}"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let csrf = find(&set_cookies(&resp), "rusty_feed_csrf").map(str::to_string);
+    (body_string(resp).await, csrf)
+}
+
+async fn query_embeddings(db: &Db, user_id: uuid::Uuid) -> i64 {
+    rusty_feed_db::cost_ledger::user_call_count_since(
+        db.pool(),
+        user_id,
+        "embedding",
+        rusty_feed_core::ai_budget::AiBudget::today_start(),
+    )
+    .await
+    .unwrap()
+}
+
+async fn rename(db: &Db, article_id: uuid::Uuid, title: &str) {
+    sqlx::query("UPDATE articles SET title = $2 WHERE id = $1")
+        .bind(article_id)
+        .bind(title)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
+
+/// FND-233: a repeated search is served from the per-user cache (no second
+/// query embedding, no database query), another user never sees it, and an
+/// unsubscribe invalidates it immediately.
+#[tokio::test]
+async fn repeated_search_is_cached_per_user_until_subscriptions_change() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let app = router(AppState::new(
+        db.clone(),
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    ));
+    let (sid, email) = register(&app).await;
+    let reader = users::find_by_email(db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    let word = format!("cacheword{}", uuid::Uuid::now_v7().simple());
+    let (feed_id, article_id) =
+        subscribed_article(&db, reader.id, &format!("{word} original")).await;
+
+    let (body, _) = search_body(&app, &sid, &word).await;
+    assert!(body.contains(&format!("{word} original")));
+    assert!(body.contains("% meaning"), "the default search is hybrid");
+    assert_eq!(query_embeddings(&db, reader.id).await, 1);
+
+    rename(&db, article_id, &format!("{word} renamed")).await;
+    let (body, csrf) = search_body(&app, &sid, &word).await;
+    assert!(
+        body.contains(&format!("{word} original")),
+        "the repeat is served from the cache"
+    );
+    assert_eq!(
+        query_embeddings(&db, reader.id).await,
+        1,
+        "a cached search is neither embedded nor metered again"
+    );
+
+    // Another subscriber of the same shared feed gets their own fresh result.
+    let (other_sid, other_email) = register(&app).await;
+    let other = users::find_by_email(db.pool(), &other_email)
+        .await
+        .unwrap()
+        .unwrap();
+    subscriptions::subscribe(db.pool(), other.id, feed_id, None)
+        .await
+        .unwrap();
+    let (body, _) = search_body(&app, &other_sid, &word).await;
+    assert!(body.contains(&format!("{word} renamed")));
+    assert!(!body.contains(&format!("{word} original")));
+
+    // Unsubscribing drops the reader's cached results right away.
+    let csrf = csrf.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/feeds/{feed_id}/unsubscribe"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header(
+                    "cookie",
+                    format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}"),
+                )
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_redirection(), "{}", resp.status());
+    let (body, _) = search_body(&app, &sid, &word).await;
+    assert!(
+        body.contains("No matches."),
+        "fresh results after unsubscribe"
+    );
+    assert_eq!(query_embeddings(&db, reader.id).await, 2);
+}
+
+/// Degraded keyword-fallback results are not cached, so meaning search comes
+/// back as soon as the embedder recovers.
+#[tokio::test]
+async fn degraded_search_results_are_not_cached() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let app = router(
+        AppState::new(
+            db.clone(),
+            Cache::in_memory().await,
+            AppSettings::default(),
+            String::new,
+        )
+        .with_embedder(std::sync::Arc::new(rusty_feed_embed::DisabledEmbedder)),
+    );
+    let (sid, email) = register(&app).await;
+    let reader = users::find_by_email(db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    let word = format!("fallbackword{}", uuid::Uuid::now_v7().simple());
+    let (_, article_id) = subscribed_article(&db, reader.id, &format!("{word} original")).await;
+
+    let (body, _) = search_body(&app, &sid, &word).await;
+    assert!(body.contains("temporarily unavailable"));
+    assert!(body.contains(&format!("{word} original")));
+
+    rename(&db, article_id, &format!("{word} renamed")).await;
+    let (body, _) = search_body(&app, &sid, &word).await;
+    assert!(body.contains("temporarily unavailable"));
+    assert!(
+        body.contains(&format!("{word} renamed")),
+        "a degraded result must not be served from the cache"
+    );
+}

@@ -324,7 +324,7 @@ System / Ops
 ### 6.3 Full-text search
 Interactive keyword and hybrid search use two stored generated vectors on the shared `articles` row: language-neutral `search_vector_simple` and English-stemmed `search_vector`. Both weight title as `A`, excerpt as `B`, and content as `D`, and each has a GIN index. Migration `0026_indexed_full_text_search.sql` rebuilds existing rows automatically through PostgreSQL's generated-column semantics. The application selects only between these two migration-owned columns, so a user can never inject a `regconfig` or SQL identifier.
 
-Queries use `websearch_to_tsquery`, providing forgiving quoted phrases, uppercase `OR`, implicit `AND`, and `-excluded` terms. Keyword rank is bounded with `ts_rank_cd(..., 32)`. Hybrid search unions bounded keyword candidates with model/revision-guarded HNSW candidates before applying the configured semantic/keyword blend; an exact keyword match therefore remains visible while its shared embedding is missing or stale. Every candidate query joins through `user_feeds(user_id, feed_id)` before ranking.
+Queries use `websearch_to_tsquery`, providing forgiving quoted phrases, uppercase `OR`, implicit `AND`, and `-excluded` terms. Keyword rank is bounded with `ts_rank_cd(..., 32)`. Only the newest `KEYWORD_CANDIDATE_CAP` (5,000) matches, ordered by `published_at DESC NULLS LAST, id`, are ranked. There is no time window, so a query with at most that many matches returns exactly the fully ranked result. Above the cap the page says that only the most recent matches were ranked (FND-231). Hybrid search unions bounded keyword candidates with model/revision-guarded HNSW candidates before applying the configured semantic/keyword blend; an exact keyword match therefore remains visible while its shared embedding is missing or stale. Every candidate query joins through `user_feeds(user_id, feed_id)` before ranking.
 
 ---
 
@@ -545,7 +545,7 @@ Two-tier cache behind a single `Cache` port, with **shared vs. per-user key sepa
 | `feed:articles:{feed_id}:{page}` | shared | 5m |
 | `embedding:{article_id}` | shared | 24h |
 | `summary:{article_id}` / `keypoints` / `topics` | shared | 7d |
-| `search:{hash(query,opts)}` | shared | 30m |
+| `search:{user}:{hash(query,mode,text config,weight,model,limit)}` (rendered search page hits; never stored when the page fell back to keyword search; cleared on the user's subscribe/unsubscribe/OPML import/rename/account deletion and for everyone on an article takedown; FND-233) | per-user | 5m |
 | `related:{article_id}:{opts}` | shared | 24h |
 | `savedsearch:ast:{hash(query)}` | shared | 24h |
 | `savedsearch:results:{id}` | per-user | 5m |
@@ -630,7 +630,7 @@ Effective personal values use the first present of **feed → category → user 
 - **Text embedded:** `title + "\n\n" + excerpt + "\n\n" + content[..2000]`. Batched (configurable size, default 10; streaming batch 25). Idempotent insert (skip if present) → O(1) across users.
 
 ### 13.3 Query path
-- Interactive search supports keyword, semantic, and hybrid modes. Keyword mode uses the indexed vectors in §6.3 and works before embedding. Semantic mode embeds the query with the instance model → pgvector KNN (`ORDER BY embedding <=> $1 LIMIT k`) with HNSW → normalize similarity → optional recency blend. Hybrid mode unions bounded candidates from both indexes and exposes the independently normalized components with the final blend so the result is explainable. If query embedding is unavailable, the web path visibly falls back to PostgreSQL keyword results instead of failing core search.
+- Interactive search supports keyword, semantic, and hybrid modes. Keyword mode uses the indexed vectors in §6.3 and works before embedding. Semantic mode embeds the query with the instance model → pgvector KNN (`ORDER BY embedding <=> $1 LIMIT k`) with HNSW. The query runs in a transaction with `SET LOCAL hnsw.iterative_scan = relaxed_order`, so the per-user `user_feeds` filter does not starve the result: plain HNSW returns only `hnsw.ef_search` global neighbours before the filter. The scan is bounded by `hnsw.max_scan_tuples`, and callers re-sort on the exact distance (FND-232). Then: normalize similarity → optional recency blend. Hybrid mode unions bounded candidates from both indexes and exposes the independently normalized components with the final blend so the result is explainable. If query embedding is unavailable, the web path visibly falls back to PostgreSQL keyword results instead of failing core search.
 - Instance defaults are mode `hybrid`, text configuration `simple`, and 60% semantic weight. A user can inherit or override all three; an individual search may override only the mode. Shared article vectors/embeddings remain O(1), while preferences remain per-user.
 
 ---

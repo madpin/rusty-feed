@@ -3,11 +3,31 @@
 //! **model-guarded** (only vectors from the same model are compared) to avoid
 //! mixing embedding spaces (FND-002), and **user-scoped** to subscribed feeds.
 
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error::Result;
+
+/// Begin the transaction one per-user vector query runs in (FND-232).
+///
+/// An HNSW index scan yields only `hnsw.ef_search` nearest tuples from the
+/// whole shared corpus, and the `user_feeds` join filters them afterwards, so
+/// a reader who follows a small share of the corpus could get fewer rows than
+/// the limit, or none. `hnsw.iterative_scan = relaxed_order` keeps scanning
+/// (up to `hnsw.max_scan_tuples`) until the filtered query is satisfied. The
+/// order can be slightly relaxed, so every caller re-sorts on the exact
+/// distance or score; a re-sort of a materialized CTE uses `distance + 0`
+/// because PostgreSQL 17 would otherwise trust the CTE's `ORDER BY` and skip
+/// the outer sort. The setting is transaction-local (`SET LOCAL`), so it never
+/// leaks to other users of a pooled connection.
+pub async fn begin_vector_scan(pool: &PgPool) -> Result<Transaction<'static, Postgres>> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
+        .execute(&mut *transaction)
+        .await?;
+    Ok(transaction)
+}
 
 /// A semantic search / related hit.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -89,23 +109,30 @@ pub async fn search_for_user(
     model: &str,
     limit: i64,
 ) -> Result<Vec<SearchResult>> {
-    let sql = "SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
-                      f.name AS feed_name, \
-                      1 - ((e.embedding <=> $2::vector) / 2) AS similarity \
-               FROM article_embeddings e \
-               JOIN articles a ON a.id = e.article_id \
-               JOIN feeds f ON f.id = a.feed_id \
-               JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
-               WHERE e.model = $3 AND e.content_revision = a.content_revision \
-               ORDER BY e.embedding <=> $2::vector \
-               LIMIT $4";
-    Ok(sqlx::query_as::<_, SearchResult>(sql)
+    let sql = "WITH nearest AS MATERIALIZED ( \
+                 SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
+                        f.name AS feed_name, \
+                        1 - ((e.embedding <=> $2::vector) / 2) AS similarity, \
+                        e.embedding <=> $2::vector AS distance \
+                 FROM article_embeddings e \
+                 JOIN articles a ON a.id = e.article_id \
+                 JOIN feeds f ON f.id = a.feed_id \
+                 JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+                 WHERE e.model = $3 AND e.content_revision = a.content_revision \
+                 ORDER BY e.embedding <=> $2::vector \
+                 LIMIT $4 \
+               ) \
+               SELECT * FROM nearest ORDER BY distance + 0";
+    let mut transaction = begin_vector_scan(pool).await?;
+    let hits = sqlx::query_as::<_, SearchResult>(sql)
         .bind(user_id)
         .bind(to_pg_vector(query))
         .bind(model)
         .bind(limit)
-        .fetch_all(pool)
-        .await?)
+        .fetch_all(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(hits)
 }
 
 /// A candidate article for saved-search matching: content + semantic similarity.
@@ -127,23 +154,30 @@ pub async fn candidates_for_query(
     since_days: i64,
     limit: i64,
 ) -> Result<Vec<Candidate>> {
-    let sql = "SELECT a.id, a.title, a.content, \
-                      1 - ((e.embedding <=> $2::vector) / 2) AS similarity \
-               FROM article_embeddings e \
-               JOIN articles a ON a.id = e.article_id \
-               JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
-               WHERE e.model = $3 AND e.content_revision = a.content_revision \
-                 AND a.created_at > now() - make_interval(days => $4::int) \
-               ORDER BY e.embedding <=> $2::vector \
-               LIMIT $5";
-    Ok(sqlx::query_as::<_, Candidate>(sql)
+    let sql = "WITH nearest AS MATERIALIZED ( \
+                 SELECT a.id, a.title, a.content, \
+                        1 - ((e.embedding <=> $2::vector) / 2) AS similarity, \
+                        e.embedding <=> $2::vector AS distance \
+                 FROM article_embeddings e \
+                 JOIN articles a ON a.id = e.article_id \
+                 JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+                 WHERE e.model = $3 AND e.content_revision = a.content_revision \
+                   AND a.created_at > now() - make_interval(days => $4::int) \
+                 ORDER BY e.embedding <=> $2::vector \
+                 LIMIT $5 \
+               ) \
+               SELECT * FROM nearest ORDER BY distance + 0";
+    let mut transaction = begin_vector_scan(pool).await?;
+    let candidates = sqlx::query_as::<_, Candidate>(sql)
         .bind(user_id)
         .bind(to_pg_vector(query))
         .bind(model)
         .bind(since_days)
         .bind(limit)
-        .fetch_all(pool)
-        .await?)
+        .fetch_all(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(candidates)
 }
 
 /// The embeddings-disabled counterpart to [`candidates_for_query`]: the same
@@ -180,25 +214,32 @@ pub async fn related_for_user(
     model: &str,
     limit: i64,
 ) -> Result<Vec<SearchResult>> {
-    let sql = "SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
-                      f.name AS feed_name, \
-                      1 - ((e.embedding <=> q.embedding) / 2) AS similarity \
-               FROM article_embeddings e \
-               JOIN articles a ON a.id = e.article_id \
-               JOIN feeds f ON f.id = a.feed_id \
-               JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
-               CROSS JOIN (SELECT e0.embedding FROM article_embeddings e0 \
-                           JOIN articles a0 ON a0.id = e0.article_id \
-                           WHERE e0.article_id = $2 AND e0.model = $3 \
-                             AND e0.content_revision = a0.content_revision) q \
-               WHERE e.model = $3 AND e.content_revision = a.content_revision AND e.article_id <> $2 \
-               ORDER BY e.embedding <=> q.embedding \
-               LIMIT $4";
-    Ok(sqlx::query_as::<_, SearchResult>(sql)
+    let sql = "WITH nearest AS MATERIALIZED ( \
+                 SELECT a.id, a.title, a.url, a.excerpt, a.image_url, a.published_at, \
+                        f.name AS feed_name, \
+                        1 - ((e.embedding <=> q.embedding) / 2) AS similarity, \
+                        e.embedding <=> q.embedding AS distance \
+                 FROM article_embeddings e \
+                 JOIN articles a ON a.id = e.article_id \
+                 JOIN feeds f ON f.id = a.feed_id \
+                 JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
+                 CROSS JOIN (SELECT e0.embedding FROM article_embeddings e0 \
+                             JOIN articles a0 ON a0.id = e0.article_id \
+                             WHERE e0.article_id = $2 AND e0.model = $3 \
+                               AND e0.content_revision = a0.content_revision) q \
+                 WHERE e.model = $3 AND e.content_revision = a.content_revision AND e.article_id <> $2 \
+                 ORDER BY e.embedding <=> q.embedding \
+                 LIMIT $4 \
+               ) \
+               SELECT * FROM nearest ORDER BY distance + 0";
+    let mut transaction = begin_vector_scan(pool).await?;
+    let hits = sqlx::query_as::<_, SearchResult>(sql)
         .bind(user_id)
         .bind(article_id)
         .bind(model)
         .bind(limit)
-        .fetch_all(pool)
-        .await?)
+        .fetch_all(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(hits)
 }
