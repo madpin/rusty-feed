@@ -13,7 +13,7 @@ use crate::tracking_url::TrackingUrlPolicy;
 
 /// Version of the shared public-page extraction and cleanup representation.
 /// Incrementing this makes older copies eligible for one shared refresh.
-pub const ARTICLE_PAGE_PROCESSING_VERSION: i32 = 3;
+pub const ARTICLE_PAGE_PROCESSING_VERSION: i32 = 4;
 
 /// Sanitized shared content plus privacy cleanup metadata.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
