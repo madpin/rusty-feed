@@ -66,45 +66,104 @@ pub use models::{
     NewArticleEnclosure, OAuthAccount, SavedSearch, Session, UpsertAction, User, UserFeed,
 };
 
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 /// Embedded migrations (from `crates/db/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
+/// Connection-pool sizing, normally built from `DATABASE_MAX_CONNECTIONS` and
+/// `DATABASE_ACQUIRE_TIMEOUT_SECONDS`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DbPoolSettings {
+    /// Maximum open connections in the pool.
+    pub max_connections: u32,
+    /// How long `acquire` waits for a free connection before failing.
+    pub acquire_timeout: Duration,
+}
+
+impl Default for DbPoolSettings {
+    fn default() -> Self {
+        Self {
+            max_connections: 10,
+            acquire_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
+impl DbPoolSettings {
+    /// Settings from the configured connection cap and acquire timeout (seconds).
+    pub fn new(max_connections: u32, acquire_timeout_seconds: u64) -> Self {
+        Self {
+            max_connections,
+            acquire_timeout: Duration::from_secs(acquire_timeout_seconds),
+        }
+    }
+
+    fn options(&self) -> PgPoolOptions {
+        PgPoolOptions::new()
+            .max_connections(self.max_connections)
+            .acquire_timeout(self.acquire_timeout)
+    }
+}
+
 /// A cloneable database handle (the inner `PgPool` is reference-counted).
 #[derive(Clone)]
 pub struct Db {
     pool: PgPool,
+    media_lock_pool: Arc<OnceLock<PgPool>>,
 }
 
 impl Db {
     /// Connect to Postgres using the given URL.
     pub async fn connect(database_url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .connect(database_url)
-            .await?;
-        Ok(Self { pool })
+        Self::connect_with(database_url, &DbPoolSettings::default()).await
+    }
+
+    /// Connect to Postgres with explicit pool sizing.
+    pub async fn connect_with(database_url: &str, settings: &DbPoolSettings) -> Result<Self> {
+        let pool = settings.options().connect(database_url).await?;
+        Ok(Self::from_pool(pool))
     }
 
     /// Create a lazily-connecting pool (no connection is opened until first use).
     /// Useful for constructing app state in tests that never touch the database.
     pub fn connect_lazy(database_url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .connect_lazy(database_url)?;
-        Ok(Self { pool })
+        Self::connect_lazy_with(database_url, &DbPoolSettings::default())
+    }
+
+    /// Lazily-connecting pool with explicit pool sizing.
+    pub fn connect_lazy_with(database_url: &str, settings: &DbPoolSettings) -> Result<Self> {
+        let pool = settings.options().connect_lazy(database_url)?;
+        Ok(Self::from_pool(pool))
     }
 
     /// Wrap an existing pool (useful in tests).
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            media_lock_pool: Arc::new(OnceLock::new()),
+        }
     }
 
     /// Borrow the underlying connection pool.
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Small dedicated pool for media-fetch advisory locks (see
+    /// [`media_cache::FetchLock`]), built lazily from the main pool's connect
+    /// options so lock holders never consume main-pool connections.
+    pub fn media_lock_pool(&self) -> &PgPool {
+        self.media_lock_pool.get_or_init(|| {
+            PgPoolOptions::new()
+                .max_connections(media_cache::FETCH_LOCK_CONNECTIONS)
+                .acquire_timeout(media_cache::FETCH_LOCK_WAIT)
+                .connect_lazy_with((*self.pool.connect_options()).clone())
+        })
     }
 
     /// Apply all pending migrations. Idempotent (already-applied ones are

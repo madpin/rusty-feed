@@ -125,10 +125,21 @@ async fn fetch_and_cache_coalesced(
     source_url: &str,
     max_bytes: usize,
 ) -> Result<MediaCacheEntry, AppError> {
-    // The session advisory lock coordinates cache misses across all processes
-    // connected to this PostgreSQL cluster. The in-process Moka lock above
-    // keeps the common single-instance path cheap.
-    let mut connection = media_cache::acquire_fetch_lock(state.db.pool(), cache_key).await?;
+    // The in-process lock above collapses concurrent misses in this process.
+    // The advisory lock coordinates misses across processes sharing this
+    // PostgreSQL cluster, but is held on a connection from a small dedicated
+    // pool, never the main pool: the upstream download can take seconds and
+    // must not starve requests or background jobs. If no lock connection is
+    // free quickly, fetch anyway; `store_success`/`store_failure` are
+    // single-statement `ON CONFLICT` upserts, so at worst a cold URL is
+    // downloaded twice and one complete writer wins.
+    let lock = match media_cache::FetchLock::acquire(state.db.media_lock_pool(), cache_key).await {
+        Ok(lock) => Some(lock),
+        Err(error) => {
+            tracing::debug!(error = %error, "media fetch lock unavailable; fetching without it");
+            None
+        }
+    };
     let result = async {
         if let Some(entry) = fresh_entry(state, cache_key, source_url).await? {
             Ok(entry)
@@ -137,8 +148,10 @@ async fn fetch_and_cache_coalesced(
         }
     }
     .await;
-    if let Err(error) = media_cache::release_fetch_lock(&mut connection, cache_key).await {
-        tracing::error!(error = %error, "failed to release media cache advisory lock");
+    if let Some(lock) = lock {
+        if let Err(error) = lock.release().await {
+            tracing::error!(error = %error, "failed to release media cache advisory lock");
+        }
     }
     result
 }

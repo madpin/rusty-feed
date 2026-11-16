@@ -50,6 +50,18 @@ their values.
 | `SESSION_SECRET` | Session signing and short-lived ticket key material | At least 32 bytes |
 | `ENCRYPTION_SECRET` | Master material for encrypted stored credentials | At least 32 bytes |
 
+### Database connection pool
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `DATABASE_MAX_CONNECTIONS` | `10` | Maximum pooled PostgreSQL connections per process (server, standalone worker, CLI), 1–200 |
+| `DATABASE_ACQUIRE_TIMEOUT_SECONDS` | `30` | How long a request or job waits for a free pooled connection before failing, 1–300 |
+
+Sizing guidance is in [OPERATIONS.md](OPERATIONS.md#database-connection-pool).
+The media proxy additionally uses a separate, lazily created pool of at most
+eight short-lived connections per process for cross-process fetch locks; it is
+not configurable and never takes connections from this pool.
+
 Generate independent secrets, for example with `openssl rand -base64 48`. Never
 reuse the development defaults from Compose in a reachable deployment.
 

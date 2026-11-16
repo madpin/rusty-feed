@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::Context;
 use rusty_feed_agents::{Worker, WorkerConfig};
 use rusty_feed_core::AppConfig;
-use rusty_feed_db::Db;
+use rusty_feed_db::{Db, DbPoolSettings};
 use rusty_feed_feeds::SafeFetchClient;
 use tokio::sync::watch;
 
@@ -33,9 +33,15 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|error| anyhow::anyhow!("invalid tracking pixel policy: {error}"))?;
     rusty_feed_core::telemetry::init_tracing(&config.log_level);
 
-    let db = Db::connect(&config.database_url)
-        .await
-        .context("failed to connect to the database")?;
+    let db = Db::connect_with(
+        &config.database_url,
+        &DbPoolSettings::new(
+            config.database_max_connections,
+            config.database_acquire_timeout_seconds,
+        ),
+    )
+    .await
+    .context("failed to connect to the database")?;
     db.migrate().await.context("failed to apply migrations")?;
     let embedding_model =
         rusty_feed_embed::canonical_model(config.embedding_provider, &config.embedding_model)

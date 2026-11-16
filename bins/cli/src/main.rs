@@ -53,7 +53,7 @@ async fn main() -> ExitCode {
 async fn canonicalize_urls(apply: bool) -> anyhow::Result<()> {
     let config = rusty_feed_core::AppConfig::load()?;
     let policy = config.tracking_url_policy().map_err(anyhow::Error::msg)?;
-    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
+    let db = connect_db(&config).await?;
     db.migrate().await?;
     let plan = rusty_feed_db::url_backfill::plan(db.pool(), &policy).await?;
     println!(
@@ -128,7 +128,7 @@ async fn fetch_model() -> anyhow::Result<()> {
 /// `is_demo = true`, so real users are never touched (docs/PUBLIC_LAUNCH_PLAN.md §7.3).
 async fn demo_reset() -> anyhow::Result<()> {
     let config = rusty_feed_core::AppConfig::load()?;
-    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
+    let db = connect_db(&config).await?;
     db.migrate().await?;
     let deleted = rusty_feed_db::users::delete_all_demo(db.pool()).await?;
     println!("demo reset complete: {deleted} demo account(s) deleted");
@@ -147,7 +147,7 @@ async fn create_admin() -> anyhow::Result<()> {
     if !email.contains('@') || email.len() > 320 {
         anyhow::bail!("RUSTY_FEED_ADMIN_EMAIL is not a valid email address");
     }
-    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
+    let db = connect_db(&config).await?;
     db.migrate().await?;
     if let Some(user) = rusty_feed_db::users::find_by_email(db.pool(), &email).await? {
         rusty_feed_db::users::set_role(db.pool(), user.id, "admin").await?;
@@ -191,7 +191,7 @@ async fn queue_embedding_backfill(reindex: bool) -> anyhow::Result<()> {
     }
     let model =
         rusty_feed_embed::canonical_model(config.embedding_provider, &config.embedding_model)?;
-    let db = rusty_feed_db::Db::connect(&config.database_url).await?;
+    let db = connect_db(&config).await?;
     db.migrate().await?;
     if reindex {
         let removed = rusty_feed_db::embedding_space::replace(
@@ -255,6 +255,18 @@ fn config_check() -> anyhow::Result<()> {
         serde_json::to_string_pretty(&config.diagnostic_summary())?
     );
     Ok(())
+}
+
+/// Connect using the configured pool sizing.
+async fn connect_db(config: &rusty_feed_core::AppConfig) -> anyhow::Result<rusty_feed_db::Db> {
+    Ok(rusty_feed_db::Db::connect_with(
+        &config.database_url,
+        &rusty_feed_db::DbPoolSettings::new(
+            config.database_max_connections,
+            config.database_acquire_timeout_seconds,
+        ),
+    )
+    .await?)
 }
 
 /// Apply database migrations. Reads `DATABASE_URL` directly (migrate needs only

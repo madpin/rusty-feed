@@ -11,7 +11,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use rusty_feed_cache::{Cache, CacheConfig};
 use rusty_feed_core::AppConfig;
-use rusty_feed_db::Db;
+use rusty_feed_db::{Db, DbPoolSettings};
 use rusty_feed_embed::Embedder;
 use rusty_feed_web::{
     AppSettings, AppState, CaptchaSettings, OAuthProvider, ProviderKind, RateLimitSettings,
@@ -45,9 +45,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Connect the database and apply migrations (idempotent) so a fresh
     // `cargo run` / container boot is ready to serve.
-    let db = Db::connect(&config.database_url)
-        .await
-        .context("failed to connect to the database")?;
+    let db = Db::connect_with(
+        &config.database_url,
+        &DbPoolSettings::new(
+            config.database_max_connections,
+            config.database_acquire_timeout_seconds,
+        ),
+    )
+    .await
+    .context("failed to connect to the database")?;
     db.migrate().await.context("failed to apply migrations")?;
     let embedding_model =
         rusty_feed_embed::canonical_model(config.embedding_provider, &config.embedding_model)

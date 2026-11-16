@@ -242,6 +242,13 @@ pub struct AppConfig {
 
     // ── Database (required) ──
     pub database_url: String,
+    /// Maximum pooled PostgreSQL connections per process (`DATABASE_MAX_CONNECTIONS`).
+    #[serde(default = "defaults::database_max_connections")]
+    pub database_max_connections: u32,
+    /// Seconds a request waits for a free pooled connection
+    /// (`DATABASE_ACQUIRE_TIMEOUT_SECONDS`).
+    #[serde(default = "defaults::database_acquire_timeout_seconds")]
+    pub database_acquire_timeout_seconds: u64,
 
     // ── Cache / Redis ──
     #[serde(default)]
@@ -643,6 +650,16 @@ impl AppConfig {
                 "DATABASE_URL must not be empty".into(),
             ));
         }
+        if !(1..=200).contains(&self.database_max_connections) {
+            return Err(ConfigError::Invalid(
+                "DATABASE_MAX_CONNECTIONS must be between 1 and 200".into(),
+            ));
+        }
+        if !(1..=300).contains(&self.database_acquire_timeout_seconds) {
+            return Err(ConfigError::Invalid(
+                "DATABASE_ACQUIRE_TIMEOUT_SECONDS must be between 1 and 300".into(),
+            ));
+        }
         if self.session_secret.len() < 32 {
             return Err(ConfigError::Invalid(
                 "SESSION_SECRET must be at least 32 bytes".into(),
@@ -1013,7 +1030,11 @@ impl AppConfig {
                 "passkeys_enabled": self.passkeys_enabled,
                 "passkey_rp_name": self.passkey_rp_name,
             },
-            "database": { "configured": !self.database_url.is_empty() },
+            "database": {
+                "configured": !self.database_url.is_empty(),
+                "max_connections": self.database_max_connections,
+                "acquire_timeout_seconds": self.database_acquire_timeout_seconds,
+            },
             "cache": {
                 "enabled": self.cache_enabled,
                 "redis_configured": self.redis_url.is_some(),
@@ -1240,6 +1261,12 @@ mod defaults {
     }
     pub fn passkey_rp_name() -> String {
         "Rusty Feed".to_string()
+    }
+    pub fn database_max_connections() -> u32 {
+        10
+    }
+    pub fn database_acquire_timeout_seconds() -> u64 {
+        30
     }
     pub fn youtube_duration_daily_budget() -> u32 {
         100
@@ -1580,6 +1607,30 @@ mod tests {
             "cache_namespace": "home-reader_1.prod",
         })));
         assert!(AppConfig::from_figment(valid).is_ok());
+    }
+
+    #[test]
+    fn validates_database_pool_bounds() {
+        let defaults = AppConfig::from_figment(base()).unwrap();
+        assert_eq!(defaults.database_max_connections, 10);
+        assert_eq!(defaults.database_acquire_timeout_seconds, 30);
+        for (key, valid, invalid) in [
+            ("database_max_connections", [1, 200], [0, 201]),
+            ("database_acquire_timeout_seconds", [1, 300], [0, 301]),
+        ] {
+            for value in valid {
+                let figment = base().merge(Serialized::defaults(serde_json::json!({ key: value })));
+                assert!(AppConfig::from_figment(figment).is_ok(), "{key}={value}");
+            }
+            for value in invalid {
+                let figment = base().merge(Serialized::defaults(serde_json::json!({ key: value })));
+                let error = AppConfig::from_figment(figment).unwrap_err().to_string();
+                assert!(
+                    error.contains(&key.to_ascii_uppercase()),
+                    "{key}={value}: {error}"
+                );
+            }
+        }
     }
 
     #[test]
