@@ -442,8 +442,12 @@ feed adds are all disabled — they subscribe from the curated catalog only).
 These values configure containers or port publishing and are not fields in
 `AppConfig`: `APP_PORT`, `POSTGRES_PORT`, `REDIS_PORT`, `CHROMIUM_PORT`,
 `AUTO_MIGRATE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and
-`RUSTY_FEED_IMAGE`. The last four are used by the Dokploy stack; its app service
-forwards every `AppConfig` environment variable with the documented default.
+`RUSTY_FEED_IMAGE`. The last four are used by the Dokploy stack, which also reads
+the optional PostgreSQL tuning variables `PG_SHARED_BUFFERS` (`512MB`),
+`PG_EFFECTIVE_CACHE_SIZE` (`1536MB`), `PG_WORK_MEM` (`16MB`),
+`PG_MAINTENANCE_WORK_MEM` (`128MB`), `PG_RANDOM_PAGE_COST` (`1.1`), `PG_JIT`
+(`off`), and `PG_SHM_SIZE` (`256mb`); see `docs/OPERATIONS.md` for sizing. Its
+app service forwards every `AppConfig` environment variable with the documented default.
 Optional values without defaults use an explicit empty-string fallback, which
 the typed loader treats exactly like an omitted value. Always invoke Compose with
 the project env file:

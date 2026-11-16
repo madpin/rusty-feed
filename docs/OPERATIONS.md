@@ -196,6 +196,48 @@ Alert on database disk growth, no worker heartbeat, dead-letter growth, repeated
 feed failures, and non-zero HTTP 5xx rates. Use the route-template metrics from
 `/metrics`; raw article IDs are intentionally not metric labels.
 
+## PostgreSQL tuning
+
+`docker/compose.dokploy.yaml` starts PostgreSQL with conservative settings read
+from environment variables, so you tune without editing the file. Set them in the
+Dokploy service environment (or `.env`) and redeploy. Defaults are safe on a 2 GB
+host. Durability (`fsync`, `synchronous_commit`, `full_page_writes`) and
+`max_connections` are not touched.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PG_SHARED_BUFFERS` | `512MB` | PostgreSQL page cache; about 25% of host RAM. |
+| `PG_EFFECTIVE_CACHE_SIZE` | `1536MB` | Planner hint for OS plus PostgreSQL cache; 50-75% of RAM. |
+| `PG_WORK_MEM` | `16MB` | Memory per sort/hash node, per connection. |
+| `PG_MAINTENANCE_WORK_MEM` | `128MB` | Index builds, vacuum. |
+| `PG_RANDOM_PAGE_COST` | `1.1` | SSD/NVMe. Set `4` for spinning disks. |
+| `PG_JIT` | `off` | Standard recommendation for short OLTP queries; not measured for this workload. |
+| `PG_SHM_SIZE` | `256mb` | Container `/dev/shm`; Docker's 64 MB default breaks parallel hash joins once `work_mem` grows. |
+
+Suggested values by host RAM (PostgreSQL shares the host with the app, Redis, and
+Chromium, so these are deliberately below the full-host rule of thumb):
+
+| Host RAM | `PG_SHARED_BUFFERS` | `PG_EFFECTIVE_CACHE_SIZE` | `PG_WORK_MEM` | `PG_MAINTENANCE_WORK_MEM` | `PG_SHM_SIZE` |
+| --- | --- | --- | --- | --- | --- |
+| 2 GB | `512MB` | `1536MB` | `16MB` | `128MB` | `256mb` |
+| 4 GB | `1GB` | `3GB` | `16MB` | `256MB` | `256mb` |
+| 8 GB | `2GB` | `6GB` | `32MB` | `512MB` | `512mb` |
+| 16 GB | `4GB` | `12GB` | `64MB` | `1GB` | `1gb` |
+
+`work_mem` is per sort or hash node, per connection, and one query can use
+several nodes, so the worst case is roughly connections x nodes x `work_mem`.
+Raise it only after checking the app pool size and `max_connections`.
+
+Confirm the settings took effect with
+`docker exec <postgres container> psql -U rusty_feed -c "SHOW shared_buffers;"`
+(repeat for the other settings). Changing `shared_buffers` and `shm_size` needs
+a Postgres restart, so redeploy the service in Dokploy.
+
+To verify before and after: run the keyword search from `crates/db/src/search.rs`
+under `EXPLAIN (ANALYZE, BUFFERS)` right after a restart, then run it again.
+`Buffers: shared read=` should drop to near zero on the second run, and a larger
+`shared_buffers` keeps it there for a bigger working set.
+
 ## Release verification
 
 Tagged releases publish checksummed native archives for Linux on amd64 and arm64 and macOS on Apple
