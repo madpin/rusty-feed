@@ -11,6 +11,10 @@ use uuid::Uuid;
 /// is exact; above it the statistic is a sample extrapolation.
 const ANALYZE_EXACT_ROWS: i64 = 30_000;
 
+/// Tests that insert articles or compare against an exact article count must not
+/// interleave, or the count can move between `ANALYZE` and the comparison.
+static ARTICLE_COUNT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn test_db() -> Option<Db> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = Db::connect(&url).await.expect("connect");
@@ -35,6 +39,7 @@ async fn estimate_matches_exact_count_right_after_analyze() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = ARTICLE_COUNT_LOCK.lock().await;
     let pool = db.pool();
     let (feed, _) = feeds::upsert_by_url(
         pool,
@@ -99,6 +104,7 @@ async fn admin_summary_estimates_only_the_article_total() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = ARTICLE_COUNT_LOCK.lock().await;
     let pool = db.pool();
     sqlx::query("ANALYZE articles").execute(pool).await.unwrap();
 
