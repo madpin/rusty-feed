@@ -159,6 +159,7 @@ pub async fn feed_create(
         .unwrap_or(&host);
     let (feed, _) = feeds::upsert_by_url(state.db.pool(), &url, name, None).await?;
     subscriptions::subscribe(state.db.pool(), user.id, feed.id, None).await?;
+    state.invalidate_unread_counts(user.id).await;
     enqueue_fetch_feed(&state.db, feed.id).await?;
     Ok((StatusCode::CREATED, Json(json!({"data": {"id": feed.id}}))))
 }
@@ -172,6 +173,7 @@ pub async fn feed_delete(
     if !subscriptions::unsubscribe(state.db.pool(), user.id, id).await? {
         return Err(AppError::NotFound);
     }
+    state.invalidate_unread_counts(user.id).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -354,6 +356,7 @@ pub async fn article_state(
         } else {
             read_articles::mark_unread(state.db.pool(), user.id, id).await?;
         }
+        state.invalidate_unread_counts(user.id).await;
     }
     if let Some(bookmarked) = change.bookmarked {
         if bookmarked {

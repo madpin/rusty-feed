@@ -101,8 +101,14 @@ async fn mutate(
         .next()
         .ok_or(AppError::NotFound)?;
     match value(pairs, "as") {
-        Some("read") => read_articles::mark_read(state.db.pool(), user_id, article).await?,
-        Some("unread") => read_articles::mark_unread(state.db.pool(), user_id, article).await?,
+        Some("read") => {
+            read_articles::mark_read(state.db.pool(), user_id, article).await?;
+            state.invalidate_unread_counts(user_id).await;
+        }
+        Some("unread") => {
+            read_articles::mark_unread(state.db.pool(), user_id, article).await?;
+            state.invalidate_unread_counts(user_id).await;
+        }
         Some("saved") => bookmarks::add(state.db.pool(), user_id, article).await?,
         Some("unsaved") => bookmarks::remove(state.db.pool(), user_id, article).await?,
         _ => return Err(AppError::Validation("Fever item action is invalid".into())),

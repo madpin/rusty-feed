@@ -72,6 +72,11 @@ pub fn user_categories(user_id: Uuid) -> String {
     format!("categories:{user_id}")
 }
 
+/// A user's unread article count per subscribed feed (Library sidebar).
+pub fn unread(user_id: Uuid) -> String {
+    format!("unread:{user_id}")
+}
+
 /// Default TTLs per namespace (docs/ARCHITECTURE.md §10).
 pub mod ttl {
     use std::time::Duration;
@@ -87,6 +92,8 @@ pub mod ttl {
     pub const USER_PREFERENCES: Duration = Duration::from_secs(3_600);
     pub const USER_SUBSCRIPTIONS: Duration = Duration::from_secs(900);
     pub const USER_CATEGORIES: Duration = Duration::from_secs(1_800);
+    /// Default for `UNREAD_COUNT_CACHE_SECONDS`.
+    pub const UNREAD_COUNTS: Duration = Duration::from_secs(30);
 }
 
 /// The coarse safety cap used by the L1 cache (longest namespace TTL).

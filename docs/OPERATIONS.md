@@ -159,7 +159,10 @@ publisher crawl. Inspect the error class before retrying repeated failures.
 ## Dependency failures
 
 - **Redis:** Rusty Feed continues with its local cache and PostgreSQL. Cross-instance
-  invalidation resumes after a bounded subscriber reconnect.
+  invalidation resumes after a bounded subscriber reconnect. Library unread
+  counts are cached per reader for `UNREAD_COUNT_CACHE_SECONDS` (30 by default);
+  new articles can take that long to appear in the counts, while a reader's own
+  actions show at once. Set it to `0` to recompute on every page load.
 - **Chromium:** extraction keeps the local Readability/raw result. Publisher
   URLs still pass through `SafeFetchClient`; Chromium never navigates around the
   SSRF boundary.

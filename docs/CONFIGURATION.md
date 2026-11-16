@@ -117,8 +117,12 @@ Caddy fail instead of exposing a misleading TLS endpoint.
 | `REDIS_URL` | unset | Redis connection URL; omit for L1-only operation |
 | `REDIS_PASSWORD` | unset | Password supplied separately when required |
 | `CACHE_NAMESPACE` | `rusty-feed` | 1–64 ASCII letters, digits, `.`, `-`, or `_` |
+| `UNREAD_COUNT_CACHE_SECONDS` | `30` | 0–3,600 seconds a reader's Library unread counts stay cached; `0` recomputes them on every page load |
 
 Use a different namespace for every Rusty Feed installation sharing one Redis.
+Unread counts change immediately after a reader's own actions (read/unread,
+mark all read, subscribe/unsubscribe, OPML import, protocol clients); counts
+for newly arrived articles can lag by up to `UNREAD_COUNT_CACHE_SECONDS`.
 Redis is disposable: PostgreSQL remains the source of truth, and a Redis outage
 degrades the instance to its in-process cache.
 

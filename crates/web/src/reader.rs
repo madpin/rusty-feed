@@ -938,7 +938,7 @@ pub async fn list(
         categories::list_with_feed_counts(state.db.pool(), user.id),
         categories::list_tags(state.db.pool(), user.id),
         subscriptions::list_organization(state.db.pool(), user.id),
-        articles::unread_counts_by_feed(state.db.pool(), user.id),
+        state.unread_counts(user.id),
     )?;
     let unread_by_feed: HashMap<Uuid, i64> = unread_counts.into_iter().collect();
     let category_name = category_id.and_then(|category_id| {
@@ -1443,6 +1443,7 @@ async fn note_article_opened(
     seen_articles::mark_seen(state.db.pool(), user_id, article_id).await?;
     if auto_mark_read {
         read_articles::mark_read(state.db.pool(), user_id, article_id).await?;
+        state.invalidate_unread_counts(user_id).await;
     }
     Ok(())
 }
@@ -2370,6 +2371,7 @@ pub async fn mark_read(
     }
     authorize_action(&state, user.id, id).await?;
     read_articles::mark_read(state.db.pool(), user.id, id).await?;
+    state.invalidate_unread_counts(user.id).await;
     Ok(action_response(is_ajax, form.next))
 }
 
@@ -2387,6 +2389,7 @@ pub async fn mark_unread(
     }
     authorize_action(&state, user.id, id).await?;
     read_articles::mark_unread(state.db.pool(), user.id, id).await?;
+    state.invalidate_unread_counts(user.id).await;
     Ok(action_response(is_ajax, form.next))
 }
 
@@ -2487,6 +2490,7 @@ pub async fn mark_all_read(
         tag.as_deref(),
     )
     .await?;
+    state.invalidate_unread_counts(user.id).await;
     Ok(action_response(is_ajax, form.next))
 }
 

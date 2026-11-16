@@ -239,6 +239,9 @@ pub struct AppSettings {
     pub demo_admin_readonly: bool,
     /// Demo session cookie lifetime, in hours (§7.5).
     pub demo_session_ttl_hours: u32,
+    /// How long a user's Library unread counts stay cached; zero disables the
+    /// cache (`UNREAD_COUNT_CACHE_SECONDS`, FND-237).
+    pub unread_count_cache_ttl: Duration,
 }
 
 impl Default for AppSettings {
@@ -305,6 +308,7 @@ impl Default for AppSettings {
             demo_max_subscriptions: 20,
             demo_admin_readonly: true,
             demo_session_ttl_hours: 24,
+            unread_count_cache_ttl: rusty_feed_cache::keys::ttl::UNREAD_COUNTS,
         }
     }
 }
@@ -450,6 +454,33 @@ impl AppState {
     /// Drop the cached blocklist after an admin edit so the next check reloads.
     pub fn invalidate_blocklist(&self) {
         self.blocklist_cache.invalidate_all();
+    }
+
+    /// A user's per-feed unread counts for the Library sidebar, cached per user
+    /// for `unread_count_cache_ttl` (FND-237). New arrivals may lag by up to
+    /// that TTL; the user's own actions call [`Self::invalidate_unread_counts`].
+    pub async fn unread_counts(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> rusty_feed_db::Result<Vec<(uuid::Uuid, i64)>> {
+        let ttl = self.settings.unread_count_cache_ttl;
+        let load = || rusty_feed_db::articles::unread_counts_by_feed(self.db.pool(), user_id);
+        if ttl.is_zero() {
+            return load().await;
+        }
+        self.cache
+            .get_or_set(&rusty_feed_cache::keys::unread(user_id), ttl, load)
+            .await
+    }
+
+    /// Forget a user's cached unread counts. Call after every action of theirs
+    /// that changes read state or subscriptions.
+    pub async fn invalidate_unread_counts(&self, user_id: uuid::Uuid) {
+        if !self.settings.unread_count_cache_ttl.is_zero() {
+            self.cache
+                .delete(&rusty_feed_cache::keys::unread(user_id))
+                .await;
+        }
     }
 
     /// Override the fetch client (e.g. tests using an allow-private client).
