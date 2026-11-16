@@ -2150,3 +2150,591 @@ async fn empty_briefing_explains_why_and_what_is_needed() {
         "{body}"
     );
 }
+
+fn card_ids(body: &str) -> Vec<String> {
+    body.match_indices("id=\"card-")
+        .map(|(start, marker)| body[start + marker.len()..start + marker.len() + 36].to_string())
+        .collect()
+}
+
+/// The unescaped `href` of the link whose markup continues with `marker`.
+fn link_before(body: &str, marker: &str) -> Option<String> {
+    let end = body.find(marker)?;
+    let start = body[..end].rfind("href=\"")? + "href=\"".len();
+    Some(body[start..end].replace("&amp;", "&"))
+}
+
+fn without_after(url: &str) -> String {
+    let (path, query) = url.split_once('?').unwrap_or((url, ""));
+    let kept: Vec<_> = query
+        .split('&')
+        .filter(|pair| !pair.starts_with("after="))
+        .collect();
+    format!("{path}?{}", kept.join("&"))
+}
+
+async fn get_body(app: &Router, sid: &str, url: &str) -> String {
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(url)
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "{url}");
+    body_string(resp).await
+}
+
+#[tokio::test]
+async fn library_cursor_links_show_the_same_pages_as_offset_links() {
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{articles, feeds, read_articles, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    user_preferences::upsert(
+        pool,
+        user.id,
+        &serde_json::json!({"articles_per_page": 5, "show_read_articles": true}),
+    )
+    .await
+    .unwrap();
+    let mut feed_ids = Vec::new();
+    for name in ["Cursor feed A", "Cursor feed B"] {
+        let (feed, _) = feeds::upsert_by_url(
+            pool,
+            &format!("https://cursor.example/{}.xml", uuid::Uuid::now_v7()),
+            name,
+            None,
+        )
+        .await
+        .unwrap();
+        subscriptions::subscribe(pool, user.id, feed.id, None)
+            .await
+            .unwrap();
+        feed_ids.push(feed.id);
+    }
+    // Hide every title containing "Hidden" on feed A only.
+    sqlx::query("UPDATE user_feeds SET settings = $3 WHERE user_id = $1 AND feed_id = $2")
+        .bind(user.id)
+        .bind(feed_ids[0])
+        .bind(serde_json::json!({"entry_filters": [{
+            "name": "hide", "target": "title", "mode": "exclude", "pattern": "Hidden"
+        }]}))
+        .execute(pool)
+        .await
+        .unwrap();
+    for (feed_index, feed_id) in feed_ids.iter().enumerate() {
+        for slot in 0..24_i32 {
+            let title = if slot % 4 == 1 {
+                format!("Hidden {feed_index}/{slot}")
+            } else {
+                format!("Visible {feed_index}/{slot}")
+            };
+            let (article, _) = articles::upsert(
+                pool,
+                &NewArticle {
+                    feed_id: *feed_id,
+                    url: format!("https://cursor.example/a/{}", uuid::Uuid::now_v7()),
+                    comments_url: None,
+                    guid: None,
+                    title,
+                    author: None,
+                    content: format!("Body {feed_index}/{slot}"),
+                    excerpt: None,
+                    image_url: None,
+                    enclosures: Vec::new(),
+                    published_at: None,
+                },
+            )
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE articles SET \
+                     published_at = CASE WHEN $2 THEN NULL \
+                         ELSE timestamptz '2026-02-01 00:00:00+00' - make_interval(hours => $3) END, \
+                     created_at = timestamptz '2026-02-01 00:00:00+00' - make_interval(mins => $4) \
+                 WHERE id = $1",
+            )
+            .bind(article.id)
+            .bind(slot >= 18)
+            .bind(slot / 3)
+            .bind(slot % 2)
+            .execute(pool)
+            .await
+            .unwrap();
+            if (feed_index as i32 + slot) % 5 == 0 {
+                read_articles::mark_read(pool, user.id, article.id)
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    for start in ["/articles?unread=0", "/articles?unread=1"] {
+        let mut url = start.to_string();
+        let mut pages = 0;
+        let mut seen_cursor_pages = 0;
+        loop {
+            let body = get_body(&app, &sid, &url).await;
+            let ids = card_ids(&body);
+            assert!(!ids.is_empty(), "{url}");
+            assert!(!body.contains("Hidden 0/"), "entry filter applies on {url}");
+            if url.contains("after=") {
+                seen_cursor_pages += 1;
+                let offset_body = get_body(&app, &sid, &without_after(&url)).await;
+                assert_eq!(ids, card_ids(&offset_body), "{url}");
+                assert_eq!(
+                    link_before(&body, "\" class=\"pager-next\"").map(|next| without_after(&next)),
+                    link_before(&offset_body, "\" class=\"pager-next\"")
+                        .map(|next| without_after(&next)),
+                );
+                // Newer/back links are offset links, as before.
+                let offset: i64 = url
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("offset="))
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let prev = link_before(&body, "\">Newer</a>").expect("cursor page has Newer");
+                assert_eq!(prev, link_before(&offset_body, "\">Newer</a>").unwrap());
+                let expected_prev = if offset - 5 > 0 {
+                    format!("{start}&offset={}", offset - 5)
+                } else {
+                    start.to_string()
+                };
+                assert_eq!(prev, expected_prev);
+                assert!(!prev.contains("after="));
+
+                // Infinite scroll continues from the same cursor.
+                let fragment = get_body(&app, &sid, &format!("{url}&fragment=items")).await;
+                let offset_fragment = get_body(
+                    &app,
+                    &sid,
+                    &format!("{}&fragment=items", without_after(&url)),
+                )
+                .await;
+                assert_eq!(card_ids(&fragment), ids);
+                assert_eq!(card_ids(&offset_fragment), ids);
+                assert_eq!(
+                    link_before(&fragment, "\" class=\"pager-next\""),
+                    link_before(&body, "\" class=\"pager-next\"")
+                );
+            }
+            pages += 1;
+            let Some(next) = link_before(&body, "\" class=\"pager-next\"") else {
+                break;
+            };
+            assert!(next.contains("after="), "{next}");
+            assert!(next.contains("offset="), "{next}");
+            url = next;
+        }
+        assert!(pages >= 4, "{start} walked {pages} pages");
+        assert_eq!(seen_cursor_pages, pages - 1);
+    }
+
+    // A malformed cursor falls back to the offset page instead of failing.
+    let offset_page = card_ids(&get_body(&app, &sid, "/articles?unread=0&offset=5").await);
+    for token in ["not-a-cursor", "AAAA", "fHx8", "MXwyfDM"] {
+        let body = get_body(
+            &app,
+            &sid,
+            &format!("/articles?unread=0&offset=5&after={token}"),
+        )
+        .await;
+        assert_eq!(card_ids(&body), offset_page, "after={token}");
+    }
+}
+
+/// The sidebar unread badge for the feed named `name` (0 when absent).
+fn sidebar_unread(body: &str, name: &str) -> i64 {
+    let marker = format!("aria-label=\"{name}, ");
+    body.find(&marker)
+        .and_then(|start| {
+            let rest = &body[start + marker.len()..];
+            rest.split_once(" unread\"")
+                .and_then(|(count, _)| count.parse().ok())
+        })
+        .unwrap_or(0)
+}
+
+async fn post_form(app: &Router, cookie: &str, url: &str, form: String) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::post(url)
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(form))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn library_unread_counts_are_cached_and_follow_every_read_action() {
+    use rusty_feed_cache::keys;
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{api_tokens, articles, feeds, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let feed_name = format!("Unread cache {}", uuid::Uuid::now_v7());
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://unread-cache.example/{}.xml", uuid::Uuid::now_v7()),
+        &feed_name,
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    let add_article = |index: usize| {
+        let feed_id = feed.id;
+        async move {
+            articles::upsert(
+                pool,
+                &NewArticle {
+                    feed_id,
+                    url: format!("https://unread-cache.example/a/{}", uuid::Uuid::now_v7()),
+                    comments_url: None,
+                    guid: None,
+                    title: format!("Unread cache story {index}"),
+                    author: None,
+                    content: format!("Unread cache body {index}"),
+                    excerpt: None,
+                    image_url: None,
+                    enclosures: Vec::new(),
+                    published_at: None,
+                },
+            )
+            .await
+            .unwrap()
+            .0
+            .id
+        }
+    };
+    let mut ids = Vec::new();
+    for index in 0..8 {
+        ids.push(add_article(index).await);
+    }
+    let greader_token = format!("unread-greader-{}", uuid::Uuid::now_v7());
+    let fever_key = format!(
+        "{:x}",
+        md5::compute(format!("unread-{}", uuid::Uuid::now_v7()))
+    );
+    let api_token = format!("unread-api-{}", uuid::Uuid::now_v7());
+    for (raw, scopes) in [
+        (&greader_token, vec!["greader".to_string()]),
+        (&fever_key, vec!["fever".to_string()]),
+        (&api_token, Vec::new()),
+    ] {
+        api_tokens::create(
+            pool,
+            user.id,
+            "Unread cache test",
+            &rusty_feed_web::auth::token::hash(raw),
+            &scopes,
+        )
+        .await
+        .unwrap();
+    }
+    let protocol_id = |article_id: uuid::Uuid| async move {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT greader_id FROM greader_article_ids WHERE article_id = $1",
+        )
+        .bind(article_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    };
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::get("/articles?unread=0")
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let csrf = find(&set_cookies(&list), "rusty_feed_csrf")
+        .unwrap()
+        .to_string();
+    let cookie = format!("rusty_feed_sid={sid}; rusty_feed_csrf={csrf}");
+    assert_eq!(sidebar_unread(&body_string(list).await, &feed_name), 8);
+    let cached_key = keys::unread(user.id);
+    assert!(state
+        .cache
+        .get::<Vec<(uuid::Uuid, i64)>>(&cached_key)
+        .await
+        .is_some());
+    let count = || async {
+        sidebar_unread(
+            &get_body(&app, &sid, "/articles?unread=0").await,
+            &feed_name,
+        )
+    };
+
+    // New arrivals are not the user's action: the cached count may lag.
+    ids.push(add_article(8).await);
+    ids.push(add_article(9).await);
+    assert_eq!(count().await, 8, "arrivals wait for the cache TTL");
+
+    // Every action of the user's own is reflected on the very next load.
+    assert_eq!(
+        post_form(
+            &app,
+            &cookie,
+            &format!("/articles/{}/read", ids[0]),
+            format!("csrf_token={csrf}")
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(count().await, 9, "web mark read");
+    post_form(
+        &app,
+        &cookie,
+        &format!("/articles/{}/unread", ids[0]),
+        format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(count().await, 10, "web mark unread");
+
+    get_body(&app, &sid, &format!("/articles/{}", ids[1])).await;
+    assert_eq!(count().await, 9, "opening an article auto-marks it read");
+
+    let read_tag = format!("user/{}/state/com.google/read", user.id);
+    let item = protocol_id(ids[2]).await;
+    assert_eq!(
+        post_form(
+            &app,
+            "",
+            "/reader/api/0/edit-tag",
+            format!("T={greader_token}&i={item}&a={read_tag}")
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(count().await, 8, "GReader edit-tag read");
+    post_form(
+        &app,
+        "",
+        "/reader/api/0/edit-tag",
+        format!("T={greader_token}&i={item}&r={read_tag}"),
+    )
+    .await;
+    assert_eq!(count().await, 9, "GReader edit-tag unread");
+
+    let item = protocol_id(ids[3]).await;
+    assert_eq!(
+        post_form(
+            &app,
+            "",
+            "/fever/",
+            format!("api_key={fever_key}&mark=item&as=read&id={item}")
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(count().await, 8, "Fever read");
+    post_form(
+        &app,
+        "",
+        "/fever/",
+        format!("api_key={fever_key}&mark=item&as=unread&id={item}"),
+    )
+    .await;
+    assert_eq!(count().await, 9, "Fever unread");
+
+    for (read, expected) in [(true, 8), (false, 9)] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/v1/articles/{}/state", ids[4]))
+                    .header("authorization", format!("Bearer {api_token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(r#"{{"read":{read}}}"#)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(count().await, expected, "JSON API read={read}");
+    }
+
+    post_form(
+        &app,
+        &cookie,
+        "/articles/read-all",
+        format!("csrf_token={csrf}&feed={}", feed.id),
+    )
+    .await;
+    assert_eq!(count().await, 0, "web mark all read");
+    post_form(
+        &app,
+        &cookie,
+        &format!("/articles/{}/unread", ids[5]),
+        format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(count().await, 1);
+    assert_eq!(
+        post_form(
+            &app,
+            "",
+            "/reader/api/0/mark-all-as-read",
+            format!("T={greader_token}")
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(count().await, 0, "GReader mark all as read before now");
+
+    // Counts are personal: a second subscriber of the same feed sees their own.
+    let (other_sid, other_email) = register(&app).await;
+    let other = users::find_by_email(pool, &other_email)
+        .await
+        .unwrap()
+        .unwrap();
+    subscriptions::subscribe(pool, other.id, feed.id, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        sidebar_unread(
+            &get_body(&app, &other_sid, "/articles?unread=0").await,
+            &feed_name
+        ),
+        10
+    );
+    assert_eq!(count().await, 0);
+    assert_ne!(keys::unread(other.id), cached_key);
+
+    // Unsubscribing (web and JSON API) drops the cached counts too.
+    assert_eq!(
+        post_form(
+            &app,
+            &cookie,
+            &format!("/feeds/{}/unsubscribe", feed.id),
+            format!("csrf_token={csrf}")
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    assert!(state
+        .cache
+        .get::<Vec<(uuid::Uuid, i64)>>(&cached_key)
+        .await
+        .is_none());
+    get_body(&app, &other_sid, "/articles?unread=0").await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/api/v1/feeds/{}", feed.id))
+                .header("authorization", format!("Bearer {api_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "already unsubscribed"
+    );
+    assert!(state
+        .cache
+        .get::<Vec<(uuid::Uuid, i64)>>(&keys::unread(other.id))
+        .await
+        .is_some());
+}
+
+#[tokio::test]
+async fn unread_count_cache_can_be_disabled() {
+    use rusty_feed_cache::keys;
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{articles, feeds, subscriptions};
+
+    let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&url).await.expect("connect");
+    db.migrate().await.expect("migrate");
+    let state = AppState::new(
+        db,
+        Cache::in_memory().await,
+        AppSettings {
+            unread_count_cache_ttl: std::time::Duration::ZERO,
+            ..AppSettings::default()
+        },
+        String::new,
+    );
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    let feed_name = format!("Uncached {}", uuid::Uuid::now_v7());
+    let (feed, _) = feeds::upsert_by_url(
+        pool,
+        &format!("https://uncached.example/{}.xml", uuid::Uuid::now_v7()),
+        &feed_name,
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(pool, user.id, feed.id, None)
+        .await
+        .unwrap();
+    for expected in 1..=3 {
+        articles::upsert(
+            pool,
+            &NewArticle {
+                feed_id: feed.id,
+                url: format!("https://uncached.example/a/{}", uuid::Uuid::now_v7()),
+                comments_url: None,
+                guid: None,
+                title: format!("Uncached story {expected}"),
+                author: None,
+                content: format!("Uncached body {expected}"),
+                excerpt: None,
+                image_url: None,
+                enclosures: Vec::new(),
+                published_at: None,
+            },
+        )
+        .await
+        .unwrap();
+        let body = get_body(&app, &sid, "/articles?unread=0").await;
+        assert_eq!(
+            sidebar_unread(&body, &feed_name),
+            expected,
+            "exact on every load"
+        );
+        assert!(state
+            .cache
+            .get::<Vec<(uuid::Uuid, i64)>>(&keys::unread(user.id))
+            .await
+            .is_none());
+    }
+}

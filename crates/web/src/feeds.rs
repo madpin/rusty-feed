@@ -904,6 +904,7 @@ pub async fn add(
     let (feed, created) = feeds::upsert_by_url(state.db.pool(), &normalized, &host, None).await?;
     subscriptions::subscribe(state.db.pool(), user.id, feed.id, None).await?;
     crate::search::invalidate_user_results(&state, user.id).await;
+    state.invalidate_unread_counts(user.id).await;
     let queued = enqueue_fetch_feed(&state.db, feed.id).await?.is_some();
     let refresh_message = if queued {
         "Refresh queued."
@@ -1531,6 +1532,7 @@ pub async fn bulk_unsubscribe(
         }
     }
     crate::search::invalidate_user_results(&state, user.id).await;
+    state.invalidate_unread_counts(user.id).await;
     render_page(
         &state,
         user.id,
@@ -1990,5 +1992,6 @@ pub async fn unsubscribe(
     }
     subscriptions::unsubscribe(state.db.pool(), user.id, id).await?;
     crate::search::invalidate_user_results(&state, user.id).await;
+    state.invalidate_unread_counts(user.id).await;
     Ok((jar, Redirect::to("/feeds")).into_response())
 }

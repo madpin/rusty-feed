@@ -658,6 +658,7 @@ pub async fn subscribe(
         Err(error) => return Err(error.into()),
     };
     crate::search::invalidate_user_results(&state, user.id).await;
+    state.invalidate_unread_counts(user.id).await;
     let existing = result.attempted - result.created;
     // File each newly subscribed feed under a folder/tag named for its catalog
     // category, so its already-shared articles show up organized right away

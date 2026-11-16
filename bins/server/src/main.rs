@@ -250,6 +250,7 @@ async fn main() -> anyhow::Result<()> {
         demo_max_subscriptions: config.demo_max_subscriptions,
         demo_admin_readonly: config.demo_admin_readonly,
         demo_session_ttl_hours: config.demo_session_ttl_hours,
+        unread_count_cache_ttl: std::time::Duration::from_secs(config.unread_count_cache_seconds),
     };
 
     // SSRF-safe fetch client (opt into private/loopback for trusted intranet

@@ -9,6 +9,8 @@ use axum::http::{header, HeaderValue};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -468,6 +470,10 @@ pub struct ArticlesQuery {
     /// `items` returns the next card page for infinite scroll.
     #[serde(default)]
     fragment: Option<String>,
+    /// Opaque recency continuation: the sort key of the last row the previous
+    /// page fetched. `offset` still drives page navigation (FND-236).
+    #[serde(default)]
+    after: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -637,6 +643,58 @@ fn with_unseen(url: String, unseen: bool) -> String {
     }
 }
 
+fn unix_micros(value: OffsetDateTime) -> i128 {
+    value.unix_timestamp_nanos() / 1_000
+}
+
+fn from_unix_micros(value: &str) -> Option<OffsetDateTime> {
+    let micros: i128 = value.parse().ok()?;
+    OffsetDateTime::from_unix_timestamp_nanos(micros.checked_mul(1_000)?).ok()
+}
+
+/// Encode a Library cursor as base64url of `published|created|id`, where the
+/// timestamps are Unix microseconds (Postgres precision) and an undated row
+/// leaves `published` empty.
+fn encode_library_cursor(cursor: &articles::ListCursor) -> String {
+    let published = cursor
+        .published_at
+        .map(|value| unix_micros(value).to_string())
+        .unwrap_or_default();
+    URL_SAFE_NO_PAD.encode(format!(
+        "{published}|{}|{}",
+        unix_micros(cursor.created_at),
+        cursor.id
+    ))
+}
+
+/// Parse a Library cursor; anything malformed yields `None` so the request
+/// falls back to offset paging.
+fn decode_library_cursor(token: &str) -> Option<articles::ListCursor> {
+    let decoded = String::from_utf8(URL_SAFE_NO_PAD.decode(token.as_bytes()).ok()?).ok()?;
+    let mut parts = decoded.split('|');
+    let (published, created, id) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(articles::ListCursor {
+        published_at: if published.is_empty() {
+            None
+        } else {
+            Some(from_unix_micros(published)?)
+        },
+        created_at: from_unix_micros(created)?,
+        id: Uuid::parse_str(id).ok()?,
+    })
+}
+
+fn with_after(url: String, cursor: Option<&articles::ListCursor>) -> String {
+    let Some(cursor) = cursor else {
+        return url;
+    };
+    let separator = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{separator}after={}", encode_library_cursor(cursor))
+}
+
 fn append_folder_nav(
     parent_id: Option<Uuid>,
     depth: usize,
@@ -790,8 +848,8 @@ pub async fn list(
         tag: tag.as_deref(),
         unseen_only,
     };
-    let (article_views, has_next, filtered_count) = if sort == "relevance" {
-        relevance_page(
+    let (article_views, has_next, filtered_count, next_cursor) = if sort == "relevance" {
+        let (views, has_next, filtered_count) = relevance_page(
             &state,
             &prefs,
             user.id,
@@ -801,8 +859,15 @@ pub async fn list(
             per_page,
             offset,
         )
-        .await?
+        .await?;
+        (views, has_next, filtered_count, None)
     } else {
+        // A valid `after` replaces the SQL offset with a seek; `offset` stays
+        // the displayed position for the newer/back links.
+        let position = match q.after.as_deref().and_then(decode_library_cursor) {
+            Some(cursor) => articles::LibraryPosition::After(cursor),
+            None => articles::LibraryPosition::Offset(offset),
+        };
         recency_page(
             &state,
             &prefs,
@@ -811,7 +876,7 @@ pub async fn list(
             unread_only,
             summary_only,
             per_page,
-            offset,
+            position,
         )
         .await?
     };
@@ -831,18 +896,21 @@ pub async fn list(
             ),
             unseen_only,
         );
-        let next_url = with_unseen(
-            articles_url(
-                feed_id,
-                category_id,
-                unfiled,
-                tag.as_deref(),
-                Some(unread_only),
-                sort,
-                Some(offset + per_page),
-                summary_only,
+        let next_url = with_after(
+            with_unseen(
+                articles_url(
+                    feed_id,
+                    category_id,
+                    unfiled,
+                    tag.as_deref(),
+                    Some(unread_only),
+                    sort,
+                    Some(offset + per_page),
+                    summary_only,
+                ),
+                unseen_only,
             ),
-            unseen_only,
+            next_cursor.as_ref(),
         );
         let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
         let body = ArticlesFragmentTemplate {
@@ -870,7 +938,7 @@ pub async fn list(
         categories::list_with_feed_counts(state.db.pool(), user.id),
         categories::list_tags(state.db.pool(), user.id),
         subscriptions::list_organization(state.db.pool(), user.id),
-        articles::unread_counts_by_feed(state.db.pool(), user.id),
+        state.unread_counts(user.id),
     )?;
     let unread_by_feed: HashMap<Uuid, i64> = unread_counts.into_iter().collect();
     let category_name = category_id.and_then(|category_id| {
@@ -1101,18 +1169,21 @@ pub async fn list(
             ),
             unseen_only,
         ),
-        next_url: with_unseen(
-            articles_url(
-                feed_id,
-                category_id,
-                unfiled,
-                tag.as_deref(),
-                Some(unread_only),
-                sort,
-                Some(offset + per_page),
-                summary_only,
+        next_url: with_after(
+            with_unseen(
+                articles_url(
+                    feed_id,
+                    category_id,
+                    unfiled,
+                    tag.as_deref(),
+                    Some(unread_only),
+                    sort,
+                    Some(offset + per_page),
+                    summary_only,
+                ),
+                unseen_only,
             ),
-            unseen_only,
+            next_cursor.as_ref(),
         ),
         filtered_count,
         show_ai_key_cue,
@@ -1130,6 +1201,9 @@ pub async fn list(
 }
 
 /// Recency-ordered page (newest first), fetching one extra row for `has_next`.
+/// Also returns the cursor the next page seeks from: the sort key of fetched
+/// row `per_page - 1` before personal filtering, which is exactly where the
+/// `offset + per_page` page starts.
 #[allow(clippy::too_many_arguments)]
 async fn recency_page(
     state: &AppState,
@@ -1139,22 +1213,27 @@ async fn recency_page(
     unread_only: bool,
     summary_only: bool,
     per_page: i64,
-    offset: i64,
-) -> Result<(Vec<ArticleView>, bool, usize), AppError> {
-    let mut items = articles::list_for_user(
+    position: articles::LibraryPosition,
+) -> Result<(Vec<ArticleView>, bool, usize, Option<articles::ListCursor>), AppError> {
+    let rows = articles::list_for_user_page(
         state.db.pool(),
         user_id,
         filter,
         unread_only,
         summary_only,
         (per_page * 5 + 1).min(501),
-        offset,
+        position,
     )
     .await?;
+    let boundary = rows
+        .get((per_page as usize).saturating_sub(1))
+        .map(|row| row.cursor);
+    let mut items: Vec<_> = rows.into_iter().map(|row| row.item).collect();
     let before = items.len();
     items.retain(article_passes_personal_filters);
     let filtered_count = before.saturating_sub(items.len());
     let has_next = items.len() as i64 > per_page || before as i64 > per_page * 5;
+    let next_cursor = boundary.filter(|_| has_next);
     items.truncate(per_page as usize);
     let views = items
         .into_iter()
@@ -1177,7 +1256,7 @@ async fn recency_page(
             score: None,
         })
         .collect();
-    Ok((views, has_next, filtered_count))
+    Ok((views, has_next, filtered_count, next_cursor))
 }
 
 /// Relevance-ranked page: score a recent candidate window against the user's
@@ -1364,6 +1443,7 @@ async fn note_article_opened(
     seen_articles::mark_seen(state.db.pool(), user_id, article_id).await?;
     if auto_mark_read {
         read_articles::mark_read(state.db.pool(), user_id, article_id).await?;
+        state.invalidate_unread_counts(user_id).await;
     }
     Ok(())
 }
@@ -2291,6 +2371,7 @@ pub async fn mark_read(
     }
     authorize_action(&state, user.id, id).await?;
     read_articles::mark_read(state.db.pool(), user.id, id).await?;
+    state.invalidate_unread_counts(user.id).await;
     Ok(action_response(is_ajax, form.next))
 }
 
@@ -2308,6 +2389,7 @@ pub async fn mark_unread(
     }
     authorize_action(&state, user.id, id).await?;
     read_articles::mark_unread(state.db.pool(), user.id, id).await?;
+    state.invalidate_unread_counts(user.id).await;
     Ok(action_response(is_ajax, form.next))
 }
 
@@ -2408,15 +2490,93 @@ pub async fn mark_all_read(
         tag.as_deref(),
     )
     .await?;
+    state.invalidate_unread_counts(user.id).await;
     Ok(action_response(is_ajax, form.next))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        articles_url, enclosure_mime_is_safe, format_timestamp, reader_image_url, safe_external_url,
+        articles_url, decode_library_cursor, enclosure_mime_is_safe, encode_library_cursor,
+        format_timestamp, reader_image_url, safe_external_url, with_after,
     };
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    use rusty_feed_db::articles::ListCursor;
     use uuid::Uuid;
+
+    #[test]
+    fn library_cursors_round_trip_at_microsecond_precision() {
+        let created = time::macros::datetime!(2026-11-16 08:30:15.123456 UTC);
+        for published in [
+            Some(time::macros::datetime!(2026-11-15 23:59:59.999999 UTC)),
+            Some(time::macros::datetime!(1969-12-31 23:59:59.5 UTC)),
+            None,
+        ] {
+            let cursor = ListCursor {
+                published_at: published,
+                created_at: created,
+                id: Uuid::now_v7(),
+            };
+            let token = encode_library_cursor(&cursor);
+            assert!(token
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric()
+                    || character == '-'
+                    || character == '_'));
+            assert_eq!(decode_library_cursor(&token), Some(cursor));
+        }
+    }
+
+    #[test]
+    fn malformed_library_cursors_are_ignored() {
+        let id = Uuid::now_v7();
+        for raw in [
+            String::new(),
+            "1|2".to_string(),
+            format!("1|2|{id}|extra"),
+            format!("x|2|{id}"),
+            format!("1||{id}"),
+            "1|2|not-a-uuid".to_string(),
+            format!("99999999999999999999999999999999999|2|{id}"),
+        ] {
+            assert_eq!(decode_library_cursor(&URL_SAFE_NO_PAD.encode(raw)), None);
+        }
+        for token in ["not base64!", "%%%", "AAAA====", "\u{1F600}"] {
+            assert_eq!(decode_library_cursor(token), None);
+        }
+        assert_eq!(
+            decode_library_cursor(&URL_SAFE_NO_PAD.encode([0xff, 0xfe, b'|'])),
+            None
+        );
+    }
+
+    #[test]
+    fn next_links_keep_offset_and_add_the_cursor() {
+        let cursor = ListCursor {
+            published_at: None,
+            created_at: time::macros::datetime!(2026-01-01 00:00 UTC),
+            id: Uuid::nil(),
+        };
+        let url = articles_url(
+            None,
+            None,
+            false,
+            None,
+            Some(true),
+            "recent",
+            Some(10),
+            false,
+        );
+        assert_eq!(with_after(url.clone(), None), url);
+        assert_eq!(
+            with_after(url, Some(&cursor)),
+            format!(
+                "/articles?unread=1&offset=10&after={}",
+                encode_library_cursor(&cursor)
+            )
+        );
+    }
 
     #[test]
     fn article_urls_encode_read_filter_overrides() {

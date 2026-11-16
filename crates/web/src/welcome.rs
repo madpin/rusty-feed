@@ -270,6 +270,7 @@ async fn subscribe_wizard_feeds(
         catalog::subscribe_published_many_with_content(state.db.pool(), user.id, &choices).await
     {
         crate::search::invalidate_user_results(state, user.id).await;
+        state.invalidate_unread_counts(user.id).await;
         for feed_id in &ids {
             let _ = enqueue_fetch_feed(&state.db, *feed_id).await;
             if mode.fetches_article_pages() {

@@ -192,7 +192,10 @@ or a dump/restore, which is optional.
   cached per user for 5 minutes in either tier. A repeated search does not embed the
   query again or count against the daily meaning-search cap, and newly fetched articles
   can take up to 5 minutes to appear in it. Subscription changes clear the cache
-  immediately, and keyword-fallback pages are never cached (FND-233).
+  immediately, and keyword-fallback pages are never cached (FND-233). Library unread
+  counts are cached per reader for `UNREAD_COUNT_CACHE_SECONDS` (30 by default);
+  new articles can take that long to appear in the counts, while a reader's own
+  actions show at once. Set it to `0` to recompute on every page load.
 - **Chromium:** extraction keeps the local Readability/raw result. Publisher
   URLs still pass through `SafeFetchClient`; Chromium never navigates around the
   SSRF boundary.

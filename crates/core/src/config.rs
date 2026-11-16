@@ -263,6 +263,10 @@ pub struct AppConfig {
     pub cache_enabled: bool,
     #[serde(default = "defaults::cache_namespace")]
     pub cache_namespace: String,
+    /// Seconds a user's Library unread counts stay cached. `0` recomputes them
+    /// on every page load (FND-237).
+    #[serde(default = "defaults::unread_count_cache_seconds")]
+    pub unread_count_cache_seconds: u64,
 
     // ── Auth & secrets (required) ──
     pub session_secret: Secret,
@@ -687,6 +691,11 @@ impl AppConfig {
                     .into(),
             ));
         }
+        if self.unread_count_cache_seconds > 3_600 {
+            return Err(ConfigError::Invalid(
+                "UNREAD_COUNT_CACHE_SECONDS must be between 0 and 3600".into(),
+            ));
+        }
         if !valid_header_name(&self.reverse_proxy_auth_user_header)
             || !valid_header_name(&self.reverse_proxy_auth_name_header)
         {
@@ -1056,6 +1065,7 @@ impl AppConfig {
                 "enabled": self.cache_enabled,
                 "redis_configured": self.redis_url.is_some(),
                 "namespace": self.cache_namespace,
+                "unread_count_cache_seconds": self.unread_count_cache_seconds,
             },
             "authentication": {
                 "registration_mode": self.registration_mode.as_str(),
@@ -1302,6 +1312,9 @@ mod defaults {
     pub fn cache_namespace() -> String {
         "rusty-feed".to_string()
     }
+    pub fn unread_count_cache_seconds() -> u64 {
+        30
+    }
     pub fn reverse_proxy_auth_trusted_cidrs() -> String {
         "127.0.0.1/32,::1/128".to_string()
     }
@@ -1462,6 +1475,7 @@ mod tests {
         assert_eq!(cfg.interactive_job_concurrency, 2);
         assert!(cfg.cache_enabled);
         assert_eq!(cfg.cache_namespace, "rusty-feed");
+        assert_eq!(cfg.unread_count_cache_seconds, 30);
         assert_eq!(cfg.registration_mode, RegistrationMode::Open);
         assert_eq!(cfg.embedding_provider, EmbeddingProvider::Local);
         assert_eq!(cfg.base_url(), "http://0.0.0.0:8080");
@@ -1573,6 +1587,24 @@ mod tests {
             AppConfig::from_figment(disabled).is_ok(),
             "a disabled embedding provider should never require credentials"
         );
+    }
+
+    #[test]
+    fn unread_count_cache_seconds_allows_zero_and_caps_at_an_hour() {
+        let with = |seconds: u64| {
+            AppConfig::from_figment(base().merge(Serialized::defaults(serde_json::json!({
+                "unread_count_cache_seconds": seconds,
+            }))))
+        };
+        assert_eq!(
+            with(0).expect("zero disables").unread_count_cache_seconds,
+            0
+        );
+        assert_eq!(
+            with(3_600).expect("an hour").unread_count_cache_seconds,
+            3_600
+        );
+        assert!(with(3_601).is_err());
     }
 
     #[test]

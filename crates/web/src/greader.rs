@@ -400,6 +400,7 @@ pub async fn subscription_edit(
                 )
                 .await?;
             }
+            state.invalidate_unread_counts(user.id).await;
             enqueue_fetch_feed(&state.db, feed.id).await?;
         }
         "unsubscribe" => {
@@ -412,6 +413,7 @@ pub async fn subscription_edit(
                 }
             }
             crate::search::invalidate_user_results(&state, user.id).await;
+            state.invalidate_unread_counts(user.id).await;
         }
         "edit" => {
             let protocol_id = parse_feed_protocol_id(stream)?;
@@ -504,6 +506,9 @@ pub async fn edit_tag(
         } else if remove_star {
             bookmarks::remove(state.db.pool(), user.id, article_id).await?;
         }
+    }
+    if add_read || remove_unread || remove_read || add_unread {
+        state.invalidate_unread_counts(user.id).await;
     }
     Ok(plain("OK\n"))
 }
@@ -743,6 +748,7 @@ pub async fn mark_all_as_read(
         .unwrap_or_else(OffsetDateTime::now_utc);
     read_articles::mark_all_read_before(state.db.pool(), user.id, feed_id, category_name, cutoff)
         .await?;
+    state.invalidate_unread_counts(user.id).await;
     Ok(plain("OK\n"))
 }
 
