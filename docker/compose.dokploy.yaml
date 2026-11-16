@@ -26,6 +26,21 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg17
     restart: unless-stopped
+    shm_size: "${PG_SHM_SIZE:-256mb}"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-1536MB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-16MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-128MB}
+      - -c
+      - random_page_cost=${PG_RANDOM_PAGE_COST:-1.1}
+      - -c
+      - jit=${PG_JIT:-off}
     environment:
       POSTGRES_USER: "${POSTGRES_USER:-rusty_feed}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-rusty_feed}"
