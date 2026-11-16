@@ -8,6 +8,7 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::embeddings::begin_vector_scan;
 use crate::error::Result;
 
 /// How many of the newest keyword matches are relevance-ranked (FND-231).
@@ -245,6 +246,8 @@ pub async fn hybrid_page_with_cap(
          ORDER BY final_score DESC, a.published_at DESC NULLS LAST, a.id \
          LIMIT $7"
     );
+    // The semantic CTE goes through HNSW; the outer ORDER BY re-sorts exactly.
+    let mut transaction = begin_vector_scan(pool).await?;
     let rows = sqlx::query_as::<_, PagedHit>(&sql)
         .bind(request.user_id)
         .bind(request.query)
@@ -254,7 +257,8 @@ pub async fn hybrid_page_with_cap(
         .bind(semantic_weight)
         .bind(result_limit)
         .bind(candidate_cap(cap))
-        .fetch_all(pool)
+        .fetch_all(&mut *transaction)
         .await?;
+    transaction.commit().await?;
     Ok(SearchPage::from_rows(rows))
 }
