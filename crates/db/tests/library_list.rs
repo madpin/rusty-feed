@@ -598,3 +598,197 @@ async fn library_page_matches_the_original_query_for_every_filter() {
     assert_eq!(shared.feed_name, "Web feed");
     assert!(shared.subscription_settings.is_none());
 }
+
+/// What the web Library does: fetch `fetch` rows, advance by `step`, seek the
+/// next page from fetched row `step - 1`. Asserts every cursor page fetched
+/// exactly the offset page's rows, and returns the page count, whether a
+/// boundary fell inside an equal-timestamp run, and whether one reached the
+/// undated rows.
+async fn assert_cursor_walk_matches_offset_walk(
+    db: &Db,
+    user_id: Uuid,
+    filter: articles::LibraryFilter<'_>,
+    unread_only: bool,
+    step: i64,
+    fetch: i64,
+) -> (usize, bool, bool) {
+    let mut offset = 0;
+    let mut cursor = None;
+    let mut pages = 0;
+    let mut boundary_in_tie = false;
+    let mut boundary_at_nulls = false;
+    loop {
+        let by_offset = articles::list_for_user_page(
+            db.pool(),
+            user_id,
+            filter,
+            unread_only,
+            false,
+            fetch,
+            articles::LibraryPosition::Offset(offset),
+        )
+        .await
+        .expect("offset page");
+        if let Some(cursor) = cursor {
+            let by_cursor = articles::list_for_user_page(
+                db.pool(),
+                user_id,
+                filter,
+                unread_only,
+                false,
+                fetch,
+                articles::LibraryPosition::After(cursor),
+            )
+            .await
+            .expect("cursor page");
+            assert_eq!(
+                by_cursor
+                    .iter()
+                    .map(|row| format!("{:?}", row.item))
+                    .collect::<Vec<_>>(),
+                by_offset
+                    .iter()
+                    .map(|row| format!("{:?}", row.item))
+                    .collect::<Vec<_>>(),
+                "unread={unread_only} step={step} fetch={fetch} offset={offset} \
+                 filter={filter:?}"
+            );
+        }
+        pages += 1;
+        if by_offset.len() as i64 <= step {
+            break;
+        }
+        let last = by_offset[step as usize - 1].cursor;
+        let next = by_offset[step as usize].cursor;
+        boundary_in_tie |= last.published_at.is_some()
+            && last.published_at == next.published_at
+            && last.created_at == next.created_at;
+        boundary_at_nulls |= next.published_at.is_none();
+        cursor = Some(last);
+        offset += step;
+    }
+    (pages, boundary_in_tie, boundary_at_nulls)
+}
+
+#[tokio::test]
+async fn cursor_pages_match_offset_pages_across_ties_and_undated_rows() {
+    let Some(db) = test_db().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let reader = user(&db, "library-cursor").await;
+    let outsider = user(&db, "library-cursor-outsider").await;
+    let feed_ids = [
+        feed(&db, "Cursor one").await,
+        feed(&db, "Cursor two").await,
+        feed(&db, "Cursor three").await,
+    ];
+    for feed_id in feed_ids {
+        subscriptions::subscribe(db.pool(), reader, feed_id, None)
+            .await
+            .expect("subscribe");
+    }
+    subscriptions::subscribe(db.pool(), outsider, feed_ids[0], None)
+        .await
+        .expect("outsider subscribes");
+    let parent = categories::create(db.pool(), reader, &unique("Cursor parent"), None)
+        .await
+        .expect("parent folder");
+    let child = categories::create(db.pool(), reader, &unique("Cursor child"), Some(parent.id))
+        .await
+        .expect("child folder");
+    subscriptions::update_organization(db.pool(), reader, feed_ids[0], &[], Some(parent.id))
+        .await
+        .expect("file feed one");
+    subscriptions::update_organization(db.pool(), reader, feed_ids[1], &[], Some(child.id))
+        .await
+        .expect("file feed two");
+
+    // 3 feeds x 14 rows: runs of identical (published, created) pairs inside
+    // and across feeds, and a block of undated rows sharing created_at values.
+    for (feed_index, feed_id) in feed_ids.iter().enumerate() {
+        for slot in 0..14_i32 {
+            let published = (slot < 10).then_some(slot / 3);
+            let id = article(
+                &db,
+                *feed_id,
+                &format!("Cursor {feed_index}/{slot}"),
+                published,
+                slot % 2,
+                None,
+            )
+            .await;
+            if (feed_index as i32 + slot) % 3 == 0 {
+                read_articles::mark_read(db.pool(), reader, id)
+                    .await
+                    .expect("read");
+            }
+            if slot % 4 == 0 {
+                read_articles::mark_read(db.pool(), outsider, id)
+                    .await
+                    .expect("outsider read");
+            }
+        }
+    }
+
+    let mut saw_tie = false;
+    let mut saw_nulls = false;
+    for category_id in [None, Some(parent.id)] {
+        let filter = articles::LibraryFilter {
+            category_id,
+            ..articles::LibraryFilter::default()
+        };
+        for unread_only in [false, true] {
+            for step in 1..=7_i64 {
+                for fetch in [step + 1, step * 5 + 1] {
+                    let (pages, tie, nulls) = assert_cursor_walk_matches_offset_walk(
+                        &db,
+                        reader,
+                        filter,
+                        unread_only,
+                        step,
+                        fetch,
+                    )
+                    .await;
+                    saw_tie |= tie;
+                    saw_nulls |= nulls;
+                    if step <= 4 && category_id.is_none() {
+                        assert!(pages >= 4, "step {step} walked only {pages} pages");
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        saw_tie,
+        "no page boundary fell inside an equal-timestamp run"
+    );
+    assert!(saw_nulls, "no page boundary reached the undated rows");
+
+    // A cursor from one user's walk never exposes another user's feeds.
+    let first = articles::list_for_user_page(
+        db.pool(),
+        reader,
+        articles::LibraryFilter::default(),
+        false,
+        false,
+        3,
+        articles::LibraryPosition::Offset(0),
+    )
+    .await
+    .expect("reader first page");
+    let outsider_after = articles::list_for_user_page(
+        db.pool(),
+        outsider,
+        articles::LibraryFilter::default(),
+        false,
+        false,
+        100,
+        articles::LibraryPosition::After(first[2].cursor),
+    )
+    .await
+    .expect("outsider seek");
+    assert!(outsider_after
+        .iter()
+        .all(|row| row.item.feed_id == feed_ids[0]));
+}

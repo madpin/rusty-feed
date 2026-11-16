@@ -2150,3 +2150,207 @@ async fn empty_briefing_explains_why_and_what_is_needed() {
         "{body}"
     );
 }
+
+fn card_ids(body: &str) -> Vec<String> {
+    body.match_indices("id=\"card-")
+        .map(|(start, marker)| body[start + marker.len()..start + marker.len() + 36].to_string())
+        .collect()
+}
+
+/// The unescaped `href` of the link whose markup continues with `marker`.
+fn link_before(body: &str, marker: &str) -> Option<String> {
+    let end = body.find(marker)?;
+    let start = body[..end].rfind("href=\"")? + "href=\"".len();
+    Some(body[start..end].replace("&amp;", "&"))
+}
+
+fn without_after(url: &str) -> String {
+    let (path, query) = url.split_once('?').unwrap_or((url, ""));
+    let kept: Vec<_> = query
+        .split('&')
+        .filter(|pair| !pair.starts_with("after="))
+        .collect();
+    format!("{path}?{}", kept.join("&"))
+}
+
+async fn get_body(app: &Router, sid: &str, url: &str) -> String {
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get(url)
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "{url}");
+    body_string(resp).await
+}
+
+#[tokio::test]
+async fn library_cursor_links_show_the_same_pages_as_offset_links() {
+    use rusty_feed_db::models::NewArticle;
+    use rusty_feed_db::{articles, feeds, read_articles, subscriptions};
+
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let app = router(state.clone());
+    let (sid, email) = register(&app).await;
+    let pool = state.db.pool();
+    let user = users::find_by_email(pool, &email).await.unwrap().unwrap();
+    user_preferences::upsert(
+        pool,
+        user.id,
+        &serde_json::json!({"articles_per_page": 5, "show_read_articles": true}),
+    )
+    .await
+    .unwrap();
+    let mut feed_ids = Vec::new();
+    for name in ["Cursor feed A", "Cursor feed B"] {
+        let (feed, _) = feeds::upsert_by_url(
+            pool,
+            &format!("https://cursor.example/{}.xml", uuid::Uuid::now_v7()),
+            name,
+            None,
+        )
+        .await
+        .unwrap();
+        subscriptions::subscribe(pool, user.id, feed.id, None)
+            .await
+            .unwrap();
+        feed_ids.push(feed.id);
+    }
+    // Hide every title containing "Hidden" on feed A only.
+    sqlx::query("UPDATE user_feeds SET settings = $3 WHERE user_id = $1 AND feed_id = $2")
+        .bind(user.id)
+        .bind(feed_ids[0])
+        .bind(serde_json::json!({"entry_filters": [{
+            "name": "hide", "target": "title", "mode": "exclude", "pattern": "Hidden"
+        }]}))
+        .execute(pool)
+        .await
+        .unwrap();
+    for (feed_index, feed_id) in feed_ids.iter().enumerate() {
+        for slot in 0..24_i32 {
+            let title = if slot % 4 == 1 {
+                format!("Hidden {feed_index}/{slot}")
+            } else {
+                format!("Visible {feed_index}/{slot}")
+            };
+            let (article, _) = articles::upsert(
+                pool,
+                &NewArticle {
+                    feed_id: *feed_id,
+                    url: format!("https://cursor.example/a/{}", uuid::Uuid::now_v7()),
+                    comments_url: None,
+                    guid: None,
+                    title,
+                    author: None,
+                    content: format!("Body {feed_index}/{slot}"),
+                    excerpt: None,
+                    image_url: None,
+                    enclosures: Vec::new(),
+                    published_at: None,
+                },
+            )
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE articles SET \
+                     published_at = CASE WHEN $2 THEN NULL \
+                         ELSE timestamptz '2026-02-01 00:00:00+00' - make_interval(hours => $3) END, \
+                     created_at = timestamptz '2026-02-01 00:00:00+00' - make_interval(mins => $4) \
+                 WHERE id = $1",
+            )
+            .bind(article.id)
+            .bind(slot >= 18)
+            .bind(slot / 3)
+            .bind(slot % 2)
+            .execute(pool)
+            .await
+            .unwrap();
+            if (feed_index as i32 + slot) % 5 == 0 {
+                read_articles::mark_read(pool, user.id, article.id)
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    for start in ["/articles?unread=0", "/articles?unread=1"] {
+        let mut url = start.to_string();
+        let mut pages = 0;
+        let mut seen_cursor_pages = 0;
+        loop {
+            let body = get_body(&app, &sid, &url).await;
+            let ids = card_ids(&body);
+            assert!(!ids.is_empty(), "{url}");
+            assert!(!body.contains("Hidden 0/"), "entry filter applies on {url}");
+            if url.contains("after=") {
+                seen_cursor_pages += 1;
+                let offset_body = get_body(&app, &sid, &without_after(&url)).await;
+                assert_eq!(ids, card_ids(&offset_body), "{url}");
+                assert_eq!(
+                    link_before(&body, "\" class=\"pager-next\"").map(|next| without_after(&next)),
+                    link_before(&offset_body, "\" class=\"pager-next\"")
+                        .map(|next| without_after(&next)),
+                );
+                // Newer/back links are offset links, as before.
+                let offset: i64 = url
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("offset="))
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let prev = link_before(&body, "\">Newer</a>").expect("cursor page has Newer");
+                assert_eq!(prev, link_before(&offset_body, "\">Newer</a>").unwrap());
+                let expected_prev = if offset - 5 > 0 {
+                    format!("{start}&offset={}", offset - 5)
+                } else {
+                    start.to_string()
+                };
+                assert_eq!(prev, expected_prev);
+                assert!(!prev.contains("after="));
+
+                // Infinite scroll continues from the same cursor.
+                let fragment = get_body(&app, &sid, &format!("{url}&fragment=items")).await;
+                let offset_fragment = get_body(
+                    &app,
+                    &sid,
+                    &format!("{}&fragment=items", without_after(&url)),
+                )
+                .await;
+                assert_eq!(card_ids(&fragment), ids);
+                assert_eq!(card_ids(&offset_fragment), ids);
+                assert_eq!(
+                    link_before(&fragment, "\" class=\"pager-next\""),
+                    link_before(&body, "\" class=\"pager-next\"")
+                );
+            }
+            pages += 1;
+            let Some(next) = link_before(&body, "\" class=\"pager-next\"") else {
+                break;
+            };
+            assert!(next.contains("after="), "{next}");
+            assert!(next.contains("offset="), "{next}");
+            url = next;
+        }
+        assert!(pages >= 4, "{start} walked {pages} pages");
+        assert_eq!(seen_cursor_pages, pages - 1);
+    }
+
+    // A malformed cursor falls back to the offset page instead of failing.
+    let offset_page = card_ids(&get_body(&app, &sid, "/articles?unread=0&offset=5").await);
+    for token in ["not-a-cursor", "AAAA", "fHx8", "MXwyfDM"] {
+        let body = get_body(
+            &app,
+            &sid,
+            &format!("/articles?unread=0&offset=5&after={token}"),
+        )
+        .await;
+        assert_eq!(card_ids(&body), offset_page, "after={token}");
+    }
+}

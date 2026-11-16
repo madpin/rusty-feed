@@ -869,6 +869,37 @@ pub struct ArticleListItem {
     pub subscription_settings: Option<serde_json::Value>,
 }
 
+/// The Library sort key of one row: `published_at DESC NULLS LAST,
+/// created_at DESC, id ASC`. A page that starts after a cursor holds exactly
+/// the rows an offset page would hold at the same position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListCursor {
+    pub published_at: Option<time::OffsetDateTime>,
+    pub created_at: time::OffsetDateTime,
+    pub id: Uuid,
+}
+
+/// Where a Library page starts: skip `Offset` rows, or seek past a cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryPosition {
+    Offset(i64),
+    After(ListCursor),
+}
+
+/// A Library row together with its sort key, for building the next page.
+#[derive(Debug, Clone)]
+pub struct LibraryRow {
+    pub item: ArticleListItem,
+    pub cursor: ListCursor,
+}
+
+#[derive(sqlx::FromRow)]
+struct LibraryRowRecord {
+    #[sqlx(flatten)]
+    item: ArticleListItem,
+    created_at: time::OffsetDateTime,
+}
+
 /// List a user's reading feed: articles from their subscribed feeds, newest
 /// first, annotated with per-user read/bookmark flags. Optionally filter to one
 /// `feed_id`; `unread_only` hides already-read articles; `summary_only` hides
@@ -888,6 +919,86 @@ pub async fn list_for_user(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ArticleListItem>> {
+    Ok(list_for_user_page(
+        pool,
+        user_id,
+        filter,
+        unread_only,
+        summary_only,
+        limit,
+        LibraryPosition::Offset(offset),
+    )
+    .await?
+    .into_iter()
+    .map(|row| row.item)
+    .collect())
+}
+
+/// [`list_for_user`] that can also seek past a [`ListCursor`] instead of
+/// skipping rows, so deep pages cost the same as the first (FND-236). Each row
+/// carries its own cursor.
+pub async fn list_for_user_page(
+    pool: &PgPool,
+    user_id: Uuid,
+    filter: LibraryFilter<'_>,
+    unread_only: bool,
+    summary_only: bool,
+    limit: i64,
+    position: LibraryPosition,
+) -> Result<Vec<LibraryRow>> {
+    let (offset, after) = match position {
+        LibraryPosition::Offset(offset) => (offset, None),
+        LibraryPosition::After(cursor) => (0, Some(cursor)),
+    };
+    let branch = |seek: &str| {
+        format!(
+            "SELECT a.id, a.feed_id, a.title, a.url, a.author, a.excerpt, a.image_url, \
+                    a.published_at, a.created_at, \
+                    (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL) AS has_summary \
+             FROM articles a \
+             WHERE a.feed_id = scoped.feed_id {seek} \
+               AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) \
+               {seen_filter} {read_filter} \
+             ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC, a.id \
+             LIMIT $9",
+            seen_filter = if filter.unseen_only {
+                "AND NOT EXISTS (SELECT 1 FROM seen_articles s \
+                 WHERE s.user_id = $1 AND s.article_id = a.id)"
+            } else {
+                ""
+            },
+            read_filter = if unread_only {
+                "AND NOT EXISTS (SELECT 1 FROM read_articles r \
+                 WHERE r.user_id = $1 AND r.article_id = a.id)"
+            } else {
+                ""
+            }
+        )
+    };
+    // Rows after the cursor form a suffix of each feed's index order. With a
+    // dated cursor that suffix is "same or older date" followed by every
+    // undated row; two index-ordered branches keep both parts seekable.
+    let candidates = match after {
+        None => branch(""),
+        Some(ListCursor {
+            published_at: Some(_),
+            ..
+        }) => format!(
+            "({}) UNION ALL ({}) \
+             ORDER BY published_at DESC NULLS LAST, created_at DESC, id LIMIT $9",
+            branch(
+                "AND a.published_at <= $10 AND (a.published_at < $10 \
+                 OR a.created_at < $11 OR (a.created_at = $11 AND a.id > $12))"
+            ),
+            branch("AND a.published_at IS NULL")
+        ),
+        Some(ListCursor {
+            published_at: None, ..
+        }) => branch(
+            "AND a.published_at IS NULL AND a.created_at <= $11 \
+             AND (a.created_at < $11 OR a.id > $12)",
+        ),
+    };
     let sql = format!(
         "WITH RECURSIVE category_scope(id) AS ( \
              SELECT id FROM user_categories WHERE id = $3::uuid AND user_id = $1 \
@@ -902,17 +1013,7 @@ pub async fn list_for_user(
                     candidate.published_at, candidate.created_at, candidate.has_summary, \
                     scoped.id AS user_feed_id \
              FROM user_feeds scoped \
-             CROSS JOIN LATERAL ( \
-                 SELECT a.id, a.feed_id, a.title, a.url, a.author, a.excerpt, a.image_url, \
-                        a.published_at, a.created_at, \
-                        (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL) AS has_summary \
-                 FROM articles a \
-                 WHERE a.feed_id = scoped.feed_id \
-                   AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) \
-                   {seen_filter} {read_filter} \
-                 ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC, a.id \
-                 LIMIT $9 \
-             ) candidate \
+             CROSS JOIN LATERAL ({candidates}) candidate \
              WHERE scoped.user_id = $1 \
                AND ($2::uuid IS NULL OR scoped.feed_id = $2) \
                AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
@@ -928,7 +1029,7 @@ pub async fn list_for_user(
              LIMIT $6 OFFSET $7 \
          ) \
          SELECT p.id, p.feed_id, p.title, p.url, p.author, p.excerpt, p.image_url, p.published_at, \
-                coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
+                p.created_at, coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
                 (seen.article_id IS NOT NULL) AS is_seen, \
                 (b.article_id IS NOT NULL) AS is_bookmarked, \
@@ -944,21 +1045,9 @@ pub async fn list_for_user(
          LEFT JOIN article_feedback af ON af.article_id = p.id AND af.user_id = $1 \
          LEFT JOIN story_cluster_members scm ON scm.article_id = p.id \
          LEFT JOIN story_clusters sc ON sc.id = scm.cluster_id \
-         ORDER BY p.published_at DESC NULLS LAST, p.created_at DESC, p.id",
-        seen_filter = if filter.unseen_only {
-            "AND NOT EXISTS (SELECT 1 FROM seen_articles s \
-             WHERE s.user_id = $1 AND s.article_id = a.id)"
-        } else {
-            ""
-        },
-        read_filter = if unread_only {
-            "AND NOT EXISTS (SELECT 1 FROM read_articles r \
-             WHERE r.user_id = $1 AND r.article_id = a.id)"
-        } else {
-            ""
-        }
+         ORDER BY p.published_at DESC NULLS LAST, p.created_at DESC, p.id"
     );
-    Ok(sqlx::query_as::<_, ArticleListItem>(&sql)
+    let mut query = sqlx::query_as::<_, LibraryRowRecord>(&sql)
         .bind(user_id)
         .bind(filter.feed_id)
         .bind(filter.category_id)
@@ -967,9 +1056,26 @@ pub async fn list_for_user(
         .bind(limit)
         .bind(offset)
         .bind(summary_only)
-        .bind(limit.saturating_add(offset.max(0)))
+        .bind(limit.saturating_add(offset.max(0)));
+    if let Some(cursor) = after {
+        query = query
+            .bind(cursor.published_at)
+            .bind(cursor.created_at)
+            .bind(cursor.id);
+    }
+    Ok(query
         .fetch_all(pool)
-        .await?)
+        .await?
+        .into_iter()
+        .map(|record| LibraryRow {
+            cursor: ListCursor {
+                published_at: record.item.published_at,
+                created_at: record.created_at,
+                id: record.item.id,
+            },
+            item: record.item,
+        })
+        .collect())
 }
 
 pub async fn count(pool: &PgPool) -> Result<i64> {
