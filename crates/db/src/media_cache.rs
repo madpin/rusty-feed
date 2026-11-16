@@ -1,5 +1,7 @@
 //! Shared, bounded-lifetime cache for proxied enclosure media.
 
+use std::time::Duration;
+
 use sqlx::pool::PoolConnection;
 use sqlx::{PgPool, Postgres};
 use time::OffsetDateTime;
@@ -10,31 +12,75 @@ use crate::Result;
 const MEDIA_CACHE_COLUMNS: &str =
     "cache_key, source_url, status, content_type, body, failure_kind, fetched_at, expires_at";
 
-/// Acquire a PostgreSQL-session advisory lock for one source URL hash. Holding
-/// the returned connection holds the lock across all Rusty Feed processes.
-pub async fn acquire_fetch_lock(
-    pool: &PgPool,
-    cache_key: &str,
-) -> Result<PoolConnection<Postgres>> {
-    let mut connection = pool.acquire().await?;
-    sqlx::query("SELECT pg_advisory_lock(hashtextextended($1, 0))")
-        .bind(cache_key)
-        .execute(&mut *connection)
-        .await?;
-    Ok(connection)
+/// Connections in the dedicated media-fetch lock pool (see
+/// `Db::media_lock_pool`). These are separate from, and never taken out of, the
+/// main pool.
+pub const FETCH_LOCK_CONNECTIONS: u32 = 8;
+
+/// How long a miss waits for a free lock connection before fetching without the
+/// cross-process lock.
+pub const FETCH_LOCK_WAIT: Duration = Duration::from_millis(250);
+
+/// A PostgreSQL session advisory lock for one source URL hash, held on a
+/// connection from the dedicated lock pool for the duration of an upstream
+/// fetch so concurrent misses across Rusty Feed processes download once.
+///
+/// The lock lives on the connection, so the connection is never returned to
+/// the pool still locked: [`FetchLock::release`] unlocks first, and dropping
+/// the guard without releasing (a cancelled request, including one still
+/// waiting for the lock) closes the connection, which makes PostgreSQL release
+/// the lock.
+pub struct FetchLock {
+    connection: Option<PoolConnection<Postgres>>,
+    cache_key: String,
 }
 
-/// Release a media fetch lock before returning its connection to the pool.
-pub async fn release_fetch_lock(
-    connection: &mut PoolConnection<Postgres>,
-    cache_key: &str,
-) -> Result<bool> {
-    Ok(
-        sqlx::query_scalar("SELECT pg_advisory_unlock(hashtextextended($1, 0))")
-            .bind(cache_key)
-            .fetch_one(&mut **connection)
-            .await?,
-    )
+impl FetchLock {
+    /// Block until the advisory lock for `cache_key` is held. Fails (without
+    /// waiting on the fetch) when no lock connection frees up within
+    /// [`FETCH_LOCK_WAIT`]; callers then proceed without cross-process
+    /// coalescing, which is safe because cache writes are idempotent upserts.
+    pub async fn acquire(lock_pool: &PgPool, cache_key: &str) -> Result<Self> {
+        // The guard exists before the (possibly long) lock wait so that a
+        // cancelled request closes the connection instead of returning it to
+        // the pool with a lock request still pending on the server.
+        let mut lock = Self {
+            connection: Some(lock_pool.acquire().await?),
+            cache_key: cache_key.to_string(),
+        };
+        if let Some(connection) = lock.connection.as_mut() {
+            sqlx::query("SELECT pg_advisory_lock(hashtextextended($1, 0))")
+                .bind(cache_key)
+                .execute(&mut **connection)
+                .await?;
+        }
+        Ok(lock)
+    }
+
+    /// Unlock and return the connection to the lock pool.
+    pub async fn release(mut self) -> Result<()> {
+        let Some(mut connection) = self.connection.take() else {
+            return Ok(());
+        };
+        let unlocked: std::result::Result<bool, sqlx::Error> =
+            sqlx::query_scalar("SELECT pg_advisory_unlock(hashtextextended($1, 0))")
+                .bind(&self.cache_key)
+                .fetch_one(&mut *connection)
+                .await;
+        if !matches!(unlocked, Ok(true)) {
+            connection.close_on_drop();
+        }
+        unlocked?;
+        Ok(())
+    }
+}
+
+impl Drop for FetchLock {
+    fn drop(&mut self) {
+        if let Some(mut connection) = self.connection.take() {
+            connection.close_on_drop();
+        }
+    }
 }
 
 /// Return a non-expired cache entry.

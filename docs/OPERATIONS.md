@@ -58,6 +58,16 @@ output must contain `ALPN protocol: h2`). Keep the prior chain/key until the
 reload and external probe succeed. `scripts/test-tls-proxy.sh` exercises the
 same pinned image and ALPN boundary in CI.
 
+Response compression: `rusty-feed-server` gzips HTML, CSS/JS, JSON and SVG
+itself when `HTTP_COMPRESSION=true` (the default) and the client sends
+`Accept-Encoding: gzip`, so a bare run or a Traefik/Dokploy route without proxy
+compression still sends small pages. Images, audio, video, fonts, archives,
+range-capable media proxy bodies and already-encoded responses are never
+re-compressed, so ranges stay byte-exact. The bundled Caddy profiles already
+use `encode zstd gzip`; Caddy leaves a response that carries `Content-Encoding`
+alone, so enabling both is safe but wasteful. Set `HTTP_COMPRESSION=false` when
+the proxy owns compression (for example to get zstd from Caddy).
+
 ### Trusted proxy identity
 
 Before enabling reverse-proxy authentication, firewall the Rusty Feed listener to
@@ -184,6 +194,25 @@ For an air-gapped host, copy the populated directory before startup. Changing
 
 The database guard rejects a mixed model/dimension space instead of silently
 corrupting similarity.
+
+## Database connection pool
+
+Every process (server with embedded worker, standalone worker, CLI) owns one
+PostgreSQL pool of `DATABASE_MAX_CONNECTIONS` (default 10). Requests and
+background jobs share it; a caller that cannot get a connection within
+`DATABASE_ACQUIRE_TIMEOUT_SECONDS` (default 30) fails.
+
+Rule of thumb per process: concurrent web requests that hit the database at the
+same time + worker concurrency (all lanes when the worker is embedded) + a few
+connections of headroom for health checks and migrations. Across the cluster,
+keep the sum over every process of `DATABASE_MAX_CONNECTIONS`, plus about eight
+per server for media fetch locks, plus any other clients (`psql`, backups,
+poolers), below PostgreSQL `max_connections` (100 by default). Raise the value
+if logs show acquire timeouts while Postgres is idle; lower it, or put PgBouncer
+in transaction mode in front, when many replicas would exceed
+`max_connections`. The media proxy no longer holds a pooled connection during
+upstream downloads, so a page of new thumbnails cannot exhaust the pool; it
+holds at most eight short-lived dedicated lock connections per server.
 
 ## Capacity and retention
 

@@ -10,7 +10,7 @@ use rusty_feed_core::feed_content::{
 use crate::error::Result;
 use crate::models::User;
 
-const USER_COLUMNS: &str =
+pub(crate) const USER_COLUMNS: &str =
     "id, email, name, image, role, password_hash, email_verified_at, created_at, updated_at, \
      last_seen_at, failed_login_count, locked_until, tos_accepted_at, is_demo, onboarded_at";
 

@@ -914,3 +914,171 @@ async fn password_reset_replaces_the_local_password_once() {
         stored.password_hash.as_deref().unwrap()
     ));
 }
+
+/// `(xmin, last_used_at)` of a session row; `xmin` changes on every UPDATE.
+async fn session_row_version(
+    pool: &sqlx::PgPool,
+    token_hash: &str,
+) -> (String, time::OffsetDateTime) {
+    sqlx::query_as("SELECT xmin::text, last_used_at FROM sessions WHERE token_hash = $1")
+        .bind(token_hash)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn user_row_xmin(pool: &sqlx::PgPool, id: uuid::Uuid) -> String {
+    sqlx::query_scalar("SELECT xmin::text FROM users WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn authed_get(app: &Router, raw_token: &str) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::get("/settings/sessions")
+                .header("cookie", cookie_header(&[("rusty_feed_sid", raw_token)]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn session_auth_loads_the_user_and_throttles_touch_writes() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let pool = state.db.pool().clone();
+    let app = router(state);
+    let user = users::create(
+        &pool,
+        &format!("touch-{}@example.test", uuid::Uuid::now_v7()),
+        None,
+        None,
+        "user",
+        Some("hash"),
+    )
+    .await
+    .unwrap();
+    let generated = rusty_feed_web::auth::token::generate();
+    rusty_feed_db::sessions::create(
+        &pool,
+        user.id,
+        &generated.hash,
+        time::OffsetDateTime::now_utc() + time::Duration::days(1),
+    )
+    .await
+    .unwrap();
+    // Age both timestamps so the first request is due for a refresh.
+    sqlx::query(
+        "UPDATE sessions SET last_used_at = now() - interval '2 minutes' WHERE token_hash = $1",
+    )
+    .bind(&generated.hash)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE users SET last_seen_at = now() - interval '2 minutes' WHERE id = $1")
+        .bind(user.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (xmin_stale, used_stale) = session_row_version(&pool, &generated.hash).await;
+    let user_xmin_stale = user_row_xmin(&pool, user.id).await;
+
+    assert_eq!(authed_get(&app, &generated.raw).await, StatusCode::OK);
+    let (xmin_first, used_first) = session_row_version(&pool, &generated.hash).await;
+    let user_xmin_first = user_row_xmin(&pool, user.id).await;
+    assert_ne!(xmin_first, xmin_stale, "stale session is refreshed");
+    assert!(used_first > used_stale + time::Duration::seconds(90));
+    assert_ne!(
+        user_xmin_first, user_xmin_stale,
+        "stale last_seen is refreshed"
+    );
+
+    assert_eq!(authed_get(&app, &generated.raw).await, StatusCode::OK);
+    assert_eq!(authed_get(&app, &generated.raw).await, StatusCode::OK);
+    let (xmin_second, used_second) = session_row_version(&pool, &generated.hash).await;
+    assert_eq!(xmin_second, xmin_first, "no UPDATE within the minute");
+    assert_eq!(used_second, used_first);
+    assert_eq!(user_row_xmin(&pool, user.id).await, user_xmin_first);
+
+    sqlx::query(
+        "UPDATE sessions SET last_used_at = now() - interval '2 minutes' WHERE token_hash = $1",
+    )
+    .bind(&generated.hash)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (xmin_aged, _) = session_row_version(&pool, &generated.hash).await;
+    assert_eq!(authed_get(&app, &generated.raw).await, StatusCode::OK);
+    let (xmin_after_window, used_after_window) = session_row_version(&pool, &generated.hash).await;
+    assert_ne!(xmin_after_window, xmin_aged, "refreshed after the window");
+    assert!(used_after_window > used_second);
+}
+
+#[tokio::test]
+async fn expired_session_and_deleted_user_are_not_authenticated() {
+    let Some(state) = test_state().await else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let pool = state.db.pool().clone();
+    let app = router(state);
+    let make = |label: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let user = users::create(
+                &pool,
+                &format!("{label}-{}@example.test", uuid::Uuid::now_v7()),
+                None,
+                None,
+                "user",
+                Some("hash"),
+            )
+            .await
+            .unwrap();
+            let generated = rusty_feed_web::auth::token::generate();
+            rusty_feed_db::sessions::create(
+                &pool,
+                user.id,
+                &generated.hash,
+                time::OffsetDateTime::now_utc() + time::Duration::days(1),
+            )
+            .await
+            .unwrap();
+            (user, generated)
+        }
+    };
+
+    let (_, expired) = make("expired").await;
+    assert_eq!(authed_get(&app, &expired.raw).await, StatusCode::OK);
+    sqlx::query(
+        "UPDATE sessions SET expires_at = now() - interval '1 second' WHERE token_hash = $1",
+    )
+    .bind(&expired.hash)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        authed_get(&app, &expired.raw).await,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let (user, deleted) = make("deleted").await;
+    assert_eq!(authed_get(&app, &deleted.raw).await, StatusCode::OK);
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        authed_get(&app, &deleted.raw).await,
+        StatusCode::UNAUTHORIZED
+    );
+}

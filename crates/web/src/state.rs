@@ -153,6 +153,8 @@ pub struct AppSettings {
     /// Whether a user may explicitly create a non-expiring share.
     pub public_share_allow_infinite: bool,
     pub api_enabled: bool,
+    /// Compress eligible responses in-process (`HTTP_COMPRESSION`).
+    pub http_compression: bool,
     pub greader_api_enabled: bool,
     pub fever_api_enabled: bool,
     pub custom_css_enabled: bool,
@@ -258,6 +260,7 @@ impl Default for AppSettings {
             public_share_max_lifetime_days: 3_650,
             public_share_allow_infinite: true,
             api_enabled: true,
+            http_compression: true,
             greader_api_enabled: true,
             fever_api_enabled: true,
             custom_css_enabled: true,
