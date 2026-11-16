@@ -58,6 +58,16 @@ output must contain `ALPN protocol: h2`). Keep the prior chain/key until the
 reload and external probe succeed. `scripts/test-tls-proxy.sh` exercises the
 same pinned image and ALPN boundary in CI.
 
+Response compression: `rusty-feed-server` gzips HTML, CSS/JS, JSON and SVG
+itself when `HTTP_COMPRESSION=true` (the default) and the client sends
+`Accept-Encoding: gzip`, so a bare run or a Traefik/Dokploy route without proxy
+compression still sends small pages. Images, audio, video, fonts, archives,
+range-capable media proxy bodies and already-encoded responses are never
+re-compressed, so ranges stay byte-exact. The bundled Caddy profiles already
+use `encode zstd gzip`; Caddy leaves a response that carries `Content-Encoding`
+alone, so enabling both is safe but wasteful. Set `HTTP_COMPRESSION=false` when
+the proxy owns compression (for example to get zstd from Caddy).
+
 ### Trusted proxy identity
 
 Before enabling reverse-proxy authentication, firewall the Rusty Feed listener to

@@ -73,6 +73,7 @@ reuse the development defaults from Compose in a reachable deployment.
 | `BASE_URL` | derived from `BIND_ADDR` | Public origin used for redirects, links, and WebAuthn relying-party identity |
 | `LOG_LEVEL` | `info` | `tracing` filter such as `info` or `rusty_feed=debug` |
 | `SYSTEMD_NOTIFY_ENABLED` | `true` | Auto-detect a systemd notify socket and emit readiness, stopping, and watchdog messages; set false to suppress all notifications |
+| `HTTP_COMPRESSION` | `true` | Gzip eligible responses (HTML, CSS/JS, JSON, SVG) when the client sends `Accept-Encoding: gzip`. Never applied to images, audio, video, fonts, archives, event streams, range-capable media proxy bodies, `206` responses, or responses that already carry `Content-Encoding`. Set `false` when a reverse proxy already compresses |
 | `PWA_NAME` | `Rusty Feed` | Installed-app name, 1–64 printable characters |
 | `PWA_SHORT_NAME` | `Rusty Feed` | Home-screen name, 1–32 printable characters |
 | `PWA_THEME_COLOR` | `#2563eb` | Manifest color in `#RRGGBB` form |

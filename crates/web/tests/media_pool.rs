@@ -242,3 +242,71 @@ async fn concurrent_misses_for_one_url_make_one_upstream_request() {
     }
     publisher.verify().await;
 }
+
+/// Compression must leave media proxy bodies byte-exact: ranges stay `206`
+/// with `Content-Range`, and range-capable `200`s keep identity encoding.
+#[tokio::test]
+async fn compression_leaves_media_proxy_ranges_byte_exact() {
+    let Ok(database_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let body: Vec<u8> = (0..4_096_u32)
+        .map(|index| b'a' + (index % 3) as u8)
+        .collect();
+    let publisher = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/range.mp3"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "audio/mpeg")
+                .set_body_bytes(body.clone()),
+        )
+        .mount(&publisher)
+        .await;
+    let harness = harness(&database_url, &publisher, &["/range.mp3"], 10).await;
+    let route = format!("/articles/{}/media/0", harness.article_ids[0]);
+    let request = |query: &str, range: Option<&str>| {
+        let mut request = Request::get(format!("{route}{query}"))
+            .header("cookie", harness.cookie.clone())
+            .header("accept-encoding", "gzip");
+        if let Some(range) = range {
+            request = request.header("range", range);
+        }
+        harness
+            .app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+    };
+
+    let partial = request("", Some("bytes=100-199")).await.unwrap();
+    assert_eq!(partial.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(partial.headers()["content-range"], "bytes 100-199/4096");
+    assert!(!partial.headers().contains_key("content-encoding"));
+    assert_eq!(
+        partial
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        &body[100..200]
+    );
+
+    for query in ["", "?download=1"] {
+        let full = request(query, None).await.unwrap();
+        assert_eq!(full.status(), StatusCode::OK);
+        assert!(!full.headers().contains_key("content-encoding"), "{query}");
+        assert_eq!(full.headers()["accept-ranges"], "bytes");
+        assert_eq!(
+            full.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .as_ref(),
+            body.as_slice()
+        );
+    }
+}

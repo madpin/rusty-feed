@@ -64,6 +64,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use rust_embed::RustEmbed;
 use serde_json::json;
+use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
+use tower_http::compression::CompressionLayer;
 use tower_http::trace::TraceLayer;
 
 /// Embedded static assets (CSS/JS), served under `/static`.
@@ -77,8 +79,9 @@ pub fn router(state: AppState) -> Router {
         &state.settings.youtube_policy,
         state.settings.captcha.is_some(),
     );
+    let http_compression = state.settings.http_compression;
     let api_policy_state = state.clone();
-    Router::new()
+    let app = Router::new()
         .route("/", get(auth::handlers::home))
         .route(
             "/login",
@@ -430,7 +433,49 @@ pub fn router(state: AppState) -> Router {
         .layer(middleware::map_response(move |response| {
             let content_security_policy = content_security_policy.clone();
             async move { enforce_security_headers(response, content_security_policy).await }
-        }))
+        }));
+    // Outermost, so it compresses the final response (security headers, CSRF
+    // cookies and error pages are already in place) and sits outside every
+    // body-reading middleware.
+    if http_compression {
+        app.layer(compression_layer())
+    } else {
+        app
+    }
+}
+
+/// Responses that advertise byte ranges are never compressed so the media
+/// proxy's single-range delivery stays byte-exact; `tower-http` already skips
+/// `Content-Range` (206) and pre-encoded (`Content-Encoding`) responses.
+#[derive(Clone, Copy)]
+struct NotRangeCapable;
+
+impl Predicate for NotRangeCapable {
+    fn should_compress<B>(&self, response: &axum::http::Response<B>) -> bool
+    where
+        B: axum::body::HttpBody,
+    {
+        !response.headers().contains_key(header::ACCEPT_RANGES)
+    }
+}
+
+/// Gzip for compressible text. The default predicate already skips tiny
+/// bodies, images (except SVG), gRPC and `text/event-stream`; this also skips
+/// audio, video, archives and fonts, which are already compressed.
+fn compression_layer() -> CompressionLayer<impl Predicate> {
+    CompressionLayer::new().compress_when(
+        DefaultPredicate::new()
+            .and(NotRangeCapable)
+            .and(NotForContentType::new("audio/"))
+            .and(NotForContentType::new("video/"))
+            .and(NotForContentType::new("font/"))
+            .and(NotForContentType::new("application/font-"))
+            .and(NotForContentType::new("application/x-font-"))
+            .and(NotForContentType::new("application/vnd.ms-fontobject"))
+            .and(NotForContentType::new("application/zip"))
+            .and(NotForContentType::new("application/gzip"))
+            .and(NotForContentType::new("application/x-gzip")),
+    )
 }
 
 async fn enforce_api_policy(
@@ -1197,5 +1242,119 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(value["error"], "authentication required");
+    }
+    async fn compressed_response(
+        content_type: &'static str,
+        body: Vec<u8>,
+        extra: Option<(&'static str, &'static str)>,
+    ) -> axum::http::Response<axum::body::Body> {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/body",
+                get(move || {
+                    let body = body.clone();
+                    async move {
+                        let mut response = Response::new(axum::body::Body::from(body));
+                        response
+                            .headers_mut()
+                            .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+                        if let Some((name, value)) = extra {
+                            response.headers_mut().insert(
+                                HeaderName::from_static(name),
+                                HeaderValue::from_static(value),
+                            );
+                        }
+                        response
+                    }
+                }),
+            )
+            .layer(compression_layer());
+        app.oneshot(
+            Request::get("/body")
+                .header(header::ACCEPT_ENCODING, "gzip")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn compression_skips_already_compressed_streaming_and_range_capable_bodies() {
+        let big = vec![b'a'; 4_096];
+        for content_type in [
+            "audio/mpeg",
+            "video/mp4",
+            "image/png",
+            "font/woff2",
+            "application/zip",
+            "application/gzip",
+            "text/event-stream",
+        ] {
+            let response = compressed_response(content_type, big.clone(), None).await;
+            assert!(
+                !response.headers().contains_key(header::CONTENT_ENCODING),
+                "{content_type} must not be compressed"
+            );
+        }
+        let response = compressed_response(
+            "application/octet-stream",
+            big.clone(),
+            Some(("accept-ranges", "bytes")),
+        )
+        .await;
+        assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+        assert_eq!(response.headers()[header::ACCEPT_RANGES], "bytes");
+        let response = compressed_response(
+            "text/plain",
+            big.clone(),
+            Some(("content-range", "bytes 0-4095/8192")),
+        )
+        .await;
+        assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+
+        for content_type in [
+            "text/html; charset=utf-8",
+            "image/svg+xml",
+            "application/json",
+        ] {
+            let response = compressed_response(content_type, big.clone(), None).await;
+            assert_eq!(
+                response.headers()[header::CONTENT_ENCODING],
+                "gzip",
+                "{content_type} should be compressed"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn compression_does_not_double_compress_pre_encoded_bodies() {
+        use http_body_util::BodyExt;
+
+        let pre_encoded = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3, 1, 2, 3, 4, 5, 6, 7, 8]
+            .into_iter()
+            .chain(std::iter::repeat_n(0_u8, 256))
+            .collect::<Vec<u8>>();
+        let response = compressed_response(
+            "text/html",
+            pre_encoded.clone(),
+            Some(("content-encoding", "gzip")),
+        )
+        .await;
+        assert_eq!(response.headers()[header::CONTENT_ENCODING], "gzip");
+        assert_eq!(
+            response
+                .headers()
+                .get_all(header::CONTENT_ENCODING)
+                .iter()
+                .count(),
+            1
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(body.as_ref(), pre_encoded.as_slice());
     }
 }

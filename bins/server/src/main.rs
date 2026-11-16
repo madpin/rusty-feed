@@ -174,6 +174,7 @@ async fn main() -> anyhow::Result<()> {
         public_share_max_lifetime_days: config.public_share_max_lifetime_days,
         public_share_allow_infinite: config.public_share_allow_infinite,
         api_enabled: config.api_enabled,
+        http_compression: config.http_compression,
         greader_api_enabled: config.greader_api_enabled,
         fever_api_enabled: config.fever_api_enabled,
         custom_css_enabled: config.custom_css_enabled,

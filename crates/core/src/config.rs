@@ -198,6 +198,10 @@ pub struct AppConfig {
     /// Emit READY/STOPPING/WATCHDOG messages when systemd provides a notify socket.
     #[serde(default = "defaults::bool_true")]
     pub systemd_notify_enabled: bool,
+    /// Compress eligible responses in the application (`HTTP_COMPRESSION`). Set
+    /// false when a reverse proxy already compresses.
+    #[serde(default = "defaults::bool_true")]
+    pub http_compression: bool,
     #[serde(default = "defaults::pwa_name")]
     pub pwa_name: String,
     #[serde(default = "defaults::pwa_short_name")]
