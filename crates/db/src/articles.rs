@@ -874,6 +874,11 @@ pub struct ArticleListItem {
 /// `feed_id`; `unread_only` hides already-read articles; `summary_only` hides
 /// articles that don't have a ready AI summary yet (so a reader who queued
 /// several summaries and moved on can jump straight to the ones now ready).
+///
+/// Order is `published_at DESC NULLS LAST, created_at DESC, id`. The page is
+/// chosen first from each subscribed feed's newest `limit + offset` rows
+/// (served by `articles_feed_published_nl_idx`) with every filter applied, and
+/// only the chosen rows are decorated with personal state (FND-234).
 pub async fn list_for_user(
     pool: &PgPool,
     user_id: Uuid,
@@ -890,39 +895,65 @@ pub async fn list_for_user(
              SELECT child.id FROM user_categories child \
              JOIN category_scope scope ON child.parent_id = scope.id \
              WHERE child.user_id = $1 \
+         ), \
+         page AS ( \
+             SELECT candidate.id, candidate.feed_id, candidate.title, candidate.url, \
+                    candidate.author, candidate.excerpt, candidate.image_url, \
+                    candidate.published_at, candidate.created_at, candidate.has_summary, \
+                    scoped.id AS user_feed_id \
+             FROM user_feeds scoped \
+             CROSS JOIN LATERAL ( \
+                 SELECT a.id, a.feed_id, a.title, a.url, a.author, a.excerpt, a.image_url, \
+                        a.published_at, a.created_at, \
+                        (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL) AS has_summary \
+                 FROM articles a \
+                 WHERE a.feed_id = scoped.feed_id \
+                   AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) \
+                   {seen_filter} {read_filter} \
+                 ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC, a.id \
+                 LIMIT $9 \
+             ) candidate \
+             WHERE scoped.user_id = $1 \
+               AND ($2::uuid IS NULL OR scoped.feed_id = $2) \
+               AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
+                    JOIN category_scope scope ON scope.id = ufc.user_category_id \
+                    WHERE ufc.user_feed_id = scoped.id)) \
+               AND (NOT $4 OR NOT EXISTS (SELECT 1 FROM user_feed_categories ufc \
+                    WHERE ufc.user_feed_id = scoped.id)) \
+               AND ($5::text IS NULL OR scoped.tags @> ARRAY[$5]::text[] \
+                   OR EXISTS (SELECT 1 FROM unnest(scoped.tags) stored_tag \
+                      WHERE lower(stored_tag) = lower($5))) \
+             ORDER BY candidate.published_at DESC NULLS LAST, candidate.created_at DESC, \
+                      candidate.id \
+             LIMIT $6 OFFSET $7 \
          ) \
-         SELECT a.id, a.feed_id, a.title, a.url, a.author, a.excerpt, a.image_url, a.published_at, \
+         SELECT p.id, p.feed_id, p.title, p.url, p.author, p.excerpt, p.image_url, p.published_at, \
                 coalesce(nullif(uf.custom_name, ''), f.name) AS feed_name, \
                 (r.article_id IS NOT NULL) AS is_read, \
                 (seen.article_id IS NOT NULL) AS is_seen, \
                 (b.article_id IS NOT NULL) AS is_bookmarked, \
-                (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL) AS has_summary, \
+                p.has_summary, \
                 coalesce(sc.member_count, 0) AS story_count, \
                 af.feedback_value, uf.settings AS subscription_settings \
-         FROM articles a \
-         JOIN feeds f ON f.id = a.feed_id \
-         JOIN user_feeds uf ON uf.feed_id = a.feed_id AND uf.user_id = $1 \
-         LEFT JOIN read_articles r ON r.article_id = a.id AND r.user_id = $1 \
-         LEFT JOIN seen_articles seen ON seen.article_id = a.id AND seen.user_id = $1 \
-         LEFT JOIN bookmarks b ON b.article_id = a.id AND b.user_id = $1 \
-         LEFT JOIN article_feedback af ON af.article_id = a.id AND af.user_id = $1 \
-         LEFT JOIN story_cluster_members scm ON scm.article_id = a.id \
+         FROM page p \
+         JOIN feeds f ON f.id = p.feed_id \
+         JOIN user_feeds uf ON uf.id = p.user_feed_id \
+         LEFT JOIN read_articles r ON r.article_id = p.id AND r.user_id = $1 \
+         LEFT JOIN seen_articles seen ON seen.article_id = p.id AND seen.user_id = $1 \
+         LEFT JOIN bookmarks b ON b.article_id = p.id AND b.user_id = $1 \
+         LEFT JOIN article_feedback af ON af.article_id = p.id AND af.user_id = $1 \
+         LEFT JOIN story_cluster_members scm ON scm.article_id = p.id \
          LEFT JOIN story_clusters sc ON sc.id = scm.cluster_id \
-         WHERE ($2::uuid IS NULL OR a.feed_id = $2) \
-           AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM user_feed_categories ufc \
-                JOIN category_scope scope ON scope.id = ufc.user_category_id \
-                WHERE ufc.user_feed_id = uf.id)) \
-           AND (NOT $4 OR NOT EXISTS (SELECT 1 FROM user_feed_categories ufc \
-                WHERE ufc.user_feed_id = uf.id)) \
-           AND ($5::text IS NULL OR uf.tags @> ARRAY[$5]::text[] \
-               OR EXISTS (SELECT 1 FROM unnest(uf.tags) stored_tag \
-                  WHERE lower(stored_tag) = lower($5))) \
-           AND (NOT $8 OR (a.summary IS NOT NULL AND a.summarized_at IS NOT NULL)) \
-           AND (NOT $9 OR seen.article_id IS NULL) {read_filter} \
-         ORDER BY a.published_at DESC NULLS LAST, a.created_at DESC \
-         LIMIT $6 OFFSET $7",
+         ORDER BY p.published_at DESC NULLS LAST, p.created_at DESC, p.id",
+        seen_filter = if filter.unseen_only {
+            "AND NOT EXISTS (SELECT 1 FROM seen_articles s \
+             WHERE s.user_id = $1 AND s.article_id = a.id)"
+        } else {
+            ""
+        },
         read_filter = if unread_only {
-            "AND r.article_id IS NULL"
+            "AND NOT EXISTS (SELECT 1 FROM read_articles r \
+             WHERE r.user_id = $1 AND r.article_id = a.id)"
         } else {
             ""
         }
@@ -936,7 +967,7 @@ pub async fn list_for_user(
         .bind(limit)
         .bind(offset)
         .bind(summary_only)
-        .bind(filter.unseen_only)
+        .bind(limit.saturating_add(offset.max(0)))
         .fetch_all(pool)
         .await?)
 }
