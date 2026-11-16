@@ -218,6 +218,7 @@ pub fn sanitize_article_html_with_policies(
         .url_relative(relative)
         .clean(&prepared)
         .to_string();
+    let sanitized = crate::image_dedup::dedupe_images(&sanitized);
     SanitizedArticleHtml {
         html: harden_content(&sanitized, url_policy).unwrap_or(sanitized),
         blocked_tracking_pixels,
@@ -601,6 +602,16 @@ fn markdown_fence(line: &str) -> Option<(char, usize, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sanitize_keeps_only_largest_duplicate_image() {
+        let html = r#"<figure><img src="https://x.com/u/p-300x200.jpg" width="300"></figure><noscript><img src="https://x.com/u/p-1024x683.jpg"></noscript><p>Text</p>"#;
+        let content = sanitize_article_html(html, "https://example.com/a");
+        assert_eq!(content.matches("<img").count(), 1);
+        assert!(content.contains("p-1024x683.jpg"));
+        assert!(!content.contains("<figure></figure>"));
+        assert!(content.contains("Text"));
+    }
 
     #[test]
     fn preserves_safe_rich_content_and_absolutizes_relative_urls() {

@@ -25,6 +25,7 @@ pub mod feed_content;
 pub mod hash;
 pub mod html;
 pub mod i18n;
+mod image_dedup;
 pub mod integrations;
 pub mod quotas;
 pub mod reading;
