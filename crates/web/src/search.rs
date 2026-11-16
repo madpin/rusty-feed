@@ -42,6 +42,8 @@ struct SearchTemplate {
     effective_text_config: String,
     semantic_weight_percent: u8,
     fallback_notice: Option<String>,
+    /// More keyword matches than the ranking cap: only the newest were ranked.
+    results_limited: bool,
     searched: bool,
     hits: Vec<Hit>,
 }
@@ -181,12 +183,12 @@ pub async fn page(
         }
     };
 
-    let (searched, hits) = if trimmed.is_empty() {
-        (false, Vec::new())
+    let (searched, results_limited, hits) = if trimmed.is_empty() {
+        (false, false, Vec::new())
     } else {
-        let results = match (mode, semantic_weight_percent, query_vector.as_ref()) {
+        let page = match (mode, semantic_weight_percent, query_vector.as_ref()) {
             (SearchMode::Hybrid, weight, Some(vector)) if weight > 0 && weight < 100 => {
-                article_search::hybrid_for_user(
+                article_search::hybrid_page_for_user(
                     state.db.pool(),
                     &article_search::HybridSearch {
                         user_id: user.id,
@@ -201,7 +203,7 @@ pub async fn page(
                 .await?
             }
             (SearchMode::Semantic, _, Some(vector)) | (SearchMode::Hybrid, 100, Some(vector)) => {
-                embeddings::search_for_user(
+                let hits = embeddings::search_for_user(
                     state.db.pool(),
                     user.id,
                     vector,
@@ -222,14 +224,28 @@ pub async fn page(
                     keyword_score: None,
                     final_score: hit.similarity,
                 })
-                .collect()
+                .collect();
+                article_search::SearchPage {
+                    hits,
+                    truncated: false,
+                }
             }
             _ => {
-                article_search::keyword_for_user(state.db.pool(), user.id, trimmed, text_config, 30)
-                    .await?
+                article_search::keyword_page_for_user(
+                    state.db.pool(),
+                    user.id,
+                    trimmed,
+                    text_config,
+                    30,
+                )
+                .await?
             }
         };
-        (true, results.into_iter().map(ranked_hit).collect())
+        (
+            true,
+            page.truncated,
+            page.hits.into_iter().map(ranked_hit).collect(),
+        )
     };
 
     let (csrf_token, jar) = csrf::issue(jar, state.settings.cookie_secure);
@@ -246,6 +262,7 @@ pub async fn page(
         effective_text_config: text_config.as_str().to_string(),
         semantic_weight_percent,
         fallback_notice,
+        results_limited,
         searched,
         hits,
     }

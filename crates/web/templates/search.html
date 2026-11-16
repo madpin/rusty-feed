@@ -31,6 +31,7 @@
 
 {% if searched %}
 {% if let Some(message) = fallback_notice %}<p class="notice" role="status">{{ message }}</p>{% endif %}
+{% if results_limited %}<p class="notice" role="status">{{ ui.text("search_results_limited") }}</p>{% endif %}
 {% if hits.is_empty() %}
 <div class="empty-state">
   <p><strong>No matches.</strong></p>

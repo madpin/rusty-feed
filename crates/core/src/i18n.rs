@@ -519,6 +519,7 @@ pub fn message(locale: &str, key: &str) -> &'static str {
         (_, "expand_sidebar") => "Expand sidebar",
         (_, "reduce_sidebar") => "Reduce sidebar",
         (_, "search") => "Search",
+        (_, "search_results_limited") => "Many articles match, so these results come from the most recent matches only. Try a more specific search to reach older articles.",
         (_, "saved") => "Saved",
         (_, "alerts") => "Alerts",
         (_, "discover") => "Discover",

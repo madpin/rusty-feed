@@ -364,3 +364,74 @@ async fn embeddings_disabled_forces_keyword_search_regardless_of_request_or_pref
     assert!(!body.contains("% meaning"));
     assert!(body.contains("disabled by the instance administrator"));
 }
+
+/// More keyword matches than the ranking cap (FND-231) still return results,
+/// and the page says that only the most recent matches were ranked.
+#[tokio::test]
+async fn search_says_when_only_the_most_recent_matches_were_ranked() {
+    let Ok(db_url) = std::env::var("TEST_DATABASE_URL") else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+    let db = Db::connect(&db_url).await.unwrap();
+    db.migrate().await.unwrap();
+    let state = AppState::new(
+        db.clone(),
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    );
+    let app = router(state);
+    let (sid, email) = register(&app).await;
+    let user = users::find_by_email(db.pool(), &email)
+        .await
+        .unwrap()
+        .unwrap();
+    let (feed, _) = feeds::upsert_by_url(
+        db.pool(),
+        &format!("https://ex.com/{}.xml", uuid::Uuid::now_v7()),
+        "F",
+        None,
+    )
+    .await
+    .unwrap();
+    subscriptions::subscribe(db.pool(), user.id, feed.id, None)
+        .await
+        .unwrap();
+    let cap = rusty_feed_db::search::KEYWORD_CANDIDATE_CAP;
+    sqlx::query(
+        "INSERT INTO articles (id, feed_id, url, original_url, title, content, published_at) \
+         SELECT gen_random_uuid(), $1, $2 || n, $2 || n, 'Lumenword note ' || n, \
+                'lumenword body', now() - make_interval(mins => n) \
+         FROM generate_series(1, $3) AS n",
+    )
+    .bind(feed.id)
+    .bind(format!("https://ex.com/{}/", uuid::Uuid::now_v7()))
+    .bind(i32::try_from(cap + 1).unwrap())
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    let search = |query: &'static str| {
+        app.clone().oneshot(
+            Request::get(format!("/search?q={query}&mode=keyword"))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+    let notice = "these results come from the most recent matches only";
+    let resp = search("lumenword").await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains(notice), "the capped search should say so");
+    assert!(
+        body.contains("Lumenword note 1<"),
+        "the newest match is kept"
+    );
+
+    let resp = search("%22lumenword%20note%2042%22").await.unwrap();
+    let body = body_string(resp).await;
+    assert!(body.contains("Lumenword note 42<"));
+    assert!(!body.contains(notice), "a narrow search is not capped");
+}
