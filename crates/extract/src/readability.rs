@@ -73,11 +73,22 @@ impl Extractor for ReadabilityExtractor {
     ) -> Option<Extracted> {
         let doc = Html::parse_document(html);
         let document_title = document_title(&doc);
-        let extracted = selector
-            .and_then(|value| select_custom_content(&doc, value))
+        let custom = selector.and_then(|value| select_custom_content(&doc, value));
+        let has_custom = custom.is_some();
+        let mut extracted = custom
             .map(|raw| (raw, document_title.clone()))
             .or_else(|| extract_readability(html, base_url))
             .or_else(|| pick_main_content(&doc).map(|raw| (raw, document_title.clone())))?;
+        if !has_custom {
+            if let Some(whole) = split_body_html(&doc) {
+                // Replace only when it recovers more text than the generic pass kept.
+                if text_len(&remove_publisher_boilerplate(&whole))
+                    > text_len(&remove_publisher_boilerplate(&extracted.0))
+                {
+                    extracted.0 = whole;
+                }
+            }
+        }
 
         let title = extracted.1.or(document_title);
         let cleaned = remove_publisher_boilerplate(&extracted.0);
@@ -117,6 +128,63 @@ fn extract_readability(html: &str, base_url: &str) -> Option<(String, Option<Str
     let content = article.content.to_string();
     let title = story_title(&article.title, &content);
     Some((content, title))
+}
+
+/// Elements that hold one slice of a publisher's article body when the page
+/// builds a story from several grid cells (Condé Nast: WIRED, The New Yorker,
+/// Vogue, GQ): the text lives in `.body__container` blocks, and gallery
+/// guides add one `.gallery__slides__slide` per product.
+const SPLIT_BODY_SELECTOR: &str = ".body__container, .gallery__slides__slide";
+
+/// Join the body slices of the `<article>` that holds the most of them, in
+/// document order. A generic Readability pass sees these cells as separate
+/// candidates and keeps only one, so on WIRED it returned 20-30% of a story.
+/// Returns `None` unless one `<article>` holds at least two slices, so a lone
+/// teaser block or a block outside the article never triggers it.
+fn split_body_html(doc: &Html) -> Option<String> {
+    let blocks = Selector::parse(SPLIT_BODY_SELECTOR).ok()?;
+    let article = Selector::parse("article").ok()?;
+    // Slices grouped by the `<article>` that owns them (the article's position
+    // in document order identifies it).
+    let mut groups: Vec<(usize, Vec<scraper::ElementRef<'_>>)> = Vec::new();
+    for element in doc.select(&blocks) {
+        // Skip a slice nested inside another slice: its parent already holds it.
+        if element
+            .ancestors()
+            .filter_map(scraper::ElementRef::wrap)
+            .any(|ancestor| blocks.matches(&ancestor))
+        {
+            continue;
+        }
+        let Some(owner) = element
+            .ancestors()
+            .filter_map(scraper::ElementRef::wrap)
+            .find(|ancestor| article.matches(ancestor))
+        else {
+            continue;
+        };
+        let Some(index) = doc
+            .select(&article)
+            .position(|candidate| candidate == owner)
+        else {
+            continue;
+        };
+        match groups.iter_mut().find(|(known, _)| *known == index) {
+            Some((_, slices)) => slices.push(element),
+            None => groups.push((index, vec![element])),
+        }
+    }
+    let (_, slices) = groups
+        .into_iter()
+        .filter(|(_, slices)| slices.len() >= 2)
+        .max_by_key(|(_, slices)| slices.iter().map(content_score).sum::<usize>())?;
+    Some(
+        slices
+            .iter()
+            .map(|slice| slice.html())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 fn select_custom_content(doc: &Html, selector: &str) -> Option<String> {
@@ -305,17 +373,20 @@ fn remove_publisher_boilerplate(html: &str) -> String {
         html,
         RewriteStrSettings::new()
             .append_element_content_handler(element!(
-                "form, nav, [role=navigation], [role=dialog]",
+                "form, nav, button, [role=navigation], [role=dialog]",
                 |element| {
                     element.remove();
                     Ok(())
                 }
             ))
             .append_element_content_handler(element!("[class], [id]", |element| {
+                let tag = element.tag_name();
+                let role = element.get_attribute("role");
+                let content_block = is_text_content_block(&tag, role.as_deref());
                 if [element.get_attribute("class"), element.get_attribute("id")]
                     .into_iter()
                     .flatten()
-                    .any(|value| boilerplate_label(&value))
+                    .any(|value| boilerplate_label(&value, content_block))
                 {
                     element.remove();
                 }
@@ -325,9 +396,25 @@ fn remove_publisher_boilerplate(html: &str) -> String {
     .unwrap_or_else(|_| html.to_string())
 }
 
-fn boilerplate_label(value: &str) -> bool {
+/// Whether an element is itself a piece of article text (paragraph, heading,
+/// list, quotation...) rather than a wrapper widget.
+fn is_text_content_block(tag: &str, role: Option<&str>) -> bool {
+    matches!(
+        tag,
+        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "ul" | "ol" | "li" | "blockquote"
+    ) || role.is_some_and(|role| role.eq_ignore_ascii_case("heading"))
+}
+
+/// Whether a `class`/`id` value marks publisher chrome. `content_block` says
+/// the element is itself article text: Condé Nast sites (WIRED, The New Yorker,
+/// Vogue...) put a bare `class="paywall"` on every body paragraph and heading
+/// to say the text sits behind the meter, so that word alone must not delete
+/// text. Gate widgets (`paywall-modal`, `paywall-bar`, `paywall-message`) and
+/// non-text wrappers are still removed.
+fn boilerplate_label(value: &str, content_block: bool) -> bool {
     value
         .split_whitespace()
+        .filter(|class| !(content_block && class.eq_ignore_ascii_case("paywall")))
         .flat_map(|class| class.split(|ch: char| !ch.is_alphanumeric()))
         .any(|token| {
             matches!(
@@ -627,5 +714,209 @@ mod tests {
         assert!(ReadabilityExtractor
             .extract(html, None, "https://example.com/article", &pixel_policy())
             .is_none());
+    }
+
+    #[test]
+    fn keeps_body_text_a_publisher_tags_paywall() {
+        let prose = "The reporting in this paragraph is the actual story and must survive extraction even though the publisher marks every body block with a paywall class. ".repeat(3);
+        let html = format!(
+            r#"<html><head><title>A metered story | Daily Example</title></head><body>
+              <article>
+                <h1>A metered story</h1>
+                <div class="body__inner-container">
+                  <p class="paywall">{prose}</p>
+                  <h2 class="paywall">Second section</h2>
+                  <div role="heading" aria-level="4" class="paywall heading-h4"><strong>Phone model: Example</strong></div>
+                  <p class="paywall">{prose}</p>
+                  <ul class="paywall"><li>First kept item</li><li>Second kept item</li></ul>
+                </div>
+                <div class="PaywallBarWrapper-gFBZnd paywall-bar"><p>Power up with unlimited access. Subscribe Today.</p></div>
+                <div class="paywall-modal paywall-modal--paywall"><p>Sign in to keep reading this story.</p></div>
+              </article></body></html>"#
+        );
+        let out = ReadabilityExtractor
+            .extract(&html, None, "https://example.com/story", &pixel_policy())
+            .unwrap();
+        assert_eq!(out.content.matches(prose.trim()).count(), 2);
+        assert!(out.content.contains("Second section"));
+        assert!(out.content.contains("Phone model: Example"));
+        assert!(out.content.contains("First kept item"));
+        assert!(!out.content.contains("Subscribe Today"));
+        assert!(!out.content.contains("Sign in to keep reading"));
+    }
+
+    #[test]
+    fn paywall_gates_stay_removed_even_when_they_wrap_a_paragraph() {
+        let prose = "A complete paragraph of real reporting that is long enough to count as the article body for the extractor, repeated to clear the minimum. ".repeat(4);
+        let html = format!(
+            r#"<body><article><p>{prose}</p>
+              <p class="paywall-message">Subscribe to read the rest of this article.</p>
+              <section class="paywall"><p>Already a subscriber? Sign in.</p></section>
+            </article></body>"#
+        );
+        let out = ReadabilityExtractor
+            .extract(&html, None, "https://example.com/story", &pixel_policy())
+            .unwrap();
+        assert!(out
+            .content
+            .contains("A complete paragraph of real reporting"));
+        assert!(!out.content.contains("Subscribe to read the rest"));
+        assert!(!out.content.contains("Already a subscriber"));
+    }
+
+    /// One shaped like a Condé Nast review: the body is split into several
+    /// `body__inner-container` chunks, each in its own grid cell, beside a rating
+    /// card and a link-heavy recirculation block. Readability alone keeps just
+    /// one chunk.
+    fn chunked_review_html() -> String {
+        let chunk = |marker: &str| {
+            let sentence = format!(
+                "{marker} describes one measured aspect of the product in full sentences, with the figures and the context a reader needs to follow the argument. "
+            );
+            format!(
+                r#"<div class="GridWrapper-uulHE grid"><div class="GridItem-bufwYC"><div class="BodyWrapper-cuqCAc body body__container article__body" id="BodyWrapper"><div class="body__inner-container"><p>{}</p><p>{}</p></div></div></div></div>"#,
+                sentence.repeat(3),
+                sentence.repeat(3)
+            )
+        };
+        format!(
+            r#"<html><head><title>Example Purifier Review | WIRED</title></head><body>
+              <header><nav>Sections Sign in</nav></header>
+              <article data-testid="ReviewPageArticle" class="story">
+                <div class="ContentHeaderContainer"><h1>Example Purifier Review</h1><a href="/author/a">Author One</a></div>
+                <div class="ArticlePageContentBackGround">
+                  <div class="GridWrapper-uulHE"><div class="GridItem-bufwYC"><div class="ProsConsWrapper">
+                    <p>WIRED: Quiet. Looks good.</p><p>TIRED: No display. No remote.</p></div></div></div>
+                  <div class="ArticlePageChunks-lfyGNk">{}{}{}{}</div>
+                </div>
+              </article>
+              <div class="body__container"><p>{}</p></div>
+              <footer>Terms Privacy</footer>
+            </body></html>"#,
+            chunk("FIRSTCHUNK"),
+            chunk("SECONDCHUNK"),
+            chunk("THIRDCHUNK"),
+            chunk("FOURTHCHUNK"),
+            "Teaser outside the article about something else entirely, long enough to count as text on its own for any scoring heuristic. ".repeat(3)
+        )
+    }
+
+    #[test]
+    fn keeps_every_body_chunk_of_a_chunked_article() {
+        let out = ReadabilityExtractor
+            .extract(
+                &chunked_review_html(),
+                None,
+                "https://example.com/review/example",
+                &pixel_policy(),
+            )
+            .unwrap();
+        for marker in ["FIRSTCHUNK", "SECONDCHUNK", "THIRDCHUNK", "FOURTHCHUNK"] {
+            assert!(out.content.contains(marker), "{marker} was dropped");
+        }
+        assert!(!out.content.contains("Teaser outside the article"));
+        assert!(!out.content.contains("Sections Sign in"));
+        assert_eq!(out.title.as_deref(), Some("Example Purifier Review"));
+        assert!(!out.content.contains("<h1"));
+    }
+
+    #[test]
+    fn a_configured_selector_wins_over_the_chunk_rule() {
+        let out = ReadabilityExtractor
+            .extract(
+                &chunked_review_html(),
+                Some(".ArticlePageChunks-lfyGNk > .GridWrapper-uulHE:first-child"),
+                "https://example.com/review/example",
+                &pixel_policy(),
+            )
+            .unwrap();
+        // The feed owner's selector decides: the chunk rule must not widen it.
+        assert!(out.content.contains("FIRSTCHUNK"));
+        assert!(!out.content.contains("SECONDCHUNK"));
+    }
+
+    #[test]
+    fn split_body_needs_two_slices_inside_one_article() {
+        let slice = |text: &str| format!(r#"<div class="body__container"><p>{text}</p></div>"#);
+        let doc = |html: &str| Html::parse_document(html);
+
+        // Two slices in one article, in document order.
+        let joined = split_body_html(&doc(&format!(
+            "<body><article>{}{}</article></body>",
+            slice("first"),
+            slice("second")
+        )))
+        .unwrap();
+        assert!(joined.find("first").unwrap() < joined.find("second").unwrap());
+
+        // A single slice, slices outside any article, and slices spread over
+        // different articles never qualify.
+        assert!(split_body_html(&doc(&format!(
+            "<body><article>{}</article></body>",
+            slice("only")
+        )))
+        .is_none());
+        assert!(split_body_html(&doc(&format!(
+            "<body><main>{}{}</main></body>",
+            slice("a"),
+            slice("b")
+        )))
+        .is_none());
+        assert!(split_body_html(&doc(&format!(
+            "<body><article>{}</article><article>{}</article></body>",
+            slice("a"),
+            slice("b")
+        )))
+        .is_none());
+
+        // A slice nested inside another slice is counted once.
+        let nested = split_body_html(&doc(
+            r#"<body><article><div class="body__container"><div class="body__container"><p>inner</p></div></div>
+               <div class="body__container"><p>next</p></div></article></body>"#,
+        ))
+        .unwrap();
+        assert_eq!(nested.matches("inner").count(), 1);
+    }
+
+    #[test]
+    fn gallery_slides_join_the_surrounding_text() {
+        let prose = "A buying guide paragraph with enough prose to matter, naming the model and the reason it earned its place in the list. ".repeat(5);
+        let html = format!(
+            r#"<html><head><title>The Best Example Laptops | WIRED</title></head><body>
+              <article>
+                <div class="GalleryPageTextBlock"><div class="body__container"><p>INTROTEXT {prose}</p></div></div>
+                <ul>
+                  <li class="gallery__slides__slide"><div><h2>Best Overall</h2><p>SLIDEONE {prose}</p></div></li>
+                  <li class="gallery__slides__slide"><div><h2>Best Cheap</h2><p>SLIDETWO {prose}</p></div></li>
+                </ul>
+              </article></body></html>"#
+        );
+        let doc = Html::parse_document(&html);
+        let joined = split_body_html(&doc).unwrap();
+        for marker in ["INTROTEXT", "SLIDEONE", "SLIDETWO"] {
+            assert!(joined.contains(marker), "{marker} missing");
+        }
+    }
+
+    #[test]
+    fn removes_buttons_from_extracted_content() {
+        let prose = "A product guide paragraph with enough prose to be the article body, including the specification a reader compares across models. ".repeat(5);
+        let html = format!(
+            r#"<body><article><p>{prose}</p>
+              <button type="button"><span>Save to wishlist</span></button>
+              <div class="toc"><button role="button"><span>AccordionItemContainerButton</span></button><ul><li>Why you might not upgrade</li></ul></div>
+              <p>{prose}</p></article></body>"#
+        );
+        let out = ReadabilityExtractor
+            .extract(
+                &html,
+                Some("article"),
+                "https://example.com/guide",
+                &pixel_policy(),
+            )
+            .unwrap();
+        assert!(out.content.contains("Why you might not upgrade"));
+        assert!(!out.content.contains("Save to wishlist"));
+        assert!(!out.content.contains("AccordionItemContainerButton"));
     }
 }
