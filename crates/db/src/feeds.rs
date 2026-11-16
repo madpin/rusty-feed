@@ -201,6 +201,7 @@ pub struct AdminFeedSummary {
     pub error: i64,
     pub disabled: i64,
     pub subscribers: i64,
+    /// Approximate stored article count (a planner estimate, display only).
     pub articles: i64,
 }
 
@@ -318,20 +319,23 @@ pub async fn count_admin_filtered(
     .await?)
 }
 
-/// Aggregate counters for the shared-feed admin overview.
+/// Aggregate counters for the shared-feed admin overview. The `articles` total is
+/// approximate; every other counter is exact.
 pub async fn admin_summary(pool: &PgPool) -> Result<AdminFeedSummary> {
-    Ok(sqlx::query_as(
+    let mut summary: AdminFeedSummary = sqlx::query_as(
         "SELECT count(*) AS total, \
            count(*) FILTER (WHERE health_status = 'healthy') AS healthy, \
            count(*) FILTER (WHERE health_status = 'warning') AS warning, \
            count(*) FILTER (WHERE health_status = 'error') AS error, \
            count(*) FILTER (WHERE health_status = 'disabled') AS disabled, \
            (SELECT count(*) FROM user_feeds) AS subscribers, \
-           (SELECT count(*) FROM articles) AS articles \
+           0::bigint AS articles \
          FROM feeds",
     )
     .fetch_one(pool)
-    .await?)
+    .await?;
+    summary.articles = crate::articles::estimated_count(pool).await?;
+    Ok(summary)
 }
 
 pub async fn list_recent_errors(pool: &PgPool, limit: i64) -> Result<Vec<FeedErrorEvent>> {

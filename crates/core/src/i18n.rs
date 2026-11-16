@@ -506,6 +506,10 @@ pub fn message(locale: &str, key: &str) -> &'static str {
         (_, "admin_catalog") => "Discover catalog",
         (_, "admin_background") => "Background work",
         (_, "admin_costs") => "Costs",
+        (_, "approximate_prefix") => "~",
+        (_, "admin_articles_estimate_hint") => {
+            "About this many articles are stored across every feed. The figure comes from database statistics, so it can lag slightly behind recent changes."
+        }
         (_, "view") => "View",
         (_, "most_recent") => "Most recent",
         (_, "unread_only") => "Unread only",

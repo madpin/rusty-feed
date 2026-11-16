@@ -221,6 +221,8 @@ configuration, run `rusty-feed-cli reindex --confirm`, and restart them. Use
 |---|---:|---|
 | `ARTICLE_RETENTION_DAYS` | `0` | `0` keeps article rows forever; otherwise delete old rows after this many days |
 | `RETENTION_AGE_BASIS` | `published` | Age from publisher date (with ingestion fallback), or from `created` ingestion time |
+| `JOB_RETENTION_DAYS` | `7` | Days finished (`done`) queue jobs and dispatched outbox events are kept; `0` keeps them forever. Dead-letter jobs and unprocessed events are never purged |
+| `AGENT_RUN_RETENTION_DAYS` | `30` | Days finished (`success`/`failed`) agent run records are kept; `0` keeps them forever. Running rows are never purged |
 
 Retention is global because articles are shared. An article bookmarked by any
 user is always preserved. Public-page copies have a separate longest-requested

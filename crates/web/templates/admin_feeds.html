@@ -15,7 +15,7 @@
 <div class="admin-stat-grid">
   <span class="admin-stat admin-stat-content" title="Total distinct shared feeds."><strong>{{ summary.total }}</strong><span>Shared feeds</span></span>
   <span class="admin-stat admin-stat-people" title="Total subscriptions across all users and feeds."><strong>{{ ui.format_number(summary.subscribers) }}</strong><span>Subscriptions</span></span>
-  <span class="admin-stat admin-stat-content" title="Total stored articles across all feeds."><strong>{{ ui.format_number(summary.articles) }}</strong><span>Articles</span></span>
+  <span class="admin-stat admin-stat-content" title="{{ ui.text("admin_articles_estimate_hint") }}"><strong>{{ ui.text("approximate_prefix") }}{{ ui.format_number(summary.articles) }}</strong><span>Articles</span></span>
   <a class="admin-stat admin-stat-work" href="/admin/feeds?health=healthy" title="Feeds with no recent fetch failures."><strong>{{ summary.healthy }}</strong><span>Healthy</span></a>
   <a class="admin-stat admin-stat-warn" href="/admin/feeds?health=warning" title="Feeds with one or two consecutive failures."><strong>{{ summary.warning }}</strong><span>Warning</span></a>
   <a class="admin-stat admin-stat-warn" href="/admin/feeds?health=error" title="Feeds with three or more consecutive failures."><strong>{{ summary.error }}</strong><span>Failing</span></a>

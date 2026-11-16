@@ -328,6 +328,8 @@ async fn main() -> anyhow::Result<()> {
                 tracking_pixel_policy,
                 article_retention_days: config.article_retention_days,
                 retention_age_basis: config.retention_age_basis,
+                job_retention_days: config.job_retention_days,
+                agent_run_retention_days: config.agent_run_retention_days,
                 integration_credentials: rusty_feed_core::crypto::Cryptor::new_with_context(
                     config.encryption_secret.expose().as_bytes(),
                     b"rusty-feed/integration-credentials/v1",

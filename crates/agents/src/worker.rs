@@ -21,8 +21,9 @@ use rusty_feed_llm::LlmClient;
 use crate::{
     Agent, AgentContext, CatalogPreviewAgent, ClusterStoriesAgent, ContentCleanupAgent,
     DailyDigestAgent, DemoResetAgent, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent,
-    FetchFeedAgent, IntegrationDeliveryAgent, PatternDecayAgent, SavedSearchMatchAgent,
-    SavedSearchScanAgent, SummarizeArticleAgent, SummaryBackfillAgent, YouTubeDurationAgent,
+    FetchFeedAgent, IntegrationDeliveryAgent, PatternDecayAgent, QueueMaintenanceAgent,
+    SavedSearchMatchAgent, SavedSearchScanAgent, SummarizeArticleAgent, SummaryBackfillAgent,
+    YouTubeDurationAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -36,7 +37,7 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 13] = [
+        let list: [Arc<dyn Agent>; 14] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
             Arc::new(IntegrationDeliveryAgent),
@@ -45,6 +46,7 @@ impl Registry {
             Arc::new(ExtractContentAgent::default()),
             Arc::new(EmbedArticleAgent::default()),
             Arc::new(PatternDecayAgent),
+            Arc::new(QueueMaintenanceAgent::default()),
             Arc::new(SavedSearchScanAgent),
             Arc::new(SavedSearchMatchAgent::default()),
             Arc::new(SummarizeArticleAgent::default()),
@@ -112,6 +114,10 @@ pub struct WorkerConfig {
     /// Zero disables article-row cleanup; public-page lifetimes remain active.
     pub article_retention_days: u32,
     pub retention_age_basis: rusty_feed_core::config::RetentionAgeBasis,
+    /// Days finished queue jobs and dispatched outbox events are kept; zero keeps them.
+    pub job_retention_days: u32,
+    /// Days finished agent run records are kept; zero keeps them.
+    pub agent_run_retention_days: u32,
     pub integration_credentials: rusty_feed_core::crypto::Cryptor,
     pub acquisition_credentials: rusty_feed_core::crypto::Cryptor,
     pub youtube_duration_enabled: bool,
@@ -160,6 +166,8 @@ impl Default for WorkerConfig {
             tracking_pixel_policy: TrackingPixelPolicy::default(),
             article_retention_days: 0,
             retention_age_basis: rusty_feed_core::config::RetentionAgeBasis::Published,
+            job_retention_days: crate::queue_maintenance::DEFAULT_JOB_RETENTION_DAYS,
+            agent_run_retention_days: crate::queue_maintenance::DEFAULT_AGENT_RUN_RETENTION_DAYS,
             integration_credentials: rusty_feed_core::crypto::Cryptor::new(
                 b"rusty-feed-worker-default-test-key-material",
             ),
@@ -230,6 +238,13 @@ impl Worker {
             Arc::new(ContentCleanupAgent::new(
                 config.article_retention_days,
                 config.retention_age_basis,
+            )),
+        );
+        registry.register(
+            "queue_maintenance",
+            Arc::new(QueueMaintenanceAgent::new(
+                config.job_retention_days,
+                config.agent_run_retention_days,
             )),
         );
         registry.register(
@@ -382,6 +397,9 @@ impl Worker {
                             }
                             if let Err(e) = enqueue_singleton(&ctx.db, "content_cleanup").await {
                                 tracing::warn!(error = %e, "scheduler: could not enqueue content_cleanup");
+                            }
+                            if let Err(e) = enqueue_singleton(&ctx.db, "queue_maintenance").await {
+                                tracing::warn!(error = %e, "scheduler: could not enqueue queue_maintenance");
                             }
                         }
                         if demo_mode && demo_reset_schedule.matches(now) {

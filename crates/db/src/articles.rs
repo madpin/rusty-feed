@@ -459,19 +459,6 @@ pub async fn find_by_url(pool: &PgPool, url: &str) -> Result<Option<Article>> {
         .await?)
 }
 
-async fn find_by_feed_and_guid(
-    pool: &PgPool,
-    feed_id: Uuid,
-    guid: &str,
-) -> Result<Option<Article>> {
-    let sql = format!("SELECT {ARTICLE_COLUMNS} FROM articles WHERE feed_id = $1 AND guid = $2");
-    Ok(sqlx::query_as::<_, Article>(&sql)
-        .bind(feed_id)
-        .bind(guid)
-        .fetch_optional(pool)
-        .await?)
-}
-
 async fn find_by_feed_and_hash(
     pool: &PgPool,
     feed_id: Uuid,
@@ -500,6 +487,24 @@ fn feed_content_hash(new: &NewArticle) -> String {
     content_hash(&feed_content(new).html)
 }
 
+/// A feed body sanitized and hashed once, then reused by every step of one upsert.
+struct PreparedFeed {
+    html: String,
+    hash: String,
+    blocked_tracking_pixels: u32,
+}
+
+impl PreparedFeed {
+    fn new(new: &NewArticle) -> Self {
+        let feed = feed_content(new);
+        Self {
+            hash: content_hash(&feed.html),
+            html: feed.html,
+            blocked_tracking_pixels: feed.blocked_tracking_pixels,
+        }
+    }
+}
+
 fn feed_content_changed(existing: &Article, feed_hash: &str) -> bool {
     existing
         .feed_content_hash
@@ -511,21 +516,47 @@ fn feed_content_changed(existing: &Article, feed_hash: &str) -> bool {
 /// strategy. Content-hash matching is only attempted when there is no GUID
 /// (matching the reference implementation).
 pub async fn find_duplicate(pool: &PgPool, new: &NewArticle) -> Result<Option<Article>> {
-    if let Some(guid) = new.guid.as_deref() {
-        if let Some(a) = find_by_feed_and_guid(pool, new.feed_id, guid).await? {
-            return Ok(Some(a));
+    find_duplicate_with(pool, new, || feed_content_hash(new)).await
+}
+
+/// GUID and URL resolved in one query. A feed-scoped GUID match wins over a URL
+/// match on a different article, exactly as the two sequential lookups did.
+async fn find_by_guid_or_url(
+    pool: &PgPool,
+    feed_id: Uuid,
+    guid: &str,
+    url: &str,
+) -> Result<Option<Article>> {
+    let sql = format!(
+        "SELECT {ARTICLE_COLUMNS} FROM articles \
+         WHERE (feed_id = $1 AND guid = $2) OR url = $3 \
+         ORDER BY CASE WHEN feed_id = $1 AND guid = $2 THEN 0 ELSE 1 END \
+         LIMIT 1"
+    );
+    Ok(sqlx::query_as::<_, Article>(&sql)
+        .bind(feed_id)
+        .bind(guid)
+        .bind(url)
+        .fetch_optional(pool)
+        .await?)
+}
+
+/// [`find_duplicate`] with the feed-content hash supplied lazily, so a caller
+/// that already sanitized the body does not sanitize it again.
+async fn find_duplicate_with(
+    pool: &PgPool,
+    new: &NewArticle,
+    feed_hash: impl FnOnce() -> String,
+) -> Result<Option<Article>> {
+    match new.guid.as_deref() {
+        Some(guid) => find_by_guid_or_url(pool, new.feed_id, guid, &new.url).await,
+        None => {
+            if let Some(a) = find_by_url(pool, &new.url).await? {
+                return Ok(Some(a));
+            }
+            find_by_feed_and_hash(pool, new.feed_id, &feed_hash()).await
         }
     }
-    if let Some(a) = find_by_url(pool, &new.url).await? {
-        return Ok(Some(a));
-    }
-    if new.guid.is_none() {
-        let hash = feed_content_hash(new);
-        if let Some(a) = find_by_feed_and_hash(pool, new.feed_id, &hash).await? {
-            return Ok(Some(a));
-        }
-    }
-    Ok(None)
 }
 
 /// Whether an existing article should be updated from `new`: source content or
@@ -539,13 +570,12 @@ fn should_update_with_original_url(
     new: &NewArticle,
     original_url: Option<&str>,
 ) -> bool {
-    let feed = feed_content(new);
-    let feed_hash = content_hash(&feed.html);
+    let feed = PreparedFeed::new(new);
     should_update_fields(
         existing,
         new,
         original_url,
-        &feed_hash,
+        &feed.hash,
         feed.blocked_tracking_pixels,
     )
 }
@@ -613,18 +643,18 @@ async fn upsert_internal(
     original_url: Option<&str>,
     blocked_tracking_pixels: u32,
 ) -> Result<(Article, UpsertAction)> {
-    let (article, mut action) = if let Some(existing) = find_duplicate(pool, new).await? {
-        let feed = feed_content(new);
+    let feed = PreparedFeed::new(new);
+    let found = find_duplicate_with(pool, new, || feed.hash.clone()).await?;
+    let (article, mut action) = if let Some(existing) = found {
         let total_blocked = blocked_tracking_pixels.saturating_add(feed.blocked_tracking_pixels);
-        let feed_hash = content_hash(&feed.html);
-        if should_update_fields(&existing, new, original_url, &feed_hash, total_blocked) {
+        if should_update_fields(&existing, new, original_url, &feed.hash, total_blocked) {
             let updated = update(pool, &existing, new, original_url, feed, total_blocked).await?;
             (updated, UpsertAction::Updated)
         } else {
             (existing, UpsertAction::Skipped)
         }
     } else {
-        match create(pool, new, original_url, blocked_tracking_pixels).await {
+        match create(pool, new, original_url, blocked_tracking_pixels, &feed).await {
             Ok(article) => (article, UpsertAction::Created),
             // Lost a race on the unique URL: another writer created it first.
             Err(DbError::Sqlx(sqlx::Error::Database(db_err))) if db_err.is_unique_violation() => {
@@ -644,29 +674,16 @@ async fn upsert_internal(
     Ok((article, action))
 }
 
-async fn sync_enclosures(
-    pool: &PgPool,
-    article_id: Uuid,
-    enclosures: &[NewArticleEnclosure],
-) -> Result<bool> {
-    let enclosures = &enclosures[..enclosures.len().min(MAX_ARTICLE_ENCLOSURES)];
-    let mut tx = pool.begin().await?;
-    sqlx::query("SELECT id FROM articles WHERE id = $1 FOR UPDATE")
-        .bind(article_id)
-        .execute(&mut *tx)
-        .await?;
-    let current: Vec<ArticleEnclosure> = sqlx::query_as(
-        "SELECT article_id, position, url, media_kind, mime_type, title, size_bytes, \
-         duration_seconds, width, height FROM article_enclosures \
-         WHERE article_id = $1 ORDER BY position",
-    )
-    .bind(article_id)
-    .fetch_all(&mut *tx)
-    .await?;
-    let unchanged = current.len() == enclosures.len()
+const ENCLOSURE_COLUMNS_SQL: &str =
+    "SELECT article_id, position, url, media_kind, mime_type, title, \
+     size_bytes, duration_seconds, width, height FROM article_enclosures \
+     WHERE article_id = $1 ORDER BY position";
+
+fn enclosures_unchanged(current: &[ArticleEnclosure], incoming: &[NewArticleEnclosure]) -> bool {
+    current.len() == incoming.len()
         && current
             .iter()
-            .zip(enclosures)
+            .zip(incoming)
             .enumerate()
             .all(|(position, (stored, incoming))| {
                 stored.position == position as i32
@@ -678,8 +695,35 @@ async fn sync_enclosures(
                     && stored.duration_seconds == incoming.duration_seconds
                     && stored.width == incoming.width
                     && stored.height == incoming.height
-            });
-    if unchanged {
+            })
+}
+
+async fn sync_enclosures(
+    pool: &PgPool,
+    article_id: Uuid,
+    enclosures: &[NewArticleEnclosure],
+) -> Result<bool> {
+    let enclosures = &enclosures[..enclosures.len().min(MAX_ARTICLE_ENCLOSURES)];
+    // Unchanged is the common refresh outcome: a plain read decides it without
+    // a transaction or a row lock on the article.
+    let current: Vec<ArticleEnclosure> = sqlx::query_as(ENCLOSURE_COLUMNS_SQL)
+        .bind(article_id)
+        .fetch_all(pool)
+        .await?;
+    if enclosures_unchanged(&current, enclosures) {
+        return Ok(false);
+    }
+
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT id FROM articles WHERE id = $1 FOR UPDATE")
+        .bind(article_id)
+        .execute(&mut *tx)
+        .await?;
+    let current: Vec<ArticleEnclosure> = sqlx::query_as(ENCLOSURE_COLUMNS_SQL)
+        .bind(article_id)
+        .fetch_all(&mut *tx)
+        .await?;
+    if enclosures_unchanged(&current, enclosures) {
         tx.commit().await?;
         return Ok(false);
     }
@@ -717,10 +761,10 @@ async fn create(
     new: &NewArticle,
     original_url: Option<&str>,
     blocked_tracking_pixels: u32,
+    feed: &PreparedFeed,
 ) -> Result<Article> {
-    let feed = feed_content(new);
-    let feed_content = feed.html;
-    let feed_hash = content_hash(&feed_content);
+    let feed_content = &feed.html;
+    let feed_hash = &feed.hash;
     let blocked_tracking_pixels =
         blocked_tracking_pixels.saturating_add(feed.blocked_tracking_pixels);
     let sql = format!(
@@ -740,9 +784,9 @@ async fn create(
         .bind(&new.guid)
         .bind(&new.title)
         .bind(&new.author)
-        .bind(&feed_content)
+        .bind(feed_content)
         .bind(&new.excerpt)
-        .bind(&feed_hash)
+        .bind(feed_hash)
         .bind(i32::try_from(blocked_tracking_pixels).unwrap_or(i32::MAX))
         .bind(&new.image_url)
         .bind(new.published_at)
@@ -755,11 +799,11 @@ async fn update(
     existing: &Article,
     new: &NewArticle,
     original_url: Option<&str>,
-    feed: SanitizedArticleHtml,
+    feed: PreparedFeed,
     blocked_tracking_pixels: u32,
 ) -> Result<Article> {
     let feed_content = feed.html;
-    let feed_hash = content_hash(&feed_content);
+    let feed_hash = feed.hash;
     let source_changed = feed_content_changed(existing, &feed_hash);
     let fallback_changed = source_changed
         || (existing.content_source == "feed" && existing.feed_excerpt != new.excerpt);
@@ -941,10 +985,18 @@ pub async fn list_for_user(
         .await?)
 }
 
+/// Exact number of stored articles (a full index scan; use only where the exact
+/// value matters).
 pub async fn count(pool: &PgPool) -> Result<i64> {
     Ok(sqlx::query_scalar("SELECT count(*) FROM articles")
         .fetch_one(pool)
         .await?)
+}
+
+/// Approximate number of stored articles from planner statistics, for display
+/// totals only. See [`crate::estimates::estimated_rows`].
+pub async fn estimated_count(pool: &PgPool) -> Result<i64> {
+    crate::estimates::estimated_rows(pool, crate::estimates::EstimatedTable::Articles).await
 }
 
 /// Count unread articles per subscribed feed for a user. "Unread" means the

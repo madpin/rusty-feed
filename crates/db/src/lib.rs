@@ -24,6 +24,7 @@ pub mod domain_state;
 pub mod embedding_space;
 pub mod embeddings;
 pub mod error;
+pub mod estimates;
 pub mod feed_blocklist;
 pub mod feed_icons;
 pub mod feedback;

@@ -166,6 +166,25 @@ The admin queue page exposes bounded controls:
 All controls enqueue or update durable work; the web request never performs a
 publisher crawl. Inspect the error class before retrying repeated failures.
 
+Finished work records are purged by the scheduled `queue_maintenance` agent,
+which runs on `CLEANUP_SCHEDULE` under a singleton lease:
+
+- `done` queue jobs and dispatched outbox events older than `JOB_RETENTION_DAYS`
+  (default 7) are deleted;
+- finished (`success`/`failed`) agent run records older than
+  `AGENT_RUN_RETENTION_DAYS` (default 30) are deleted;
+- `0` disables the purge for that table. `pending`, `running` and dead-letter
+  jobs, unprocessed outbox events and `running` agent runs are never deleted;
+  dead letters stay until an operator retries them. A finished AI summary job
+  whose article still has no summary is also kept, so the reader keeps showing
+  why that summary is missing.
+
+Deletes run in batches of 5,000 rows with at most 500,000 rows per table per
+run. The first run after upgrading deletes the existing backlog in batches and
+may need several nights if the backlog is larger than that cap. PostgreSQL
+reuses the freed space for new rows; the files shrink only after `VACUUM FULL`
+or a dump/restore, which is optional.
+
 ## Dependency failures
 
 - **Redis:** Rusty Feed continues with its local cache and PostgreSQL. Cross-instance
@@ -217,7 +236,10 @@ holds at most eight short-lived dedicated lock connections per server.
 ## Capacity and retention
 
 The dashboard reports database, article/index, embedding/HNSW, and shared media
-storage. `ARTICLE_RETENTION_DAYS=0` is infinite. A finite policy never deletes an
+storage. The Articles total on the dashboard and Shared feeds page is approximate (shown
+with a leading `~`); it comes from database statistics refreshed by autovacuum,
+so it can lag slightly behind recent changes. Lists, filters and pagination use
+exact counts. `ARTICLE_RETENTION_DAYS=0` is infinite. A finite policy never deletes an
 article bookmarked by any user. Public-page copies have their own
 subscriber-owned finite/infinite lifetime; RSS content remains stored.
 
