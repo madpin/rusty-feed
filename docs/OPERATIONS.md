@@ -207,7 +207,10 @@ corrupting similarity.
 ## Capacity and retention
 
 The dashboard reports database, article/index, embedding/HNSW, and shared media
-storage. `ARTICLE_RETENTION_DAYS=0` is infinite. A finite policy never deletes an
+storage. The Articles total on the dashboard and Shared feeds page is approximate (shown
+with a leading `~`); it comes from database statistics refreshed by autovacuum,
+so it can lag slightly behind recent changes. Lists, filters and pagination use
+exact counts. `ARTICLE_RETENTION_DAYS=0` is infinite. A finite policy never deletes an
 article bookmarked by any user. Public-page copies have their own
 subscriber-owned finite/infinite lifetime; RSS content remains stored.
 

@@ -941,10 +941,18 @@ pub async fn list_for_user(
         .await?)
 }
 
+/// Exact number of stored articles (a full index scan; use only where the exact
+/// value matters).
 pub async fn count(pool: &PgPool) -> Result<i64> {
     Ok(sqlx::query_scalar("SELECT count(*) FROM articles")
         .fetch_one(pool)
         .await?)
+}
+
+/// Approximate number of stored articles from planner statistics, for display
+/// totals only. See [`crate::estimates::estimated_rows`].
+pub async fn estimated_count(pool: &PgPool) -> Result<i64> {
+    crate::estimates::estimated_rows(pool, crate::estimates::EstimatedTable::Articles).await
 }
 
 /// Count unread articles per subscribed feed for a user. "Unread" means the

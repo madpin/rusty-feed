@@ -900,7 +900,7 @@ pub async fn dashboard(
     ) = tokio::try_join!(
         users::count(state.db.pool()),
         feeds::admin_summary(state.db.pool()),
-        articles::count(state.db.pool()),
+        articles::estimated_count(state.db.pool()),
         catalog::count(state.db.pool()),
         jobs::queue_totals(state.db.pool()),
         jobs::list_online_workers(state.db.pool()),
