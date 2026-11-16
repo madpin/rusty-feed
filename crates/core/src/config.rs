@@ -426,6 +426,13 @@ pub struct AppConfig {
     pub article_retention_days: u32,
     #[serde(default)]
     pub retention_age_basis: RetentionAgeBasis,
+    /// Days finished (`done`) queue jobs and dispatched outbox events are kept.
+    /// Zero keeps them forever. Dead-letter and unprocessed rows are never purged.
+    #[serde(default = "defaults::job_retention_days")]
+    pub job_retention_days: u32,
+    /// Days finished agent run records are kept. Zero keeps them forever.
+    #[serde(default = "defaults::agent_run_retention_days")]
+    pub agent_run_retention_days: u32,
 
     // ── Background jobs / AGENTS ──
     #[serde(default = "defaults::bool_true")]
@@ -863,6 +870,12 @@ impl AppConfig {
                 "ARTICLE_RETENTION_DAYS must be 0 (infinite) or at most 36500".into(),
             ));
         }
+        if self.job_retention_days > 36_500 || self.agent_run_retention_days > 36_500 {
+            return Err(ConfigError::Invalid(
+                "JOB_RETENTION_DAYS and AGENT_RUN_RETENTION_DAYS must be 0 (infinite) or at most 36500"
+                    .into(),
+            ));
+        }
         if !valid_user_agent(&self.outbound_user_agent) {
             return Err(ConfigError::Invalid(
                 "OUTBOUND_USER_AGENT must contain 1 to 256 printable ASCII characters without surrounding whitespace"
@@ -1078,6 +1091,8 @@ impl AppConfig {
             "retention": {
                 "article_days": self.article_retention_days,
                 "age_basis": self.retention_age_basis.as_str(),
+                "job_days": self.job_retention_days,
+                "agent_run_days": self.agent_run_retention_days,
             },
             "jobs": {
                 "scheduler_enabled": self.enable_cron_jobs,
@@ -1228,6 +1243,12 @@ mod defaults {
     }
     pub fn pwa_background_color() -> String {
         "#f8fafc".to_string()
+    }
+    pub fn job_retention_days() -> u32 {
+        7
+    }
+    pub fn agent_run_retention_days() -> u32 {
+        30
     }
     pub fn public_share_default_lifetime_days() -> u16 {
         30
@@ -1767,6 +1788,29 @@ mod tests {
         })));
         let err = AppConfig::from_figment(invalid).unwrap_err();
         assert!(matches!(err, ConfigError::Invalid(_)));
+    }
+
+    #[test]
+    fn queue_and_run_retention_defaults_and_bounds() {
+        let cfg = AppConfig::from_figment(base()).expect("defaults load");
+        assert_eq!(cfg.job_retention_days, 7);
+        assert_eq!(cfg.agent_run_retention_days, 30);
+        let disabled = base().merge(Serialized::defaults(serde_json::json!({
+            "job_retention_days": 0,
+            "agent_run_retention_days": 0,
+        })));
+        let cfg = AppConfig::from_figment(disabled).expect("zero disables the purge");
+        assert_eq!(
+            (cfg.job_retention_days, cfg.agent_run_retention_days),
+            (0, 0)
+        );
+        for key in ["job_retention_days", "agent_run_retention_days"] {
+            let invalid = base().merge(Serialized::defaults(serde_json::json!({ key: 36_501 })));
+            assert!(matches!(
+                AppConfig::from_figment(invalid).unwrap_err(),
+                ConfigError::Invalid(_)
+            ));
+        }
     }
 
     #[test]

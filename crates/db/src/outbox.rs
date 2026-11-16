@@ -7,6 +7,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::error::Result;
+use crate::jobs::{delete_in_batches, PurgeLimits};
 
 #[derive(sqlx::FromRow)]
 struct OutboxEvent {
@@ -29,6 +30,32 @@ pub async fn publish(
         .execute(&mut **transaction)
         .await?;
     Ok(id)
+}
+
+/// Delete dispatched events processed more than `retention_days` ago. Events
+/// with `processed_at IS NULL` are never deleted, and dispatch only selects
+/// unprocessed rows, so a purged event can never be dispatched again. Zero days
+/// disables the purge.
+pub async fn purge_processed(pool: &PgPool, retention_days: u32) -> Result<u64> {
+    purge_processed_with(pool, retention_days, PurgeLimits::default()).await
+}
+
+/// [`purge_processed`] with explicit batch bounds.
+pub async fn purge_processed_with(
+    pool: &PgPool,
+    retention_days: u32,
+    limits: PurgeLimits,
+) -> Result<u64> {
+    delete_in_batches(
+        pool,
+        "DELETE FROM outbox_events WHERE id = ANY(ARRAY( \
+             SELECT id FROM outbox_events \
+             WHERE processed_at IS NOT NULL AND processed_at < now() - make_interval(days => $1) \
+             ORDER BY processed_at LIMIT $2 FOR UPDATE SKIP LOCKED))",
+        retention_days,
+        limits,
+    )
+    .await
 }
 
 /// Dispatch a bounded batch. Unknown kinds stay pending so deployment skew

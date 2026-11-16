@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::Result;
+use crate::jobs::{delete_in_batches, PurgeLimits};
 
 /// Start a run; returns its id.
 pub async fn start(pool: &PgPool, agent_name: &str, trigger: &str) -> Result<Uuid> {
@@ -64,6 +65,31 @@ pub async fn list_recent(pool: &PgPool, limit: i64) -> Result<Vec<RecentAgentRun
     .bind(limit)
     .fetch_all(pool)
     .await?)
+}
+
+/// Delete `success`/`failed` runs started more than `retention_days` ago.
+/// `pending` and `running` rows are never deleted. Zero days disables the purge.
+pub async fn purge_finished(pool: &PgPool, retention_days: u32) -> Result<u64> {
+    purge_finished_with(pool, retention_days, PurgeLimits::default()).await
+}
+
+/// [`purge_finished`] with explicit batch bounds.
+pub async fn purge_finished_with(
+    pool: &PgPool,
+    retention_days: u32,
+    limits: PurgeLimits,
+) -> Result<u64> {
+    delete_in_batches(
+        pool,
+        "DELETE FROM agent_runs WHERE id = ANY(ARRAY( \
+             SELECT id FROM agent_runs \
+             WHERE status IN ('success', 'failed') \
+               AND started_at < now() - make_interval(days => $1) \
+             ORDER BY started_at LIMIT $2 FOR UPDATE SKIP LOCKED))",
+        retention_days,
+        limits,
+    )
+    .await
 }
 
 /// Count runs for an agent with a given status (tests/inspection).

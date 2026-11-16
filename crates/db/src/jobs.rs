@@ -511,6 +511,94 @@ pub async fn list_online_workers(pool: &PgPool) -> Result<Vec<OnlineWorker>> {
     .await?)
 }
 
+/// Rows deleted per statement by the retention purges.
+pub const PURGE_BATCH_SIZE: i64 = 5_000;
+/// Hard ceiling on rows one purge call deletes from one table; a larger backlog
+/// is finished by the next scheduled run.
+pub const PURGE_MAX_ROWS_PER_RUN: i64 = 500_000;
+
+/// Batch bounds for a retention purge, so one run on a huge backlog never holds
+/// one giant transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct PurgeLimits {
+    pub batch_size: i64,
+    pub max_rows: i64,
+}
+
+impl Default for PurgeLimits {
+    fn default() -> Self {
+        Self {
+            batch_size: PURGE_BATCH_SIZE,
+            max_rows: PURGE_MAX_ROWS_PER_RUN,
+        }
+    }
+}
+
+/// Run a `DELETE` taking `$1` = retention days and `$2` = batch size until a
+/// batch comes back short or `limits.max_rows` is reached. Zero days is a no-op.
+/// Callers select ids with `id = ANY(ARRAY(... LIMIT $2))`: the equivalent
+/// `id IN (subquery)` plans a full-table hash semi join on every batch.
+pub(crate) async fn delete_in_batches(
+    pool: &PgPool,
+    sql: &str,
+    retention_days: u32,
+    limits: PurgeLimits,
+) -> Result<u64> {
+    if retention_days == 0 {
+        return Ok(0);
+    }
+    let days = retention_days.min(36_500) as i32;
+    let batch_size = limits.batch_size.max(1);
+    let mut total = 0i64;
+    while total < limits.max_rows {
+        let limit = batch_size.min(limits.max_rows - total);
+        let deleted = sqlx::query(sql)
+            .bind(days)
+            .bind(limit)
+            .execute(pool)
+            .await?
+            .rows_affected() as i64;
+        total += deleted;
+        if deleted < limit {
+            break;
+        }
+    }
+    Ok(total as u64)
+}
+
+/// Delete `done` jobs last updated more than `retention_days` ago. `pending`,
+/// `running` and `dead` jobs are never deleted (dead letters are operator
+/// evidence until retried). A finished `summarize_article` job whose article
+/// still has no summary is kept so the reader's summary-status endpoint keeps
+/// reporting "finished without usable content". Zero days disables the purge.
+pub async fn purge_done(pool: &PgPool, retention_days: u32) -> Result<u64> {
+    purge_done_with(pool, retention_days, PurgeLimits::default()).await
+}
+
+/// [`purge_done`] with explicit batch bounds.
+pub async fn purge_done_with(
+    pool: &PgPool,
+    retention_days: u32,
+    limits: PurgeLimits,
+) -> Result<u64> {
+    delete_in_batches(
+        pool,
+        "DELETE FROM job_queue WHERE id = ANY(ARRAY( \
+             SELECT job.id FROM job_queue job \
+             WHERE job.status = 'done' AND job.updated_at < now() - make_interval(days => $1) \
+               AND NOT (job.kind = 'summarize_article' AND EXISTS ( \
+                   SELECT 1 FROM articles article \
+                   WHERE article.id = CASE WHEN job.payload ->> 'article_id' ~* \
+                       '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' \
+                       THEN (job.payload ->> 'article_id')::uuid END \
+                     AND article.summarized_at IS NULL)) \
+             ORDER BY job.updated_at LIMIT $2 FOR UPDATE OF job SKIP LOCKED))",
+        retention_days,
+        limits,
+    )
+    .await
+}
+
 /// Return the most recent durable job for a dedup key.
 pub async fn latest_by_dedup(pool: &PgPool, dedup_key: &str) -> Result<Option<JobStatus>> {
     Ok(sqlx::query_as(
