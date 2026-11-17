@@ -131,6 +131,8 @@ async fn exact_counts_still_drive_filters_and_pagination() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    // Inserting feeds moves the totals other tests compare against.
+    let _guard = ARTICLE_COUNT_LOCK.lock().await;
     let pool = db.pool();
     let marker = Uuid::now_v7().simple().to_string();
     for index in 0..3 {
