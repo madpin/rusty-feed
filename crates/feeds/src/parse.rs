@@ -236,7 +236,40 @@ fn entry_enclosures(entry: &feed_rs::model::Entry) -> Vec<NewArticleEnclosure> {
             );
         }
     }
+    drop_smaller_image_variants(enclosures)
+}
+
+/// Publishers such as The Guardian list one photo as several `media:content`
+/// entries at different widths; keep only the largest so the reader shows it once.
+fn drop_smaller_image_variants(enclosures: Vec<NewArticleEnclosure>) -> Vec<NewArticleEnclosure> {
+    let image_positions: Vec<usize> = enclosures
+        .iter()
+        .enumerate()
+        .filter(|(_, enclosure)| enclosure.media_kind == "image")
+        .map(|(position, _)| position)
+        .collect();
+    if image_positions.len() < 2 {
+        return enclosures;
+    }
+    let images: Vec<(&str, Option<u32>)> = image_positions
+        .iter()
+        .map(|&position| {
+            let enclosure = &enclosures[position];
+            let width = enclosure.width.and_then(|width| u32::try_from(width).ok());
+            (enclosure.url.as_str(), width)
+        })
+        .collect();
+    let keep: std::collections::HashSet<usize> =
+        rusty_feed_core::image_dedup::largest_variant_indices(&images)
+            .into_iter()
+            .map(|index| image_positions[index])
+            .collect();
     enclosures
+        .into_iter()
+        .enumerate()
+        .filter(|(position, enclosure)| enclosure.media_kind != "image" || keep.contains(position))
+        .map(|(_, enclosure)| enclosure)
+        .collect()
 }
 
 #[derive(Clone, Copy)]
@@ -786,6 +819,30 @@ mod tests {
             parsed.icon_url.as_deref(),
             Some("https://example.com/icon.png")
         );
+    }
+
+    #[test]
+    fn media_content_resolution_variants_keep_only_the_largest() {
+        let rss = br#"<?xml version="1.0"?>
+        <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel>
+          <title>Guardian</title>
+          <item>
+            <title>Live</title><link>https://example.com/live</link>
+            <media:content width="140" url="https://i.example.com/img/media/f8e6/master/4120.jpg?width=140&amp;quality=85&amp;auto=format&amp;fit=max&amp;s=aaa"><media:credit>PA</media:credit></media:content>
+            <media:content width="460" url="https://i.example.com/img/media/f8e6/master/4120.jpg?width=460&amp;quality=85&amp;auto=format&amp;fit=max&amp;s=bbb"><media:credit>PA</media:credit></media:content>
+            <media:content width="700" url="https://i.example.com/img/media/f8e6/master/4120.jpg?width=700&amp;quality=85&amp;auto=format&amp;fit=max&amp;s=ccc"><media:credit>PA</media:credit></media:content>
+            <media:content width="460" url="https://i.example.com/img/media/other/master/99.jpg?width=460&amp;s=ddd" />
+          </item>
+        </channel></rss>"#;
+        let parsed = parse_feed(Uuid::now_v7(), rss).unwrap();
+        let urls: Vec<&str> = parsed.articles[0]
+            .enclosures
+            .iter()
+            .map(|enclosure| enclosure.url.as_str())
+            .collect();
+        assert_eq!(urls.len(), 2, "{urls:?}");
+        assert!(urls[0].contains("width=700"), "{urls:?}");
+        assert!(urls[1].contains("other"), "{urls:?}");
     }
 
     #[test]

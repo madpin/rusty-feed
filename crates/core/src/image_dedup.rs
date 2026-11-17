@@ -16,9 +16,9 @@ use url::Url;
 
 const MARKER: &str = "<!--rf-dup-->";
 const WRAPPERS: [&str; 5] = ["a", "figure", "p", "div", "span"];
-const SIZE_QUERY_KEYS: [&str; 15] = [
+const SIZE_QUERY_KEYS: [&str; 16] = [
     "w", "h", "width", "height", "resize", "fit", "quality", "q", "crop", "size", "ssl", "strip",
-    "dpr", "zoom", "auto",
+    "dpr", "zoom", "auto", "s",
 ];
 
 static WP_SUFFIX: LazyLock<Regex> =
@@ -140,6 +140,41 @@ fn describe(
     })
 }
 
+/// Indices to keep when `images` (URL, declared width) lists the same picture
+/// at several sizes, e.g. a feed's `media:content` entries. Order is preserved;
+/// unrelated URLs and equal-size variants are kept, only a variant beaten by a
+/// strictly larger one of the same image is dropped.
+pub fn largest_variant_indices(images: &[(&str, Option<u32>)]) -> Vec<usize> {
+    let infos: Vec<Option<ImgInfo>> = images
+        .iter()
+        .map(|(url, width)| {
+            let width = width.map(|w| w.to_string());
+            describe(url, None, width.as_deref(), None)
+        })
+        .collect();
+    (0..images.len())
+        .filter(|&index| !is_beaten(&infos, index))
+        .collect()
+}
+
+fn is_beaten(infos: &[Option<ImgInfo>], index: usize) -> bool {
+    let Some(info) = &infos[index] else {
+        return false;
+    };
+    let top = infos
+        .iter()
+        .flatten()
+        .filter(|other| other.key == info.key)
+        .map(|other| other.rank)
+        .max()
+        .unwrap_or(0);
+    info.rank < top
+        && infos
+            .iter()
+            .flatten()
+            .any(|other| other.key == info.key && other.rank == top && other.src != info.src)
+}
+
 /// Drop smaller duplicates of the same image, keeping the largest variant.
 /// Returns the input unchanged when nothing is a duplicate.
 pub(crate) fn dedupe_images(html: &str) -> String {
@@ -250,7 +285,7 @@ fn dedupe(html: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::dedupe_images;
+    use super::{dedupe_images, largest_variant_indices};
 
     fn count(html: &str) -> usize {
         html.matches("<img").count()
@@ -339,5 +374,33 @@ mod tests {
     fn single_image_srcset_is_untouched() {
         let html = r#"<img src="https://x.com/i-300x200.jpg" srcset="https://x.com/i-300x200.jpg 300w, https://x.com/i-900x600.jpg 900w">"#;
         assert_eq!(dedupe_images(html), html);
+    }
+
+    #[test]
+    fn feed_media_variants_with_signed_sizes_collapse() {
+        let base = "https://i.guim.co.uk/img/media/f8e6/650_0_4120_3296/master/4120.jpg";
+        let small = format!("{base}?width=140&quality=85&auto=format&fit=max&s=aaa");
+        let mid = format!("{base}?width=460&quality=85&auto=format&fit=max&s=bbb");
+        let large = format!("{base}?width=700&quality=85&auto=format&fit=max&s=ccc");
+        let other = "https://i.guim.co.uk/img/media/9999/0_0_10_10/master/10.jpg?width=140&s=ddd";
+        let images = [
+            (small.as_str(), Some(140)),
+            (mid.as_str(), Some(460)),
+            (large.as_str(), Some(700)),
+            (other, Some(140)),
+        ];
+        assert_eq!(largest_variant_indices(&images), vec![2, 3]);
+    }
+
+    #[test]
+    fn variant_indices_keep_unsized_and_equal_images() {
+        let images = [
+            ("https://x.com/a.jpg", None),
+            ("https://x.com/a.jpg", None),
+            ("https://x.com/b-300x200.jpg", Some(300)),
+            ("https://x.com/c.jpg?w=300", Some(300)),
+            ("https://x.com/c.jpg?w=300&h=200", Some(300)),
+        ];
+        assert_eq!(largest_variant_indices(&images), vec![0, 1, 2, 3, 4]);
     }
 }
