@@ -26,6 +26,7 @@ of this page against all templates. Add a term there when you add one here.
 | A card was on screen, or you opened the article | **Seen** / **Unseen** (action: *Mark unseen*) | glance, glanced, viewed | `seen_articles`, `data-skip-glance`, `/articles/{id}/seen` |
 | Where you read the articles of your feeds (`/articles`) | **Library** | home, inbox, reader (as a page name) | nav key `library` |
 | The AI-written short overview of one article | **AI summary** (kicker: **TL;DR**) | digest, “At a glance” | `article_summaries` |
+| One cohesive AI-written article from a Feed or Folder over the last day or week | **Roundup** (nav **Roundups**; **Summarize: Day / Week** control; **Schedule** for repeats) | digest, newsletter, briefing | `roundups`, `roundup_schedules`, `roundup_runs`; `RoundupAgent`, `RoundupScheduleAgent`; `/roundups` and `/roundups/{feed|folder}/{id}` |
 | Numeric fingerprint that lets search match by meaning | **search index** (explain “embeddings” only on admin pages) | embedding, vector | `article_embeddings`, `embed` crate |
 | The setup of how to fetch a feed that needs special access | **Feed access profile** (admin) | acquisition profile/policy | `acquisition` module, `/admin/acquisition` |
 | Processes that run background work | **Background work**, **task**, **worker** (admin pages only, always explained) | job, agent, lane, heartbeat, outbox, dead letter | `job_queue`, `Agent`, queue lanes `interactive`/`background`, `job_worker_heartbeats`, outbox, `dead` status |
@@ -71,6 +72,7 @@ that they translate together:
 | Saved searches | `saved_searches` | Saved searches |
 | Alerts | `alerts` | Alerts |
 | Briefing | `briefing` | Briefing |
+| Roundups | `roundups` | Roundups |
 | Discover | `discover` | Discover feeds |
 | Feeds | `feeds` | Manage feeds |
 | Account → Preferences | `preferences` | Preferences |

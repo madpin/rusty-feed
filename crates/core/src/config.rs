@@ -356,6 +356,9 @@ pub struct AppConfig {
     /// First-start readable-text minimum for the persisted automatic policy.
     #[serde(default = "defaults::llm_auto_summarize_min_chars")]
     pub llm_auto_summarize_min_chars: u32,
+    /// Maximum repeating Roundups per user (FND-248).
+    #[serde(default = "defaults::roundup_schedule_limit")]
+    pub roundup_schedule_limit: u32,
     #[serde(default = "defaults::ollama_base_url")]
     pub ollama_base_url: String,
 
@@ -915,6 +918,11 @@ impl AppConfig {
         self.tracking_url_policy().map_err(ConfigError::Invalid)?;
         self.tracking_pixel_policy().map_err(ConfigError::Invalid)?;
         self.youtube_policy().map_err(ConfigError::Invalid)?;
+        if !(1..=100).contains(&self.roundup_schedule_limit) {
+            return Err(ConfigError::Invalid(
+                "ROUNDUP_SCHEDULE_LIMIT must be between 1 and 100".into(),
+            ));
+        }
         for (label, value) in [
             ("AI_LLM_GLOBAL_DAILY_USD", self.ai_llm_global_daily_usd),
             ("AI_LLM_PER_USER_DAILY_USD", self.ai_llm_per_user_daily_usd),
@@ -1103,6 +1111,7 @@ impl AppConfig {
                 "provider_credential_configured": self.openai_api_key.is_some(),
                 "automatic_default": self.llm_auto_summarize,
                 "automatic_min_chars_default": self.llm_auto_summarize_min_chars,
+                "roundup_schedule_limit": self.roundup_schedule_limit,
             },
             "extraction": {
                 "chromium_enabled": self.chromium_enabled,
@@ -1345,6 +1354,9 @@ mod defaults {
     pub fn llm_auto_summarize_min_chars() -> u32 {
         2_000
     }
+    pub fn roundup_schedule_limit() -> u32 {
+        crate::roundup::DEFAULT_ROUNDUP_SCHEDULE_LIMIT
+    }
     pub fn ollama_base_url() -> String {
         "http://localhost:11434".to_string()
     }
@@ -1471,6 +1483,7 @@ mod tests {
         assert_eq!(cfg.search_text_config, SearchTextConfig::Simple);
         assert_eq!(cfg.search_semantic_weight_percent, 60);
         assert_eq!(cfg.llm_auto_summarize_min_chars, 2_000);
+        assert_eq!(cfg.roundup_schedule_limit, 10);
         assert_eq!(cfg.feed_refresh_concurrency, 6);
         assert_eq!(cfg.interactive_job_concurrency, 2);
         assert!(cfg.cache_enabled);
@@ -1875,6 +1888,28 @@ mod tests {
         })));
         let err = AppConfig::from_figment(invalid).unwrap_err();
         assert!(matches!(err, ConfigError::Invalid(_)));
+    }
+
+    #[test]
+    fn roundup_schedule_limit_has_safe_bounds() {
+        let valid = base().merge(Serialized::defaults(serde_json::json!({
+            "roundup_schedule_limit": 25,
+        })));
+        assert_eq!(
+            AppConfig::from_figment(valid)
+                .expect("custom cap")
+                .roundup_schedule_limit,
+            25
+        );
+        for value in [0, 101] {
+            let invalid = base().merge(Serialized::defaults(serde_json::json!({
+                "roundup_schedule_limit": value,
+            })));
+            assert!(matches!(
+                AppConfig::from_figment(invalid).unwrap_err(),
+                ConfigError::Invalid(_)
+            ));
+        }
     }
 
     #[test]

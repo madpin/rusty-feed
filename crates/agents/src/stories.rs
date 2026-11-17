@@ -5,9 +5,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use lettre::message::header::ContentType;
-use lettre::message::Mailbox;
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use serde_json::{json, Value};
 
 use rusty_feed_core::ai_budget::AiBudget;
@@ -154,7 +151,7 @@ impl Agent for DailyDigestAgent {
                     ),
                     &self.public_base_url,
                 );
-                if let Err(error) = send_briefing(
+                if let Err(error) = crate::email::send_plain_text(
                     self.smtp_url.as_deref(),
                     self.smtp_from.as_deref(),
                     &pending.email,
@@ -208,30 +205,4 @@ async fn summarize_story(
         .await?;
     let text: String = completion.text.chars().take(1_200).collect();
     Ok((text.trim().to_string(), completion))
-}
-
-async fn send_briefing(
-    smtp_url: Option<&str>,
-    smtp_from: Option<&str>,
-    to: &str,
-    subject: &str,
-    body: &str,
-) -> anyhow::Result<()> {
-    let (Some(url), Some(from)) = (smtp_url, smtp_from) else {
-        return Ok(());
-    };
-    let transport = AsyncSmtpTransport::<Tokio1Executor>::from_url(url)?.build();
-    let from: Mailbox = from
-        .parse()
-        .map_err(|error| anyhow::anyhow!("invalid SMTP from address: {error}"))?;
-    let message = Message::builder()
-        .from(from)
-        .to(to
-            .parse()
-            .map_err(|error| anyhow::anyhow!("invalid briefing recipient: {error}"))?)
-        .subject(subject)
-        .header(ContentType::TEXT_PLAIN)
-        .body(body.to_string())?;
-    transport.send(message).await?;
-    Ok(())
 }

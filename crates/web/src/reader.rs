@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use rusty_feed_core::ai_budget::AiBudget;
 use rusty_feed_core::feed_content::{
     SubscriptionContentMode, SubscriptionContentSettings, SubscriptionEnclosureDelivery,
     SubscriptionEnclosureLoad, SubscriptionEnclosureSettings,
@@ -27,8 +26,8 @@ use rusty_feed_core::html::{
 use rusty_feed_core::reading::{apply_adhd_reading, autolink_bare_urls};
 use rusty_feed_core::youtube::{SubscriptionYouTubeMode, YouTubePolicy, YouTubeVideo};
 use rusty_feed_db::{
-    articles, bookmarks, categories, cost_ledger, feed_icons, feedback, feeds, jobs, llm_profiles,
-    patterns, read_articles, seen_articles, stories, subscriptions, youtube_metadata,
+    articles, bookmarks, categories, feed_icons, feedback, feeds, jobs, patterns, read_articles,
+    seen_articles, stories, subscriptions, youtube_metadata,
 };
 use rusty_feed_search::personalize;
 use rusty_feed_search::{extract_keywords, relevance_score, ExplicitFeedback};
@@ -155,6 +154,8 @@ struct ArticlesTemplate {
     summary_url: String,
     unseen_url: String,
     scope_label: String,
+    roundup_action: Option<String>,
+    roundup_schedule_url: Option<String>,
     feed_filter: Option<String>,
     category_filter: Option<String>,
     tag_filter: Option<String>,
@@ -539,7 +540,7 @@ fn safe_next(next: Option<String>) -> String {
     }
 }
 
-fn safe_external_url(value: Option<&str>) -> Option<String> {
+pub(crate) fn safe_external_url(value: Option<&str>) -> Option<String> {
     let value = value?;
     let mut url = url::Url::parse(value).ok()?;
     if !matches!(url.scheme(), "http" | "https")
@@ -1143,6 +1144,23 @@ pub async fn list(
             summary_only,
         ),
         scope_label,
+        roundup_action: if tag.is_some() {
+            None
+        } else {
+            feed_id
+                .map(|id| format!("/roundups/feed/{id}"))
+                .or_else(|| category_id.map(|id| format!("/roundups/folder/{id}")))
+        },
+        roundup_schedule_url: if tag.is_some() {
+            None
+        } else {
+            feed_id
+                .map(|id| format!("/roundups?scope=feed:{id}&repeat=1#new-roundup"))
+                .or_else(|| {
+                    category_id
+                        .map(|id| format!("/roundups?scope=folder:{id}&repeat=1#new-roundup"))
+                })
+        },
         feed_filter: feed_id.map(|feed_id| feed_id.to_string()),
         category_filter: category_id.map(|category_id| category_id.to_string()),
         tag_filter: tag.clone(),
@@ -1727,40 +1745,26 @@ fn format_timestamp(seconds: u32) -> String {
     }
 }
 
-/// Reject an on-demand summary that would exceed the AI budget/quota (FND-187).
-///
-/// Mirrors the enforcement inside the cascade, but runs *before* the job is
-/// enqueued so the user gets an immediate, friendly 429 and no work is queued.
-async fn summary_budget_gate(state: &AppState, user_id: Uuid) -> Result<(), AppError> {
-    let budget = &state.settings.ai_budget;
-    let since = AiBudget::today_start();
-
-    if budget.has_per_user_llm_call_cap() {
-        let calls =
-            cost_ledger::user_call_count_since(state.db.pool(), user_id, "summary", since).await?;
-        if calls >= i64::from(budget.llm_per_user_daily_calls) {
-            return Err(AppError::RateLimited);
-        }
+/// Reject on-demand LLM work whose weight would exceed the AI budget/quota.
+/// Mirrors the cascade check before enqueueing. Roundups share this gate with a
+/// larger call weight; BYO-key users still skip only the USD caps (FND-187).
+pub(crate) async fn llm_budget_gate(
+    state: &AppState,
+    user_id: Uuid,
+    additional_weight: i64,
+) -> Result<(), AppError> {
+    if rusty_feed_llm::llm_budget_allows(
+        &state.db,
+        &state.settings.ai_budget,
+        user_id,
+        additional_weight,
+    )
+    .await?
+    {
+        Ok(())
+    } else {
+        Err(AppError::RateLimited)
     }
-
-    // BYO-key users spend their own quota and are exempt from the USD budgets.
-    if llm_profiles::has_enabled_user_profile(state.db.pool(), user_id).await? {
-        return Ok(());
-    }
-    if budget.has_global_llm_cap() {
-        let spent = cost_ledger::instance_spend_micro_usd_since(state.db.pool(), since).await?;
-        if spent >= budget.llm_global_daily_micro_usd {
-            return Err(AppError::RateLimited);
-        }
-    }
-    if budget.has_per_user_llm_usd_cap() {
-        let spent =
-            cost_ledger::user_spend_micro_usd_since(state.db.pool(), user_id, since).await?;
-        if spent >= budget.llm_per_user_daily_micro_usd {
-            return Err(AppError::RateLimited);
-        }
-    }
-    Ok(())
 }
 
 /// `POST /articles/{id}/summarize` — enqueue a (deduped) summary job.
@@ -1788,7 +1792,7 @@ pub async fn summarize(
     // Enforce the AI budget/quota *before* enqueuing so a stranger cannot fan
     // out thousands of paid jobs (FND-187). BYO-key users are exempt from the
     // instance USD budget; the daily call cap applies to everyone.
-    summary_budget_gate(&state, user.id).await?;
+    llm_budget_gate(&state, user.id, 1).await?;
     authorize_action(&state, user.id, id).await?;
     let article = articles::find_by_id(state.db.pool(), id)
         .await?

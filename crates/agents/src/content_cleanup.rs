@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use serde_json::json;
 
-use rusty_feed_db::{api_audit, articles, media_cache};
+use rusty_feed_db::{api_audit, articles, media_cache, roundup_runs};
 
 use crate::{Agent, AgentContext};
 
@@ -42,6 +42,11 @@ impl Agent for ContentCleanupAgent {
         let expired = articles::clear_expired_article_page_content(ctx.db.pool()).await?;
         let expired_media = media_cache::delete_expired(ctx.db.pool()).await?;
         let expired_api_audit = api_audit::delete_older_than(ctx.db.pool(), 90).await?;
+        let expired_roundup_runs = roundup_runs::purge_older_than(
+            ctx.db.pool(),
+            rusty_feed_core::roundup::ROUNDUP_HISTORY_RETENTION_DAYS,
+        )
+        .await?;
         let expired_articles = articles::delete_expired_unbookmarked(
             ctx.db.pool(),
             self.retention_days,
@@ -52,6 +57,7 @@ impl Agent for ContentCleanupAgent {
             "expired_public_pages": expired,
             "expired_media_cache_entries": expired_media,
             "expired_api_audit_events": expired_api_audit,
+            "expired_roundup_runs": expired_roundup_runs,
             "expired_unbookmarked_articles": expired_articles
         }))
     }

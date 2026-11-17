@@ -236,6 +236,22 @@ fn markdown_to_html(markdown: &str) -> String {
     output
 }
 
+/// Render generated Markdown through the same HTML sanitizer used for stored
+/// content, while preserving root-relative application links.
+pub fn markdown_to_sanitized_html(markdown: &str) -> String {
+    let html = markdown_to_html(markdown);
+    let sanitized = Builder::default()
+        .url_schemes(
+            ["http", "https", "mailto"]
+                .into_iter()
+                .collect::<HashSet<_>>(),
+        )
+        .url_relative(UrlRelative::PassThrough)
+        .clean(&html)
+        .to_string();
+    harden_content(&sanitized, &TrackingUrlPolicy::default()).unwrap_or(sanitized)
+}
+
 fn plain_text_to_html(text: &str) -> String {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let mut output = String::new();

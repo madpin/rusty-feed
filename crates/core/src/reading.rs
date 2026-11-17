@@ -82,6 +82,7 @@ pub fn absolutize_app_paths(body: &str, base_url: &str) -> String {
         return body.to_string();
     }
     body.replace(" /articles/", &format!(" {base}/articles/"))
+        .replace("](/articles/", &format!("]({base}/articles/"))
 }
 
 /// A deterministic briefing used when no LLM is configured. Shared, so every
@@ -396,6 +397,8 @@ mod tests {
         let mailed = absolutize_app_paths(body, "https://feeds.example/");
         assert!(mailed.contains("https://feeds.example/articles/1"));
         assert!(mailed.contains("https://publisher.example/articles/1"));
+        let markdown = absolutize_app_paths("[1](/articles/1)", "https://feeds.example/");
+        assert_eq!(markdown, "[1](https://feeds.example/articles/1)");
         assert_eq!(absolutize_app_paths(body, "feeds.example"), body);
     }
 }

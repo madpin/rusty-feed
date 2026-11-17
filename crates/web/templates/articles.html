@@ -14,6 +14,15 @@
         <h1>{{ scope_label }}</h1>
       </div>
       <div class="header-actions">
+        {% if let Some(roundup_action) = roundup_action %}
+        <form method="post" action="{{ roundup_action }}" class="roundup-controls" aria-label="Choose a Roundup window">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <span>Summarize</span>
+          <button type="submit" name="period" value="day">Day</button>
+          <button type="submit" name="period" value="week">Week</button>
+        </form>
+        {% if let Some(schedule_url) = roundup_schedule_url %}<a href="{{ schedule_url }}" class="button-quiet">Schedule</a>{% endif %}
+        {% endif %}
         <a href="/settings/preferences#keyboard-shortcuts" class="button-quiet">Keyboard shortcuts</a>
         {% if !articles.is_empty() %}
         <form method="post" action="/articles/read-all" class="js-action" data-action="mark-all-read" data-success-message="All articles marked read.">

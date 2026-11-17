@@ -1,0 +1,168 @@
+{% extends "app_base.html" %}
+{% block title %}{{ ui.text("roundups") }}{% endblock %}
+{% block body_class %}page-roundups{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">AI across your feeds</p>
+    <h1>{{ ui.text("roundups") }}</h1>
+    <p class="muted">Turn the important news from one Feed or Folder into a cohesive article. Read one now, or repeat it on your schedule.</p>
+  </div>
+</div>
+
+{% if let Some(message) = notice %}<aside class="notice" role="status">{{ message }}</aside>{% endif %}
+{% if let Some(message) = error %}<aside class="alert" role="alert">{{ message }}</aside>{% endif %}
+
+<section class="panel roundup-create" id="new-roundup" aria-labelledby="roundup-form-title">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Choose your coverage</p>
+      <h2 id="roundup-form-title">{{ form.heading }}</h2>
+      <p class="muted">A Roundup needs at least three recent articles. Identical article sets share one result.</p>
+    </div>
+    {% if form.editing %}<a href="/roundups#new-roundup" class="button-quiet">Cancel edit</a>{% endif %}
+  </div>
+  {% if feed_options.is_empty() && folder_options.is_empty() %}
+  <div class="empty-state">
+    <p><strong>Add a feed before creating a Roundup.</strong></p>
+    <p>Once you follow a feed, you can summarize its last day or week here.</p>
+    <p><a class="btn primary" href="/feeds">Add a feed</a></p>
+  </div>
+  {% else %}
+  <form method="post" action="{{ form.action }}" class="stack roundup-manager-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="form-grid roundup-choice-grid">
+      <label for="roundup-scope">Feed or Folder
+        <select id="roundup-scope" name="scope" required>
+          <optgroup label="Feeds">
+            {% for option in feed_options %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+          </optgroup>
+          {% if !folder_options.is_empty() %}<optgroup label="Folders">
+            {% for option in folder_options %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+          </optgroup>{% endif %}
+        </select>
+      </label>
+      <fieldset class="roundup-period-field">
+        <legend>Time window</legend>
+        <div class="roundup-segmented" role="group" aria-label="Roundup time window">
+          <label><input type="radio" name="period" value="day"{% if form.period == "day" %} checked{% endif %} /><span><strong>Day</strong><small>Last 24 hours</small></span></label>
+          <label><input type="radio" name="period" value="week"{% if form.period == "week" %} checked{% endif %} /><span><strong>Week</strong><small>Last 7 days</small></span></label>
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="roundup-repeat">
+      <label class="check-row" for="roundup-repeat">
+        <input id="roundup-repeat" type="checkbox" name="repeat" value="1"{% if form.repeat %} checked{% endif %}{% if form.editing %} disabled{% endif %} />
+        <span>Repeat on a schedule</span>
+      </label>
+      {% if form.editing %}<input type="hidden" name="repeat" value="1" />{% endif %}
+      <div class="roundup-repeat-settings">
+        <div class="form-grid">
+          <div class="roundup-daily-cadence">
+            <label for="roundup-time">Daily time
+              <input id="roundup-time" type="time" name="local_time" step="3600" value="{{ form.local_time }}" />
+            </label>
+            <small>Uses the timezone in your Preferences. Daylight-saving changes are handled for you.</small>
+          </div>
+          <div class="roundup-weekly-cadence">
+            <label for="roundup-weekday">Weekly day
+              <select id="roundup-weekday" name="weekday">
+                {% for option in weekday_options %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <small>Weekly Roundups start at 07:00 in your Preferences timezone.</small>
+          </div>
+        </div>
+        <label class="check-row" for="roundup-email">
+          <input id="roundup-email" type="checkbox" name="email_delivery" value="1"{% if form.email_delivery %} checked{% endif %} />
+          <span>Email me when the Roundup is ready</span>
+        </label>
+        {% if !smtp_enabled %}<small class="muted">Email needs delivery to be set up on this instance. Your choice is saved either way.</small>{% endif %}
+        <p class="muted">You can have up to {{ schedule_limit }} schedules. Pause or edit them any time.</p>
+      </div>
+    </div>
+    <div class="form-actions roundup-create-actions">
+      <p class="muted">{% if form.editing %}Changing the scope or timing starts a new schedule window.{% else %}Leave Repeat off to write one Roundup now.{% endif %}</p>
+      <button type="submit" class="primary">{{ form.submit_label }}</button>
+    </div>
+  </form>
+  {% endif %}
+</section>
+
+<section class="panel" id="schedules" aria-labelledby="schedules-title">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Automatic coverage</p>
+      <h2 id="schedules-title">Schedules <span class="roundup-count">{{ schedule_count }} / {{ schedule_limit }}</span></h2>
+      <p class="muted">Scheduled Roundups appear below in History. If there are too few articles or the AI budget is exhausted, the run is skipped without spending anything.</p>
+    </div>
+  </div>
+  {% if schedules.is_empty() %}
+  <div class="empty-state roundup-empty-compact">
+    <p><strong>No repeating Roundups yet.</strong></p>
+    <p>Choose a Feed or Folder above, turn on <strong>Repeat on a schedule</strong>, and pick when you want it.</p>
+  </div>
+  {% else %}
+  <ul class="token-list roundup-schedule-list">
+    {% for schedule in schedules %}
+    <li class="token-row roundup-schedule-row">
+      <div class="roundup-schedule-summary">
+        <div class="roundup-schedule-title">
+          <strong>{{ schedule.scope_label }}</strong>
+          <span class="badge">{% if schedule.enabled %}Active{% else %}Paused{% endif %}</span>
+        </div>
+        <div class="meta">{{ schedule.cadence }} · {{ schedule.email_label }}</div>
+        <dl class="roundup-schedule-times">
+          <div><dt>Next run</dt><dd>{{ schedule.next_run }}</dd></div>
+          <div><dt>Last run</dt><dd>{{ schedule.last_run }}</dd></div>
+          <div><dt>Last state</dt><dd>{{ schedule.status }}</dd></div>
+        </dl>
+        {% if let Some(reason) = schedule.reason %}<p class="roundup-skip-reason">{{ reason }}</p>{% endif %}
+      </div>
+      <div class="row-actions">
+        <a href="{{ schedule.edit_url }}" class="button-quiet" aria-label="Edit schedule for {{ schedule.scope_label }}">Edit</a>
+        <form method="post" action="{{ schedule.toggle_url }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit">{{ schedule.toggle_label }}</button>
+        </form>
+        <form method="post" action="{{ schedule.delete_url }}" data-confirm="Delete this schedule? Past Roundups will stay in History.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="history-title">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Recent coverage</p>
+      <h2 id="history-title">History</h2>
+      <p class="muted">Your 30 most recent attempts. History is kept for 90 days; the shared article itself is stored only once.</p>
+    </div>
+  </div>
+  {% if history.is_empty() %}
+  <div class="empty-state roundup-empty-compact">
+    <p><strong>No Roundups in your history yet.</strong></p>
+    <p>Create one above, or use <strong>Summarize → Day / Week</strong> from a Feed or Folder in your Library.</p>
+  </div>
+  {% else %}
+  <ol class="roundup-history-list">
+    {% for run in history %}
+    <li class="roundup-history-row">
+      <div class="roundup-history-main">
+        {% if let Some(url) = run.url %}<a href="{{ url }}" class="roundup-history-title">{{ run.title }}</a>{% else %}<strong class="roundup-history-title">{{ run.title }}</strong>{% endif %}
+        <div class="meta">{{ run.scope_label }} · {{ run.period_label }} · {{ run.created }}{% if run.repeating %} · Repeating{% endif %}</div>
+        {% if let Some(reason) = run.reason %}<p class="roundup-skip-reason">{{ reason }}</p>{% endif %}
+      </div>
+      <span class="badge roundup-history-status">{{ run.status }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</section>
+{% endblock %}

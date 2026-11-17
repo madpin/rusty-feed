@@ -6,8 +6,13 @@
 //! orchestration (first-writer-wins) with durable cost accounting.
 
 mod pricing;
+mod roundup;
 
 pub use pricing::cost_micro_usd;
+pub use roundup::{
+    generate_roundup, generate_roundup_with_cascade, validate_roundup, GeneratedRoundup,
+    RoundupError,
+};
 
 use std::sync::Arc;
 
@@ -210,6 +215,22 @@ impl ProviderCascade {
         self.environment.is_some()
     }
 
+    /// First cache-key model in the same user → admin → environment order used
+    /// for generation, without decrypting credentials.
+    pub async fn selected_model(&self, user_id: Option<Uuid>) -> anyhow::Result<Option<String>> {
+        if let Some(profile) = llm_profiles::resolve(self.db.pool(), user_id)
+            .await?
+            .into_iter()
+            .next()
+        {
+            return Ok(Some(profile.model));
+        }
+        Ok(self
+            .environment
+            .as_ref()
+            .map(|client| client.model().to_string()))
+    }
+
     /// Resolved clients paired with whether each is **user-funded** (the user's
     /// own enabled key). User-funded spend is exempt from the instance budget.
     async fn clients(
@@ -279,19 +300,38 @@ async fn instance_funding_allowed(
     Ok(true)
 }
 
-/// Whether this user has hit today's LLM call cap (funding-agnostic: bounds
-/// job/DB abuse even for BYO-key users).
+/// Shared pre-enqueue budget gate for HTTP and scheduled work. It applies the
+/// weighted funding-agnostic call cap, then the instance-funded USD caps only
+/// when the user has no enabled personal provider.
+pub async fn llm_budget_allows(
+    db: &Db,
+    budget: &AiBudget,
+    user_id: Uuid,
+    additional_weight: i64,
+) -> anyhow::Result<bool> {
+    if per_user_call_cap_reached(db, budget, Some(user_id), additional_weight).await? {
+        return Ok(false);
+    }
+    if llm_profiles::has_enabled_user_profile(db.pool(), user_id).await? {
+        return Ok(true);
+    }
+    instance_funding_allowed(db, budget, Some(user_id)).await
+}
+
+/// Whether this user's next weighted LLM call would exceed today's shared cap.
+/// The cap is funding-agnostic and counts summaries plus weighted Roundups.
 async fn per_user_call_cap_reached(
     db: &Db,
     budget: &AiBudget,
     user_id: Option<Uuid>,
+    additional_weight: i64,
 ) -> anyhow::Result<bool> {
     let (Some(uid), true) = (user_id, budget.has_per_user_llm_call_cap()) else {
         return Ok(false);
     };
     let since = AiBudget::today_start();
-    let calls = cost_ledger::user_call_count_since(db.pool(), uid, "summary", since).await?;
-    Ok(calls >= i64::from(budget.llm_per_user_daily_calls))
+    let calls = cost_ledger::user_llm_call_units_since(db.pool(), uid, since).await?;
+    Ok(calls.saturating_add(additional_weight) > i64::from(budget.llm_per_user_daily_calls))
 }
 
 /// Summarize through the configured cascade, stopping on the first successful
@@ -305,7 +345,7 @@ pub async fn summarize_article_with_cascade(
     user_id: Option<Uuid>,
     article: &Article,
 ) -> Result<(bool, String), SummarizeError> {
-    if per_user_call_cap_reached(&cascade.db, budget, user_id).await? {
+    if per_user_call_cap_reached(&cascade.db, budget, user_id, 1).await? {
         return Err(SummarizeError::Budget(
             "You've reached today's AI summary limit. Try again tomorrow, or add your own API key in Settings → AI.".to_string(),
         ));

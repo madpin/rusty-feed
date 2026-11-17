@@ -213,6 +213,8 @@ pub struct AppSettings {
     pub trusted_proxy_cidrs: Vec<IpNet>,
     /// Immutable AI cost/compute budget (FND-187).
     pub ai_budget: AiBudget,
+    /// Maximum repeating Roundups per user (FND-248).
+    pub roundup_schedule_limit: u32,
     /// Per-key request rate limits (FND-190).
     pub rate_limits: RateLimitSettings,
     /// Immutable per-user resource quotas (FND-188).
@@ -297,6 +299,7 @@ impl Default for AppSettings {
             outbound_http1_only: false,
             trusted_proxy_cidrs: vec!["127.0.0.1/32".parse().expect("static CIDR")],
             ai_budget: AiBudget::default(),
+            roundup_schedule_limit: rusty_feed_core::roundup::DEFAULT_ROUNDUP_SCHEDULE_LIMIT,
             rate_limits: RateLimitSettings::default(),
             quotas: Quotas::default(),
             email_verification_required: false,

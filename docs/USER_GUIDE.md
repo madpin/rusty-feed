@@ -335,6 +335,60 @@ automatic threshold. Users cannot supply arbitrary endpoints. Every exhausted
 failure is sanitized and visible both beside the article and in the administrator
 queue/log view.
 
+### Roundups for a feed or folder
+
+Open one feed or folder in the **Library**, then use **Summarize → Day** for the
+last 24 hours or **Summarize → Week** for the last 7 days. A folder Roundup
+includes every nested subfolder, but only feeds you follow. The Roundup page
+reports waiting, writing, retrying, ready, or failed state and refreshes itself
+when the result is ready; ordinary form posts and manual reloads also work
+without JavaScript.
+
+A Roundup is one cohesive article with a headline, short introduction, and two
+to five themed sections—not a list of article summaries. Numbered links open
+the supporting articles in Rusty Feed. The **Sources** list also links to the
+original publisher pages.
+
+Rusty Feed ranks up to 30 recent articles using shared story coverage, recency,
+and existing AI summaries. Only shared titles, feed titles, URLs, timestamps,
+and short AI summaries or excerpts are sent to the provider: personal feed
+renames, folder names, reading state, and full article bodies are not. Identical
+article sets, periods, prompt versions, and selected models share one stored
+result and one provider call across subscribers.
+
+A Roundup needs at least three articles in the selected window. The page
+explains when there are too few, no AI provider is configured, the daily AI
+budget is exhausted, or generation fails. Each generated Roundup counts as five
+calls toward the same funding-agnostic daily AI call cap as article summaries;
+bring-your-own-key users remain exempt only from the USD budgets.
+
+### Repeating Roundups, email, and History
+
+Open **Roundups** in the navigation. Under **New Roundup**, choose one of your
+Feeds or Folders and a Day or Week window. Leave **Repeat on a schedule** off to
+create one immediately, or turn it on to repeat it. A Day schedule runs at the
+whole hour you choose; a Week schedule runs on your chosen weekday at 07:00.
+Both use the timezone saved in **Preferences** when the schedule is created.
+Daylight-saving changes are handled without running twice in an autumn overlap.
+
+The Schedules list shows the next run, last run, last state, and whether email is
+on. You can edit the scope or cadence, pause/resume delivery, or delete a
+schedule. Deleting a schedule leaves its past results in History; unsubscribing
+from the Feed or deleting the Folder removes the affected schedules. The
+instance limits how many schedules each reader can keep (10 by default).
+
+Choose **Email me when the Roundup is ready** if you also want plain-text email.
+Mail is sent only after you opt in and only when this instance has email
+delivery configured. It contains the Roundup, absolute article links, and a link
+back to **Roundups**, where you can stop or change future emails.
+
+**History** lists your 30 most recent manual and scheduled attempts, including
+ready links and the reason a run was skipped (too few articles, no provider, or
+an exhausted AI budget). History is retained for 90 days and never duplicates
+the shared Roundup body. From a finished Roundup, **Schedule this** prefills the
+same scope and period; **Print** opens a clean print layout and **Copy link**
+copies the exact result address.
+
 ## 8. Privacy, media, and sharing
 
 Rusty Feed strips common tracking parameters, removes configured pixel trackers,

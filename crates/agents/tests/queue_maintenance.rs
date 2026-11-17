@@ -95,7 +95,7 @@ async fn surviving(db: &Db, table: &str, ids: &[Uuid]) -> HashSet<Uuid> {
 #[test]
 fn registry_defaults_include_queue_maintenance() {
     let registry = Registry::with_defaults();
-    assert_eq!(registry.kinds().len(), 14);
+    assert_eq!(registry.kinds().len(), 16);
     let agent = registry
         .get("queue_maintenance")
         .expect("queue_maintenance registered");

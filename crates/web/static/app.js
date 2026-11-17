@@ -2536,6 +2536,38 @@
       });
     });
   }
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-roundup-print]") : null;
+    if (!button) return;
+    window.print();
+  });
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-copy-current-url]") : null;
+    if (!button) return;
+    var link = window.location.href;
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(link)
+        .then(function () { announce("Roundup link copied.", false); })
+        .catch(function () { announce("Could not copy the link. Copy it from the address bar.", true); });
+      return;
+    }
+    var input = document.createElement("textarea");
+    input.value = link;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    try {
+      document.execCommand("copy");
+      announce("Roundup link copied.", false);
+    } catch (_) {
+      announce("Could not copy the link. Copy it from the address bar.", true);
+    }
+    input.remove();
+  });
 })();
 
 // Demo-mode banner: shown on every page for ephemeral demo accounts. Driven by
@@ -2658,4 +2690,63 @@
       } catch (e) {}
     });
   }
+})();
+
+// Live Roundup progress. The initial POST and page render work without
+// JavaScript; this enhancement only polls the safe status endpoint and reloads
+// when the shared result is ready.
+(function () {
+  var root = document.querySelector("[data-roundup-status-url]");
+  if (!root) return;
+  var statusUrl = root.getAttribute("data-roundup-status-url");
+  var progress = root.querySelector("[data-roundup-progress]");
+  var deadline = Date.now() + 5 * 60 * 1000;
+  var attempts = 0;
+
+  function update(message, failed) {
+    if (!progress) return;
+    progress.textContent = message;
+    progress.classList.toggle("error", Boolean(failed));
+  }
+
+  function schedule(delay) {
+    if (Date.now() >= deadline) {
+      update("The Roundup is taking longer than expected. Reload this page to check again.", true);
+      return;
+    }
+    window.setTimeout(poll, delay);
+  }
+
+  function poll() {
+    if (!root.isConnected) return;
+    fetch(statusUrl, {
+      credentials: "same-origin",
+      headers: { "X-Requested-With": "fetch" },
+      cache: "no-store",
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error("Roundup status failed");
+        return response.json();
+      })
+      .then(function (result) {
+        if (result.state === "ready") {
+          update("Roundup ready. Opening it now…", false);
+          window.location.reload();
+          return;
+        }
+        if (result.state === "failed" || result.state === "idle") {
+          update(result.message || "The Roundup could not be generated.", true);
+          return;
+        }
+        attempts += 1;
+        update(result.message || "Writing your Roundup…", false);
+        schedule(Math.min(400 + attempts * 150, 2000));
+      })
+      .catch(function () {
+        attempts += 1;
+        schedule(Math.min(600 + attempts * 250, 3000));
+      });
+  }
+
+  poll();
 })();

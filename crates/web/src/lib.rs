@@ -39,6 +39,7 @@ mod public_shares;
 mod quota;
 pub mod ratelimit;
 mod reader;
+mod roundups;
 mod saved;
 mod search;
 mod sessions;
@@ -138,6 +139,24 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/feedback", post(reader::feedback))
         .route("/articles/{id}/summarize", post(reader::summarize))
         .route("/articles/{id}/summary/status", get(reader::summary_status))
+        .route(
+            "/roundups",
+            get(roundups::index).post(roundups::create_managed),
+        )
+        .route("/roundups/schedules/{id}", post(roundups::update_schedule))
+        .route(
+            "/roundups/schedules/{id}/toggle",
+            post(roundups::toggle_schedule),
+        )
+        .route(
+            "/roundups/schedules/{id}/delete",
+            post(roundups::delete_schedule),
+        )
+        .route(
+            "/roundups/{kind}/{id}",
+            get(roundups::page).post(roundups::create),
+        )
+        .route("/roundups/{kind}/{id}/status", get(roundups::status))
         .route("/articles/{id}/report", post(moderation::report_article))
         .route(
             "/articles/{id}/send",

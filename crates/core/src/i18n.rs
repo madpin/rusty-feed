@@ -492,6 +492,7 @@ pub fn message(locale: &str, key: &str) -> &'static str {
         (_, "library") => "Library",
         (_, "saved_searches") => "Saved searches",
         (_, "briefing") => "Briefing",
+        (_, "roundups") => "Roundups",
         (_, "home") => "Rusty Feed home",
         (_, "primary_nav") => "Primary navigation",
         (_, "image_preview") => "Image preview",
@@ -562,6 +563,18 @@ pub fn format_date(value: OffsetDateTime, timezone: &str, format: &str) -> Strin
     value
         .format(description)
         .unwrap_or_else(|_| value.date().to_string())
+}
+
+/// Compact local date and time for schedule windows.
+pub fn format_date_time(value: OffsetDateTime, timezone: &str) -> String {
+    let value = timezones::get_by_name(timezone)
+        .map(|timezone| value.to_timezone(timezone))
+        .unwrap_or(value);
+    value
+        .format(format_description!(
+            "[year]-[month padding:zero]-[day padding:zero] [hour padding:zero]:[minute padding:zero]"
+        ))
+        .unwrap_or_else(|_| value.to_string())
 }
 
 pub fn format_number(value: i64, format: &str) -> String {

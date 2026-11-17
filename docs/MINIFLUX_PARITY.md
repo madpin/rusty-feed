@@ -90,6 +90,24 @@ work must remain observable and O(1). Evidence notes call out these improvements
 where Rusty Feed deliberately exceeds the baseline rather than silently widening
 scope.
 
+**Roundup (beyond parity):** a Library feed or recursive folder can become one
+cohesive AI-written Roundup for the last 24 hours or 7 days, with themed
+sections, validated internal citations, and a Sources list. `/roundups` also
+creates user-local daily/weekly schedules, edits/pauses/deletes them, and shows
+90-day personal History with skip reasons and optional plain-text email.
+Selection and cache identity use shared content only; identical input sets share
+one interactive `RoundupAgent` generation even when different subscribers'
+schedules request it, and one result weighs five units in the existing per-user
+AI call budget. DST-safe next-run computation, atomic schedule/window claims,
+and ready/email reconciliation keep repeats bounded without duplicating shared
+content. Evidence: `crates/core/src/roundup.rs`, `crates/db/src/roundups.rs`,
+`crates/db/src/roundup_schedules.rs`, `crates/db/src/roundup_runs.rs`,
+`crates/llm/src/roundup.rs`, `crates/agents/src/roundup_schedule.rs`,
+`crates/web/src/roundups.rs`, migrations `0056_roundups.sql` and
+`0057_roundup_schedules.sql`, and their unit, PostgreSQL, agent, HTTP, and
+Playwright tests. This adds no Miniflux parity row and changes no baseline
+totals.
+
 ## Feed reader
 
 | ID | Status | Requirement | Customization and acceptance |

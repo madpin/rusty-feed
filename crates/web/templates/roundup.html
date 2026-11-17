@@ -1,0 +1,69 @@
+{% extends "app_base.html" %}
+{% block title %}Roundup{% endblock %}
+{% block body_class %}page-roundup{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">{{ scope_label }}</p>
+    <h1>Roundup</h1>
+    <p class="muted">One cohesive AI-written article about the most important news from the last 24 hours or 7 days, with links to the articles behind it.</p>
+  </div>
+  <div class="header-actions">
+    <a href="{{ schedule_url }}" class="button-quiet">Schedule this</a>
+    <a href="{{ back_url }}" class="button-quiet">Back to articles</a>
+  </div>
+</div>
+
+<form method="post" action="{{ action }}" class="roundup-controls" aria-label="Choose a Roundup window">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <span>Summarize</span>
+  <button type="submit" name="period" value="day"{% if period == "day" %} class="primary" aria-pressed="true"{% else %} aria-pressed="false"{% endif %}>Day</button>
+  <button type="submit" name="period" value="week"{% if period == "week" %} class="primary" aria-pressed="true"{% else %} aria-pressed="false"{% endif %}>Week</button>
+</form>
+
+{% if let Some(message) = notice %}
+<aside class="notice" role="status">
+  {{ message }}
+  {% if show_ai_settings_link %}<a href="/settings/ai">Open AI providers</a>{% endif %}
+</aside>
+{% endif %}
+
+{% if let Some(result) = result %}
+<div class="roundup-result-actions" aria-label="Roundup actions">
+  <button type="button" class="button-quiet" data-roundup-print>Print</button>
+  <button type="button" class="button-quiet" data-copy-current-url>Copy link</button>
+</div>
+<article class="panel roundup-result">
+  <header>
+    <p class="eyebrow">{{ period_label }} · {{ result.created }}</p>
+    <h2>{{ result.headline }}</h2>
+    <p class="muted">Written with {{ result.model }}</p>
+  </header>
+  <div class="article-body">{{ result.body_html|safe }}</div>
+</article>
+<section class="panel roundup-sources" aria-labelledby="roundup-sources-title">
+  <h2 id="roundup-sources-title">Sources</h2>
+  {% if result.sources.is_empty() %}
+  <p class="muted">The source articles are no longer available in this instance.</p>
+  {% else %}
+  <ol>
+    {% for source in result.sources %}
+    <li value="{{ source.number }}">
+      <a href="{{ source.internal_url }}">{{ source.title }}</a>
+      <span class="muted">{{ source.feed_title }}{% if let Some(published) = source.published %} · {{ published }}{% endif %}</span>
+      {% if let Some(original_url) = source.original_url %}<a href="{{ original_url }}" class="roundup-original" rel="noopener noreferrer" referrerpolicy="no-referrer">Original article</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</section>
+{% else if let Some(message) = status_message %}
+<section class="empty-state roundup-loading"{% if let Some(url) = status_url %} data-roundup-status data-roundup-status-url="{{ url }}"{% endif %}>
+  {% if status_url.is_some() %}<span class="roundup-spinner" aria-hidden="true"></span>{% endif %}
+  <p><strong>{{ period_label }}</strong></p>
+  <p data-roundup-progress role="status" aria-live="polite">{{ message }}</p>
+  <p class="muted">Selecting the important articles and writing one cohesive Roundup can take a minute. You can stay here or come back from History.</p>
+  <noscript><p>Reload this page to check whether your Roundup is ready.</p></noscript>
+</section>
+{% endif %}
+{% endblock %}

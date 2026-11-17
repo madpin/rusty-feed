@@ -33,6 +33,7 @@ export default defineConfig({
           EMBEDDING_PROVIDER: "local",
           EMBEDDING_MODEL: "hash-placeholder-v1",
           RUN_EMBEDDED_WORKER: "false",
+          RATE_LIMIT_AUTH_PER_MIN: "100", // the full suite registers many isolated readers per minute
           DEMO_MODE: "true",
           LOG_LEVEL: "warn",
         },

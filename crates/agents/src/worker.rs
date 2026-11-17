@@ -22,8 +22,8 @@ use crate::{
     Agent, AgentContext, CatalogPreviewAgent, ClusterStoriesAgent, ContentCleanupAgent,
     DailyDigestAgent, DemoResetAgent, EmbedArticleAgent, ExtractContentAgent, FeedRefreshAgent,
     FetchFeedAgent, IntegrationDeliveryAgent, PatternDecayAgent, QueueMaintenanceAgent,
-    SavedSearchMatchAgent, SavedSearchScanAgent, SummarizeArticleAgent, SummaryBackfillAgent,
-    YouTubeDurationAgent,
+    RoundupAgent, RoundupScheduleAgent, SavedSearchMatchAgent, SavedSearchScanAgent,
+    SummarizeArticleAgent, SummaryBackfillAgent, YouTubeDurationAgent,
 };
 
 /// Maps job `kind` → agent.
@@ -37,7 +37,7 @@ impl Registry {
         let mut registry = Self {
             agents: HashMap::new(),
         };
-        let list: [Arc<dyn Agent>; 14] = [
+        let list: [Arc<dyn Agent>; 16] = [
             Arc::new(FeedRefreshAgent),
             Arc::new(FetchFeedAgent),
             Arc::new(IntegrationDeliveryAgent),
@@ -47,6 +47,8 @@ impl Registry {
             Arc::new(EmbedArticleAgent::default()),
             Arc::new(PatternDecayAgent),
             Arc::new(QueueMaintenanceAgent::default()),
+            Arc::new(RoundupAgent::default()),
+            Arc::new(RoundupScheduleAgent::default()),
             Arc::new(SavedSearchScanAgent),
             Arc::new(SavedSearchMatchAgent::default()),
             Arc::new(SummarizeArticleAgent::default()),
@@ -135,11 +137,13 @@ pub struct WorkerConfig {
     pub cluster_schedule: CronSchedule,
     /// UTC cron for personal daily briefings. Defaults to 07:00.
     pub digest_schedule: CronSchedule,
-    /// Optional SMTP URL used only to deliver opted-in briefings.
+    /// UTC cron for checking user-local Roundup schedules. Defaults to every minute.
+    pub roundup_schedule: CronSchedule,
+    /// Optional SMTP URL used only to deliver opted-in Briefings and Roundups.
     pub smtp_url: Option<String>,
-    /// Mailbox used as the briefing From address.
+    /// Mailbox used as the From address for opted-in mail.
     pub smtp_from: Option<String>,
-    /// Public origin placed in briefing emails.
+    /// Public origin placed in Briefing and Roundup emails.
     pub public_base_url: String,
 }
 
@@ -187,6 +191,8 @@ impl Default for WorkerConfig {
                 .unwrap_or_else(|_| unreachable!("static cron is valid")),
             digest_schedule: CronSchedule::parse("0 7 * * *")
                 .unwrap_or_else(|_| unreachable!("static cron is valid")),
+            roundup_schedule: CronSchedule::parse("* * * * *")
+                .unwrap_or_else(|_| unreachable!("static cron is valid")),
             smtp_url: None,
             smtp_from: None,
             public_base_url: "http://localhost:8080".to_string(),
@@ -225,7 +231,11 @@ impl Worker {
         );
         registry.register(
             "summarize_article",
-            Arc::new(SummarizeArticleAgent::new(llm.clone()).with_cascade(llm_cascade)),
+            Arc::new(SummarizeArticleAgent::new(llm.clone()).with_cascade(llm_cascade.clone())),
+        );
+        registry.register(
+            "roundup",
+            Arc::new(RoundupAgent::new(llm.clone()).with_cascade(llm_cascade.clone())),
         );
         registry.register(
             "extract_content",
@@ -258,6 +268,15 @@ impl Worker {
         registry.register(
             "daily_digest",
             Arc::new(DailyDigestAgent::new(
+                config.smtp_url.clone(),
+                config.smtp_from.clone(),
+                config.public_base_url.clone(),
+            )),
+        );
+        registry.register(
+            "roundup_schedule",
+            Arc::new(RoundupScheduleAgent::new(
+                llm_cascade,
                 config.smtp_url.clone(),
                 config.smtp_from.clone(),
                 config.public_base_url.clone(),
@@ -374,6 +393,7 @@ impl Worker {
             let demo_reset_schedule = self.config.demo_reset_schedule.clone();
             let cluster_schedule = self.config.cluster_schedule.clone();
             let digest_schedule = self.config.digest_schedule.clone();
+            let roundup_schedule = self.config.roundup_schedule.clone();
             let demo_mode = self.config.demo_mode;
             let mut sd = shutdown.clone();
             handles.push(tokio::spawn(async move {
@@ -415,6 +435,11 @@ impl Worker {
                         if digest_schedule.matches(now) {
                             if let Err(e) = enqueue_singleton(&ctx.db, "daily_digest").await {
                                 tracing::warn!(error = %e, "scheduler: could not enqueue daily_digest");
+                            }
+                        }
+                        if roundup_schedule.matches(now) {
+                            if let Err(e) = enqueue_singleton(&ctx.db, "roundup_schedule").await {
+                                tracing::warn!(error = %e, "scheduler: could not enqueue roundup_schedule");
                             }
                         }
                     }

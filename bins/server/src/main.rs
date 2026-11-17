@@ -215,6 +215,7 @@ async fn main() -> anyhow::Result<()> {
             .collect::<Result<Vec<_>, _>>()
             .context("invalid TRUSTED_PROXY_CIDRS")?,
         ai_budget: config.ai_budget(),
+        roundup_schedule_limit: config.roundup_schedule_limit,
         rate_limits: RateLimitSettings {
             auth_per_min: config.rate_limit_auth_per_min,
             api_per_min: config.rate_limit_api_per_min,

@@ -29,6 +29,7 @@ pub mod image_dedup;
 pub mod integrations;
 pub mod quotas;
 pub mod reading;
+pub mod roundup;
 pub mod secret;
 pub mod tracking_pixel;
 pub mod tracking_url;

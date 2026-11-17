@@ -5,6 +5,8 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use rusty_feed_core::roundup::ROUNDUP_LLM_CALL_WEIGHT;
+
 use crate::error::Result;
 
 /// Record a single billable call.
@@ -84,6 +86,28 @@ pub async fn user_call_count_since(
     )
     .bind(user_id)
     .bind(kind)
+    .bind(since)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Funding-agnostic daily LLM usage in call units. Article summaries weigh one;
+/// each Roundup weighs [`ROUNDUP_LLM_CALL_WEIGHT`] but writes only one row.
+pub async fn user_llm_call_units_since(
+    pool: &PgPool,
+    user_id: Uuid,
+    since: OffsetDateTime,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE(sum(CASE kind \
+             WHEN 'summary' THEN 1 \
+             WHEN 'roundup' THEN $2 \
+             ELSE 0 \
+         END), 0)::bigint FROM cost_ledger \
+         WHERE user_id = $1 AND kind IN ('summary', 'roundup') AND occurred_at >= $3",
+    )
+    .bind(user_id)
+    .bind(ROUNDUP_LLM_CALL_WEIGHT)
     .bind(since)
     .fetch_one(pool)
     .await?)

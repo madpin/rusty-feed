@@ -259,6 +259,9 @@ Articles (SHARED)
                       PRIMARY KEY(article_id, url), UNIQUE(article_id, position))
   article_embeddings          -- single active embedding space per instance (see §13)
        (article_id→articles CASCADE PK, embedding vector(<dim>), model, created_at)  + HNSW index
+  roundups (id, input_hash, period[day|week], prompt_version, model_version, provider, model,
+            headline, body_markdown, source_ids uuid[], created_at,
+            UNIQUE(input_hash, period, prompt_version, model_version)) -- shared AI article, no user fields
 
 Subscriptions & Organization (PER-USER)
   user_feeds (id, user_id→users, feed_id→feeds, custom_name?, tags text[], settings jsonb,
@@ -269,6 +272,16 @@ Subscriptions & Organization (PER-USER)
                    UNIQUE NULLS NOT DISTINCT(user_id, parent_id, name))
   user_feed_categories (id, user_feed_id→user_feeds, user_category_id→user_categories,
                         UNIQUE(user_feed_id, user_category_id)) -- application presents one current folder/feed
+  roundup_schedules (id, user_id→users CASCADE, scope_kind[feed|folder], scope_id,
+                     period[day|week], local_hour, weekday?, timezone, email_delivery,
+                     enabled, last_run_at?, created_at, updated_at,
+                     UNIQUE(user_id, scope_kind, scope_id, period))
+                     -- composite user+scope FKs cascade on unsubscribe/folder delete
+  roundup_runs (id, user_id→users CASCADE, schedule_id?→roundup_schedules SET NULL,
+                scope_kind, scope_id, period, roundup_id?→roundups CASCADE,
+                input_hash?, model_version?, status[pending|queued|ready|skipped|failed],
+                skip_reason?, scheduled_for?, emailed_at?, created_at, updated_at,
+                UNIQUE(schedule_id, scheduled_for)) -- personal history only; no content copy
 
 Reading State & Learning (PER-USER)
   read_articles (id, user_id, article_id, read_at, UNIQUE(user_id, article_id))
@@ -298,7 +311,7 @@ Preferences & Notifications (PER-USER)
 System / Ops
   admin_settings (id, key UNIQUE, value jsonb, description?, created_at, updated_at)
   instance_summary_policy (singleton PK, enabled, min_content_chars, updated_at)
-  cost_ledger (id, user_id?, provider, model, kind[embedding|summary|digest], input_tokens,
+  cost_ledger (id, user_id?, provider, model, kind[embedding|summary|digest|roundup], input_tokens,
                output_tokens, cost_usd, occurred_at)                                -- NEW: durable costs
   agent_runs (id, agent_name, status[PENDING|RUNNING|SUCCESS|FAILED], started_at, completed_at?,
               duration_ms?, stats jsonb, logs jsonb, error_message?, trigger[SCHEDULER|MANUAL|SYSTEM|EVENT], metadata jsonb)
@@ -333,8 +346,8 @@ Queries use `websearch_to_tsquery`, providing forgiving quoted phrases, uppercas
 This section operationalizes PRD §6.
 
 ### 7.1 Storage: shared vs. personal (enforced by schema)
-- **Shared, one row:** `feeds`, derived `feed_icons`, editorial `feed_catalog_entries`, `catalog_content_probes`, `articles`, `article_embeddings`, article `summary/key_points/topics`, `feed_error_log`, `domain_extraction_state`.
-- **Personal:** `user_feeds`, `user_categories`, `read_articles`, `seen_articles`, `bookmarks`, `article_feedback`, `user_patterns`, `saved_searches(+matches)`, `user_preferences`, `user_notifications`.
+- **Shared, one row:** `feeds`, derived `feed_icons`, editorial `feed_catalog_entries`, `catalog_content_probes`, `articles`, `article_embeddings`, article `summary/key_points/topics`, `roundups`, `feed_error_log`, `domain_extraction_state`.
+- **Personal:** `user_feeds`, `user_categories`, `read_articles`, `seen_articles`, `bookmarks`, `article_feedback`, `user_patterns`, `saved_searches(+matches)`, `user_preferences`, `user_notifications`, `roundup_schedules`, `roundup_runs`.
 - **Derived/personal cache (not persisted authoritatively):** per-user relevance scores.
 - **Public-share authorization is personal; content remains shared:** `public_article_shares` stores only the owner's revocable policy and an encrypted bearer credential plus lookup hash. It references the one `articles` row and never copies a body.
 
@@ -346,13 +359,14 @@ This section operationalizes PRD §6.
 - **Article ingest:** dedup order = **GUID (feed-scoped) → URL (global unique) → content_hash (feed-scoped)**. Insert via `ON CONFLICT (url) DO UPDATE` only when `should_update` (content hash/title/published changed). One row per article regardless of subscriber count. Feed attachments are synchronized under the shared article row lock in stable order; unchanged metadata causes no writes. Attachment-only items use a stable feed-scoped internal URI and are excluded from public-page extraction.
 
 ### 7.3 Compute-path dedup (claim + idempotency, O(1) per content version)
-The heavy operations — **fetch, extract, embed, summarize** — are keyed by the **shared entity id** and executed at most once per content version:
+The heavy operations — **fetch, extract, embed, summarize, Roundup** — are keyed by shared content identity and executed at most once per content version or frozen input set:
 
 - **Fetch/refresh** is scheduled **per feed**, not per subscription. The FeedRefresh agent builds the set of *due* feeds (union across all subscribers, deduped) and enqueues one `FetchFeed{feed_id}` job each. Conditional GET (`ETag`/`Last-Modified`) avoids re-downloading unchanged feeds.
 - **Extraction/embedding/summarization** are enqueued **per article id**. Before doing work, the agent **claims** the article for that operation:
   - *Extraction:* subscriber preferences are reduced to one shared demand. A public page is fetched when any subscriber requests it and the shared copy is absent or expired; one deduplicated job and a content-revision guard prevent per-user or concurrent duplicate work. RSS and public-page bodies are stored separately.
   - *Embedding:* skip if a row already exists in `article_embeddings`; use `INSERT ... ON CONFLICT (article_id) DO NOTHING` so concurrent workers don't double-compute.
   - *Summary:* first-writer-wins on the shared content revision. On-demand requests are independent of automatic policy. During feed ingest, an enabled singleton `instance_summary_policy` queues only created or materially updated bodies meeting its normalized plain-text character minimum. Public-page extraction repeats the eligibility check against the final effective body; an explicit `SummaryBackfillAgent` action cursor-scans older unsummarized rows in bounded batches. Automatic jobs recheck enablement, threshold, and revision immediately before provider use, so disabling the policy stops already-queued spend. Historical backfill is a separate explicit admin action.
+- **Roundup:** a request freezes up to 30 shared article IDs and hashes their sorted set. The period, prompt version, and first selected model complete the shared key. The interactive job is deduplicated by that full key, the worker checks the cache again before provider use, and `roundups` insertion is first-writer-wins with `ON CONFLICT DO NOTHING`. Personal subscriptions and recursive folder membership select inputs but are never stored in the shared result or included in its prompt. `RoundupScheduleAgent` uses the exact same preparation, weighted budget gate, dedup key, and interactive job. Every schedule gets its own personal run row, but identical article sets across users still share one generation; ready reconciliation updates only those cheap personal rows.
 - **Catalog public-content probe:** a published catalog feed may receive one globally deduplicated, background diagnostic keyed by `feed_id`. It tests at most three current shared article URLs and replaces one scalar shared snapshot; it never writes article content or feed policy. The current candidate IDs and a freshness window prevent visitor-driven repeated work.
 - **Result:** for a feed/article shared by N users, network + CPU + LLM work per refresh cycle is **O(1)**, not O(N). Only cheap per-user rows (notifications, saved-search matches, read state) scale with N.
 
@@ -363,7 +377,7 @@ The heavy operations — **fetch, extract, embed, summarize** — are keyed by t
 
 ### 7.5 Delete/retention safety
 - Unsubscribing deletes only `user_feeds` (+ dependent personal rows via cascade). Shared `feeds`/`articles` remain for other subscribers.
-- Public-page cleanup uses the longest lifetime requested by current subscribers; an infinite request prevents expiry. Expiry removes only the public-page copy and restores the independently stored RSS body. Article-row retention operates globally, preserves bookmarked articles, and may GC orphan feeds per policy.
+- Public-page cleanup uses the longest lifetime requested by current subscribers; an infinite request prevents expiry. Expiry removes only the public-page copy and restores the independently stored RSS body. Article-row retention operates globally, preserves bookmarked articles, and may GC orphan feeds per policy. `ContentCleanupAgent` also deletes personal `roundup_runs` older than 90 days in bounded batches without deleting shared `roundups`. Unsubscribe/folder-delete cascades remove their schedules and scoped history; deleting only a schedule detaches its history so past Roundups remain.
 
 ---
 
@@ -436,6 +450,7 @@ pub trait Agent: Send + Sync + 'static {
                    │         └──────────────────────┘
                    ▼
          SummaryBackfillAgent → SummarizeArticleAgent (ingest/manual batches or on-demand): first-writer-wins
+         Feed/Folder Summarize POST → RoundupAgent (interactive, frozen shared-ID set): first-writer-wins
 
   Scheduled maintenance agents (singleton):
     • PatternDecayAgent  (decay + prune per-user patterns)      -- was API-only/untracked in ref
@@ -443,6 +458,7 @@ pub trait Agent: Send + Sync + 'static {
     • FeedHealthSweep    (optional; batch notifications and manual-pause maintenance)
     • ClusterStoriesAgent (hourly at :15 UTC; cosine similarity ≥ 0.82 joins a shared story)
     • DailyDigestAgent   (07:00 UTC; the personal **Briefing** — page `/briefing`, with `/digests` and `/digests/refresh` as permanent redirects — built from shared stories; email only when SMTP is configured and the user opted in)
+    • RoundupScheduleAgent (every minute; lease-guarded user-local due scan, shared Roundup enqueue, ready reconciliation, and opted-in email)
 ```
 
 Notes:
@@ -597,6 +613,15 @@ Effective personal values use the first present of **feed → category → user 
 ### 11.6 Cleanup/retention
 - Delete articles older than `max_article_age` **and** trim each feed to newest `max_articles_per_feed`; **preserve bookmarked**. Age basis is explicit/configurable (`published_at` preferred; `createdAt` available for parity). `VACUUM ANALYZE` when deletions exceed a threshold.
 
+### 11.7 Feed/folder Roundups
+- **Scope and windows:** Day is a rolling 24 hours and Week a rolling 7 days, using `coalesce(published_at, created_at)`. Feed scope enters through the caller's `user_feeds`; folder scope uses the Library's recursive `user_categories` CTE, including every descendant and de-duplicating feeds. A minimum of 3 selected articles is required.
+- **Selection:** take the newest 120 candidates, then rank by `25 × (min(story_count, 10) - 1) + 10 when a shared AI summary exists + 20 × freshness`, where freshness declines linearly from 1 at the timestamp to 0 at the window boundary. Ties use timestamp descending then UUID ascending. Keep at most 30 distinct articles. Prompt excerpts are shared AI summaries or shared excerpts capped at 1,200 characters; full bodies and personal fields are never selected.
+- **Shared identity:** `input_hash = sha256(sorted distinct article UUID bytes)`. The complete uniqueness key adds `period`, `ROUNDUP_PROMPT_VERSION` (`roundup-v1`), and the first selected cascade model. Queue dedup hashes the complete tuple. An identical set is intentionally reusable beyond its original request time; a changed set gets a new key.
+- **Output and citations:** the provider returns plain-text JSON with a headline, intro, and 2–5 themed sections containing input article IDs. Unknown IDs and sections left without valid support are dropped. The server escapes model text, maps valid IDs to numbered `/articles/{id}` Markdown links, builds the Sources list from shared rows, and renders through the existing HTML sanitizer. It never accepts a model-provided active URL.
+- **Budget:** one successful shared generation appends one `cost_ledger(kind='roundup')` row and contributes 5 units (`ROUNDUP_LLM_CALL_WEIGHT`) to the same funding-agnostic daily cap as one-unit article summaries. Cache hits and an already-active shared job create no new spend or ledger row. USD exemptions for BYO-key profiles are unchanged.
+- **Schedules:** `ROUNDUP_SCHEDULE_LIMIT` defaults to 10 and accepts 1–100. Creation takes a per-user write lock before checking the cap. Daily schedules choose a whole user-local hour; weekly schedules choose an ISO weekday and run at 07:00 local. The timezone is copied from sanitized user preferences (UTC fallback). `RoundupTiming::next_run_after` resolves local calendar dates through the IANA database: spring gaps advance to the first valid minute and autumn overlaps choose the first occurrence. `last_run_at` is the actual attempt time, so downtime never produces a catch-up storm. A unique `(schedule_id, scheduled_for)` run row and `last_run_at` update claim each window atomically.
+- **History and email:** manual and scheduled runs retain only personal scope/status/key fields and a shared `roundup_id`, never a generated-body copy. Too-few, missing-provider, and over-budget runs become `skipped` without enqueueing or spend. A one-minute reconciliation marks all matching personal waits ready when one shared row appears. Ready runs with schedule opt-in are claimed once for SMTP delivery; failures release the claim. Plain-text mail uses `BASE_URL` for article/Roundup/manage links, and `/roundups` is the stop/change-delivery surface. History is purged after 90 days.
+
 ---
 
 ## 12. Content Extraction & Safe Fetch
@@ -638,8 +663,9 @@ Effective personal values use the first present of **feed → category → user 
 
 ## 14. LLM Integration & Secrets
 
-- **Provider configuration today:** summary requests resolve the enabled **user → admin/system → environment** OpenAI-compatible/Ollama cascade and continue to the next profile after a sanitized provider failure. User endpoints are fixed to official OpenAI; only administrators can supply compatible endpoints. The embedding provider remains one instance-wide space by design.
+- **Provider configuration today:** summary and Roundup requests resolve the enabled **user → admin/system → environment** OpenAI-compatible/Ollama cascade and continue to the next profile after a sanitized provider failure. User endpoints are fixed to official OpenAI; only administrators can supply compatible endpoints. The embedding provider remains one instance-wide space by design.
 - **Summarization** (`SummarizeArticleAgent` / on-demand / automatic): sanitized article HTML is converted to structured Markdown before prompt construction; the prompt returns JSON `{summary, key_points[], topics[], sentiment?}`; robust JSON extraction with text fallback; content is truncated to a safe max; results are stored **once** on the shared article revision (first-writer-wins). Automatic generation is controlled by `instance_summary_policy`, initialized once from `LLM_AUTO_SUMMARIZE` and `LLM_AUTO_SUMMARIZE_MIN_CHARS` (default 2,000 normalized plain-text characters), then editable live under Administration → AI providers. Feed ingest queues eligible created/materially updated revisions directly, extraction applies the same gate to the final body, and explicit historical backfill uses bounded durable batches.
+- **Roundups** (`RoundupAgent` / on-demand and `RoundupScheduleAgent` / repeating): the CSRF-protected, per-user-rate-limited POST or lease-guarded scheduler selects and freezes inputs, applies the same weighted `llm_budget_allows` gate, and enqueues on the interactive lane. The worker resolves the same user → admin → environment cascade and rechecks the cache and budget before provider use. Missing providers, insufficient articles, and exhausted budgets render an explanatory page or personal skipped history rather than provider spend. The shared table stores generated Markdown and source IDs only—never personal scope metadata. §11.7 defines selection, keying, citation validation, weighted accounting, local-time schedules, history retention, and email delivery.
 - **Durable cost tracking (fix):** every billable call appends to **`cost_ledger`** (user, provider, model, kind, tokens, `cost_usd`, timestamp). Admin/user views aggregate by day/month/provider. Replaces the reference's in-process counters (PRD §9.3). Pricing table includes `gpt-4o-mini` (the common default) to avoid the reference's mis-pricing bug.
 - **Secrets (unified AEAD — fix):** stored LLM, integration, and acquisition-profile credentials use **XChaCha20-Poly1305**; the 32-byte key is derived from `ENCRYPTION_SECRET` via **HKDF-SHA256** with a stable domain-separated context per credential class. One versioned format authenticates the key version as associated data: `base64(version ‖ nonce ‖ ciphertext ‖ tag)`. Secrets are never logged or redisplayed; masking is used where presence must be shown. (Replaces the reference's two incompatible schemes; §21 covers migration.)
 
@@ -662,6 +688,8 @@ Effective personal values use the first present of **feed → category → user 
 
 - **Source:** environment variables (12-factor) layered over an optional TOML file named by `RUSTY_FEED_CONFIG_FILE` via **`figment`**; `.env` is supported in development (`dotenvy`) without overriding an existing process variable. Parsed into a **typed, validated `AppConfig`** at startup; the process refuses to boot on invalid/missing required config. The exhaustive operator reference is `docs/CONFIGURATION.md`, and `rusty-feed-cli config-check` reports resolved modes/presence without printing URLs or secret values.
 - **Key groups** (superset of reference): database URL and per-process pool bounds (`DATABASE_MAX_CONNECTIONS` 1–200, default 10; `DATABASE_ACQUIRE_TIMEOUT_SECONDS` 1–300, default 30); Redis URL/password + `CACHE_ENABLED` and a 1–64 character ASCII `CACHE_NAMESPACE` (`rusty-feed` by default; make it unique when installations share Redis), plus `UNREAD_COUNT_CACHE_SECONDS` (0–3600, default 30; `0` recomputes Library unread counts on every page load); auth (`SESSION_SECRET`, OAuth client IDs/secrets, provider URLs, `REGISTRATION_MODE`, `PASSKEYS_ENABLED`, `PASSKEY_RP_NAME`, and the disabled-by-default `REVERSE_PROXY_AUTH_*` trust boundary); APIs (`API_ENABLED`, `GREADER_API_ENABLED`, `FEVER_API_ENABLED`); installed-app branding (`PWA_NAME`, `PWA_SHORT_NAME`, `PWA_THEME_COLOR`, `PWA_BACKGROUND_COLOR`); UI customization (`CUSTOM_CSS_ENABLED`, disabled-by-default `CUSTOM_JAVASCRIPT_ENABLED`, byte limit); public sharing (`PUBLIC_ARTICLE_SHARING_ENABLED`, bounded default/maximum finite lifetime, and explicit infinite-link policy); embeddings (`EMBEDDINGS_ENABLED` master switch — `false` skips loading/downloading a model and forces every dependent knob keyword-only; `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `MODEL_CACHE_DIR`, batch sizes, `EMBEDDING_AUTO_GENERATE`); search (`SEARCH_MODE`, `SEARCH_TEXT_CONFIG`, `SEARCH_SEMANTIC_WEIGHT_PERCENT`); LLM (`LLM_PROVIDER`, models, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OLLAMA_BASE_URL`); extraction/acquisition (`EXTRACTION_*`, `CHROMIUM_ENABLED`/endpoint, `EXTRACTION_DELAY_MS`, `RESPECT_ROBOTS_TXT`, validated `OUTBOUND_USER_AGENT`, `OUTBOUND_HTTP1_ONLY`; sensitive per-feed acquisition profiles live encrypted in PostgreSQL); URL privacy (`TRACKING_URL_CLEANUP_ENABLED`, bounded cleanup/exception rules); tracking-image privacy (`TRACKING_PIXEL_*`); YouTube privacy/duration (`YOUTUBE_*`); media proxy (`MEDIA_PROXY_ENABLED`, per-object maximum, aggregate cache budget, positive/negative TTLs, and the bounded passive-only `MEDIA_PROXY_EXTRA_INLINE_MIME_TYPES` extension list); jobs (`ENABLE_CRON_JOBS`, schedules/concurrency/locks, and `JOB_RETENTION_DAYS`/`AGENT_RUN_RETENTION_DAYS` for the batched purge of finished queue, outbox and run rows); crypto (`ENCRYPTION_SECRET`); server (`BIND_ADDR`, `BASE_URL`, `LOG_LEVEL`, `SYSTEMD_NOTIFY_ENABLED`, `HTTP_COMPRESSION`, default on: an outermost gzip layer that skips images, audio/video, fonts, archives, event streams, `Accept-Ranges`/`Content-Range` bodies and pre-encoded responses).
+
+**Roundups:** `ROUNDUP_SCHEDULE_LIMIT` (default 10, validated 1–100) caps repeating schedules per user. The existing LLM provider cascade, `RATE_LIMIT_SUMMARIZE_PER_MIN`, `BASE_URL`, SMTP, and AI budget settings are shared with on-demand work. `AI_LLM_PER_USER_DAILY_CALLS` is denominated in call units: an article summary costs 1 and a Roundup costs 5, including for BYO-key users. Selection bounds, prompt version, call weight, the one-minute schedule scan, and 90-day history retention are code-owned constants (§11.7); there is no separate cadence environment variable because each schedule stores its own local cadence/timezone.
 
 **PostgreSQL tuning (Compose-only).** `docker/compose.dokploy.yaml` passes `shared_buffers`, `effective_cache_size`, `work_mem`, `maintenance_work_mem`, `random_page_cost`, `jit`, and the container `shm_size` to Postgres from `PG_*` variables whose defaults are safe on a 2 GB host. They are not `AppConfig` fields; sizing guidance is in `docs/OPERATIONS.md`. Durability settings, `max_connections`, and extensions are deliberately untouched.
 
@@ -721,7 +749,7 @@ Attachment players use `/articles/{article_id}/media/{position}` by default, and
 ## 21. Migration and upgrades
 
 Rusty Feed upgrades are performed in place: back up PostgreSQL, stop writers, deploy
-the new binary or image, and run `rusty-feed-cli migrate` before restarting. All 41
+the new binary or image, and run `rusty-feed-cli migrate` before restarting. All 56
 migrations are additive or explicitly data-preserving, and rollback is by
 restoring the pre-upgrade database backup with the previous binary.
 

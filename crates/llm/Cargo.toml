@@ -22,4 +22,6 @@ async-trait = "0.1"
 
 [dev-dependencies]
 tokio = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
 wiremock = "0.6"

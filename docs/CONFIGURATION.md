@@ -263,6 +263,21 @@ operators with historical spend: **Backfill existing articles** is a separate
 explicit action on the instance AI page and runs in bounded background batches.
 On-demand summaries ignore the automatic minimum.
 
+Feed and folder Roundups use the same enabled provider cascade and interactive
+queue. The first selected model is a shared-cache dimension; the provider and
+model that actually complete a fallback are stored on the Roundup. Each new
+Roundup writes one `cost_ledger` row with `kind='roundup'` and counts as five
+units against `AI_LLM_PER_USER_DAILY_CALLS`. Repeating Roundups are capped by
+`ROUNDUP_SCHEDULE_LIMIT` (default 10, valid 1–100) and use the same provider,
+weighted budget gate, and deduplicated interactive queue as on-demand creation.
+Day schedules choose a whole local hour; Week schedules choose a weekday at
+07:00 local. Each schedule snapshots the reader's Preferences timezone (UTC
+fallback), handles daylight-saving transitions, and can opt into plain-text
+email using the existing `SMTP_URL`, `SMTP_FROM`, and `BASE_URL` settings.
+Personal history is retained for 90 days. Selection bounds, prompt version,
+call weight, the one-minute schedule scan, and retention are code-owned
+constants documented in `docs/ARCHITECTURE.md` §11.7.
+
 Core reading does not depend on an LLM; failures remain visible in the live
 summary state, interactive lane, and wide admin operations view.
 
@@ -359,8 +374,9 @@ limits apply to everyone.
 |---|---:|---|
 | `AI_LLM_GLOBAL_DAILY_USD` | `0` | Instance-wide daily kill-switch for instance-funded LLM spend (USD; `0` = unlimited) |
 | `AI_LLM_PER_USER_DAILY_USD` | `0` | Per-user instance-funded LLM spend cap (USD/day; `0` = unlimited) |
-| `AI_LLM_PER_USER_DAILY_CALLS` | `0` | Per-user summary calls/day, funding-agnostic (`0` = unlimited) |
+| `AI_LLM_PER_USER_DAILY_CALLS` | `0` | Per-user LLM call units/day: summaries weigh 1, Roundups weigh 5; funding-agnostic (`0` = unlimited) |
 | `AI_EMBED_PER_USER_DAILY_CALLS` | `0` | Per-user interactive search-embedding calls/day (`0` = unlimited) |
+| `ROUNDUP_SCHEDULE_LIMIT` | `10` | Repeating Roundup schedules per user (1–100) |
 | `FEED_MAX_ITEMS_PER_REFRESH` | `0` | Newest-first cap on articles ingested per feed refresh (`0` = unlimited) |
 | `FEED_MAX_ARTICLES` | `0` | Advisory ceiling on live articles per feed; trimmed by retention (`0` = unlimited) |
 | `TRUSTED_PROXY_CIDRS` | loopback | Only these socket peers may set the client IP via `X-Forwarded-For`/`X-Real-IP`; otherwise the socket peer is used |
@@ -368,7 +384,7 @@ limits apply to everyone.
 | `RATE_LIMIT_API_PER_MIN` | `600` | Native API, Fever, and GReader per token (`0` = unlimited) |
 | `RATE_LIMIT_FEED_ADD_PER_MIN` | `60` | Feed subscribe/discovery per user |
 | `RATE_LIMIT_SEARCH_PER_MIN` | `120` | Search per user |
-| `RATE_LIMIT_SUMMARIZE_PER_MIN` | `20` | On-demand AI summaries per user |
+| `RATE_LIMIT_SUMMARIZE_PER_MIN` | `20` | On-demand AI summaries and Roundups per user |
 | `RATE_LIMIT_OPML_PER_MIN` | `10` | OPML import/preview per user |
 | `RATE_LIMIT_MEDIA_PER_MIN` | `1800` | Media proxy per user |
 
