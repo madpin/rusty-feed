@@ -129,6 +129,14 @@ debug = "line-tables-only"
 debug = "line-tables-only"
 incremental = false
 
+# Argon2id is deliberately CPU-heavy. Unoptimized, each hash costs ~0.35 s, and
+# every registration/login in the integration and browser suites pays it.
+# Optimizing just these leaf crates keeps dev rebuilds fast.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+
 [profile.release]
 # Optimize for the low-footprint, self-hosted target.
 opt-level = 3
