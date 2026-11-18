@@ -10,6 +10,12 @@ permissions:
   id-token: write
   attestations: write
 
+# Keep identical to ci.yml so the `release-*` Rust caches saved from main match
+# this workflow's cache key (FND-251).
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
   binaries:
     name: binary · ${{ matrix.target }}
@@ -17,17 +23,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          # Linux is pinned to Ubuntu 24.04 (glibc 2.39). `ubuntu-latest` is
+          # 26.04 (glibc 2.43), and binaries linked there do not start on
+          # Debian 13, Ubuntu 24.04, or the Debian 13 runtime image (FND-250).
+          - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             nfpm_arch: amd64
+            image_arch: amd64
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             nfpm_arch: arm64
+            image_arch: arm64
           - runner: macos-15
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -37,11 +49,18 @@ jobs:
       - name: Install macOS native build dependencies
         if: runner.os == 'macOS'
         run: brew install pkg-config openssl@3
+      # Restore-only: Linux reuses the `release-<target>` caches CI saves from
+      # main. A cache saved from a tag is visible to that tag alone, so saving
+      # here only spent the repository's 10 GB cache budget.
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.target }}
+          shared-key: release-${{ matrix.target }}
+          save-if: false
       - name: Build versioned binaries
         run: cargo build --locked --release --target "${{ matrix.target }}" --bin rusty-feed-server --bin rusty-feed-worker --bin rusty-feed-cli
+      - name: Check the glibc floor
+        if: runner.os == 'Linux'
+        run: scripts/check-glibc-floor.sh "target/${{ matrix.target }}/release"
       - name: Package binaries and checksums
         shell: bash
         run: |
@@ -50,7 +69,7 @@ jobs:
           tar -C "target/${{ matrix.target }}/release" -czf "$archive" rusty-feed-server rusty-feed-worker rusty-feed-cli
           shasum -a 256 "$archive" > "$archive.sha256"
       - name: Build Debian and RPM packages
-        if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux')
+        if: runner.os == 'Linux'
         env:
           NFPM_ARCH: ${{ matrix.nfpm_arch }}
           NFPM_BINARY_DIR: target/${{ matrix.target }}/release
@@ -68,14 +87,14 @@ jobs:
             --target "rusty-feed-${GITHUB_REF_NAME}-${{ matrix.target }}.rpm"
           shasum -a 256 rusty-feed-*.deb rusty-feed-*.rpm > "rusty-feed-${GITHUB_REF_NAME}-${{ matrix.target }}-packages.sha256"
       - name: Generate Linux binary SBOM
-        if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux')
+        if: runner.os == 'Linux'
         uses: anchore/sbom-action@v0
         with:
           path: target/${{ matrix.target }}/release
           artifact-name: rusty-feed-${{ github.ref_name }}-${{ matrix.target }}-sbom.spdx.json
           output-file: rusty-feed-${{ github.ref_name }}-${{ matrix.target }}-sbom.spdx.json
           upload-artifact: false
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: rusty-feed-${{ matrix.target }}
           path: |
@@ -85,16 +104,34 @@ jobs:
             rusty-feed-*-packages.sha256
             rusty-feed-*-sbom.spdx.json
           if-no-files-found: error
+      # Raw binaries for the container job. The artifact name must not match
+      # the `rusty-feed-*` pattern the GitHub release downloads and publishes.
+      - name: Stage binaries for the image
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p "dist/${{ matrix.image_arch }}"
+          cp "target/${{ matrix.target }}/release/"rusty-feed-{server,worker,cli} "dist/${{ matrix.image_arch }}/"
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: image-binaries-${{ matrix.image_arch }}
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
 
+  # Installs on the oldest supported userland (Ubuntu 24.04) and on the Debian 13
+  # base of the runtime image rather than on the runner's newer OS, so a glibc
+  # mismatch fails here instead of on users' machines (FND-250).
   package-smoke:
     name: install and upgrade Linux package
     needs: binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: rusty-feed-x86_64-unknown-linux-gnu
-      - name: Inspect packages and exercise a repeat Debian install
+      - name: Inspect packages
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -104,18 +141,42 @@ jobs:
           dpkg-deb --info "$deb"
           dpkg-deb --contents "$deb" | grep '/usr/bin/rusty-feed-server'
           rpm -qpl "$rpm_file" | grep '/usr/bin/rusty-feed-server'
-          sudo dpkg -i "$deb"
-          sudo dpkg -i "$deb"
-          rusty-feed-cli --help
+      - name: Exercise a repeat Debian install on supported distributions
+        run: |
+          set -euo pipefail
+          deb=$(printf '%s\n' rusty-feed-*.deb)
+          for image in ubuntu:24.04 debian:trixie-slim; do
+            echo "== $image"
+            docker run --rm -v "$PWD:/pkg:ro" "$image" sh -euc "
+              apt-get update -qq
+              apt-get install -y -qq /pkg/$deb
+              apt-get install -y -qq --reinstall /pkg/$deb
+              rusty-feed-cli --help
+            "
+          done
 
+  # Packages the binaries from the `binaries` job (`binaries` build context), so
+  # the ARM64 image is no longer compiled from source under QEMU; emulation is
+  # needed only for the runtime stage's `apt-get` (FND-251).
   container:
     name: signed multi-architecture container
+    needs: binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: image-binaries-*
+          path: dist
+          merge-multiple: true
+      - name: Restore executable bits dropped by the artifact round trip
+        run: chmod 0755 dist/*/rusty-feed-*
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -128,19 +189,19 @@ jobs:
         run: |
           if [[ -n "$DOCKERHUB_TOKEN" ]]; then echo "dockerhub=true" >> "$GITHUB_OUTPUT"; else echo "dockerhub=false" >> "$GITHUB_OUTPUT"; fi
           if [[ -n "$QUAY_TOKEN" ]]; then echo "quay=true" >> "$GITHUB_OUTPUT"; else echo "quay=false" >> "$GITHUB_OUTPUT"; fi
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: vars.DOCKERHUB_IMAGE != '' && steps.optional_registries.outputs.dockerhub == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         if: vars.QUAY_IMAGE != '' && steps.optional_registries.outputs.quay == 'true'
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/rusty-feed
           tags: |
@@ -148,18 +209,18 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile
+          build-contexts: binaries=dist
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=runtime
       - uses: sigstore/cosign-installer@v3
       - name: Sign container digest with GitHub OIDC
         env:
@@ -205,6 +266,7 @@ jobs:
           IMAGE: ghcr.io/${{ github.repository_owner }}/rusty-feed@${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
+          docker run --rm --platform linux/arm64 "$IMAGE" rusty-feed-cli --help >/dev/null
           docker network create rusty-feed-release-smoke
           docker run -d --name rusty-feed-release-db --network rusty-feed-release-smoke \
             -e POSTGRES_USER=rusty_feed -e POSTGRES_PASSWORD=rusty_feed -e POSTGRES_DB=rusty_feed \
@@ -236,8 +298,9 @@ jobs:
     name: checksummed GitHub release
     needs: [binaries, package-smoke, container]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: rusty-feed-*
           merge-multiple: true
@@ -248,10 +311,10 @@ jobs:
           for file in rusty-feed-*.tar.gz rusty-feed-*.tar.gz.sha256 rusty-feed-*.deb rusty-feed-*.rpm rusty-feed-*-packages.sha256 rusty-feed-*-sbom.spdx.json; do
             cosign sign-blob --yes --bundle "$file.sigstore.json" "$file"
           done
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v3
         with:
           subject-path: rusty-feed-*
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: rusty-feed-*

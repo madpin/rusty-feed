@@ -74,7 +74,7 @@ Tasks:
 - [x] Root `Cargo.toml` workspace; `rust-toolchain.toml` (pin stable); `rustfmt.toml`; CI-enforced clippy configuration.
 - [x] Create crates: `core`, `db`, `cache`, `feeds`, `extract`, `embed`, `llm`, `search`, `agents`, `web`; bins: `server`, `worker`, `cli`.
 - [x] `.env.example`, `docker/Dockerfile`, `docker/compose.yaml` (postgres+pgvector, redis, chromium, app), `docker/entrypoint.sh`.
-- [x] GitHub Actions CI: fmt + clippy (`-D warnings`) + database-backed tests + release build + Playwright; cached Cargo and PostgreSQL/pgvector/Redis services. Playwright uses a dedicated database and deterministic test embedding space so integration-test vectors cannot contaminate server startup (FND-200).
+- [x] GitHub Actions CI: fmt + clippy (`-D warnings`) + database-backed tests + native release builds (amd64/arm64, glibc-floor checked) + Playwright as parallel jobs; cached Cargo and PostgreSQL/pgvector/Redis services; main images package the natively built binaries (FND-250/251). Playwright uses a dedicated database and deterministic test embedding space so integration-test vectors cannot contaminate server startup (FND-200).
 - [x] `AGENTS.md` and compatibility pointers present.
 
 Verification: `cargo build` + `cargo clippy` + `cargo test` green; `docker build` succeeds.

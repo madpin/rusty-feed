@@ -3,23 +3,54 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
 
+# Superseded PR runs are cancelled; main runs finish, so every green main
+# commit keeps its published image.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
+# Keep identical to release.yml: rust-cache hashes CARGO_*/RUST_* variables into
+# its key, and the tag build reuses the `release-*` caches saved here only when
+# the hashes match (FND-251).
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Independent gates run as parallel jobs, so wall time is the slowest job rather
+# than the sum of all of them. Rust caches are saved only from main (PR runs
+# restore them) to stay inside the repository's 10 GB cache budget.
 jobs:
-  lint-and-test:
-    name: fmt · clippy · test · build
+  lint:
+    name: fmt · clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format check
+        run: cargo fmt --all --check
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Clippy (deny warnings)
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
-    # Postgres + pgvector so the DB integration tests (gated on TEST_DATABASE_URL)
-    # actually run in CI. The tests apply migrations themselves (idempotent).
+  # Postgres + pgvector so the DB integration tests (gated on TEST_DATABASE_URL)
+  # actually run in CI. The tests apply migrations themselves (idempotent).
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: pgvector/pgvector:0.8.6-pg17
@@ -43,141 +74,183 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-
     env:
       TEST_DATABASE_URL: postgres://rusty_feed:rusty_feed@localhost:5432/rusty_feed
       TEST_REDIS_URL: redis://localhost:6379
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --all --check
-
-      - name: Clippy (deny warnings)
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Test
-        run: cargo test --workspace --all-features
-
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install browser test dependencies
-        run: npm ci
-
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Create isolated browser test database
+          shared-key: dev
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The service database is thrown away with the runner, so durability buys
+      # nothing; all three settings are reloadable without a restart.
+      - name: Disable durability on the disposable test database
         env:
           PGPASSWORD: rusty_feed
-        run: createdb --host localhost --port 5432 --username rusty_feed rusty_feed_e2e
+        run: |
+          psql --host localhost --username rusty_feed --dbname rusty_feed -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "SELECT pg_reload_conf()"
+      - name: Test
+        run: cargo test --locked --workspace --all-features --no-fail-fast
 
-      - name: Browser E2E
+  e2e:
+    name: browser e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17
         env:
-          PLAYWRIGHT_DATABASE_URL: postgres://rusty_feed:rusty_feed@localhost:5432/rusty_feed_e2e
-          PLAYWRIGHT_REDIS_URL: redis://localhost:6379
+          POSTGRES_USER: rusty_feed
+          POSTGRES_PASSWORD: rusty_feed
+          POSTGRES_DB: rusty_feed_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rusty_feed -d rusty_feed_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PLAYWRIGHT_DATABASE_URL: postgres://rusty_feed:rusty_feed@localhost:5432/rusty_feed_e2e
+      PLAYWRIGHT_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # Restores the `test` job's dependency cache; only that job saves it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: dev
+          save-if: false
+      # Compile before Playwright starts, so its 120 s webServer timeout covers
+      # server boot only, never a cold build.
+      - name: Build server
+        run: cargo build --locked -p rusty-feed-server
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser E2E
         run: npm run test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
+  repo-checks:
+    name: actionlint · tls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint workflows
+        run: docker run --rm -v "$PWD:/repo:ro" --workdir /repo rhysd/actionlint:1.7.12 -color
       - name: Validate automatic/custom TLS and inbound HTTP/2
         run: scripts/test-tls-proxy.sh
 
-      - name: Build (release)
-        run: cargo build --release --workspace
-
-  # Every commit that lands green on main gets a ready-to-run, multi-arch
-  # container image on GHCR, so main is always deployable (e.g. to Dokploy)
-  # without building from source on the target host. Release tags (v*.*.*) still
-  # produce the signed, SBOM-attested images in release.yml.
-  build-image:
-    name: build image · ${{ matrix.arch }}
-    needs: lint-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # Native optimized builds for both Linux architectures. On PRs this is the
+  # release-profile compile gate; on main the binaries go into the container
+  # image, so Docker never recompiles the workspace (FND-251). Pinned to Ubuntu
+  # 24.04 (glibc 2.39): binaries linked on `ubuntu-latest` (26.04, glibc 2.43)
+  # do not start on the Debian 13 runtime image (FND-250).
+  release-build:
+    name: release build · ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
-            platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
           - arch: arm64
-            platform: linux/arm64
             runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      packages: write
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
         with:
-          images: ghcr.io/${{ github.repository_owner }}/rusty-feed
-          tags: type=sha,prefix=main-,format=short
-      - id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/rusty-feed,push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
-          cache-from: type=gha,scope=main-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=main-${{ matrix.arch }}
-      - name: Export image digest
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          shared-key: release-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build (release)
+        run: cargo build --locked --release --target "${{ matrix.target }}" --bin rusty-feed-server --bin rusty-feed-worker --bin rusty-feed-cli
+      - name: Check the glibc floor
+        run: scripts/check-glibc-floor.sh "target/${{ matrix.target }}/release"
+      - name: Stage binaries for the image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          mkdir -p /tmp/digests
-          touch "/tmp/digests/${DIGEST#sha256:}"
-      - uses: actions/upload-artifact@v4
+          mkdir -p "dist/${{ matrix.arch }}"
+          cp "target/${{ matrix.target }}/release/"rusty-feed-{server,worker,cli} "dist/${{ matrix.arch }}/"
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: rusty-feed-digest-${{ matrix.arch }}
-          path: /tmp/digests/*
+          name: binaries-${{ matrix.arch }}
+          path: dist
           if-no-files-found: error
           retention-days: 1
 
-  publish-image:
+  # Every commit that lands green on main gets a ready-to-run, multi-arch
+  # container image on GHCR, so main is always deployable (e.g. to Dokploy)
+  # without building from source on the target host. Release tags (v*.*.*) still
+  # produce the signed, SBOM-attested images in release.yml. The image takes the
+  # native binaries above through the `binaries` build context, so only the small
+  # runtime stage runs; QEMU is needed just for its ARM64 `apt-get`.
+  image:
     name: publish · multi-arch image (main)
-    needs: [lint-and-test, build-image]
+    needs: [lint, test, e2e, repo-checks, release-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
-          pattern: rusty-feed-digest-*
-          path: /tmp/digests
+          pattern: binaries-*
+          path: dist
           merge-multiple: true
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Restore executable bits dropped by the artifact round trip
+        run: chmod 0755 dist/*/rusty-feed-*
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/rusty-feed
           # `main` tracks the tip of main; `main-<shortsha>` pins an exact commit
@@ -186,27 +259,25 @@ jobs:
             type=raw,value=main
             type=raw,value=edge
             type=sha,prefix=main-,format=short
-      - name: Publish multi-architecture manifest
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-contexts: binaries=dist
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+      - name: Smoke the published image on both architectures
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/rusty-feed
+          IMAGE: ghcr.io/${{ github.repository_owner }}/rusty-feed@${{ steps.build.outputs.digest }}
         run: |
-          mapfile -t digest_files < <(printf '%s\n' /tmp/digests/*)
-          if [[ ${#digest_files[@]} -ne 2 ]]; then
-            echo "expected two platform digests, found ${#digest_files[@]}" >&2
-            exit 1
-          fi
-          sources=()
-          for digest_file in "${digest_files[@]}"; do
-            digest=$(basename "$digest_file")
-            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-              echo "invalid image digest: $digest" >&2
-              exit 1
-            fi
-            sources+=("$IMAGE@sha256:$digest")
+          set -euo pipefail
+          for platform in linux/amd64 linux/arm64; do
+            docker run --rm --platform "$platform" "$IMAGE" rusty-feed-cli --help >/dev/null
+            echo "$platform: ok"
           done
-          args=()
-          while IFS= read -r tag; do
-            args+=(--tag "$tag")
-          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
-          docker buildx imagetools create "${args[@]}" "${sources[@]}"
-          docker buildx imagetools inspect "$IMAGE:main"

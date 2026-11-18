@@ -21,10 +21,21 @@ COPY bins ./bins
 # integration tests against a real Postgres), so no database or offline metadata
 # is needed at build time.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release --bin rusty-feed-server --bin rusty-feed-worker --bin rusty-feed-cli \
+    cargo build --locked --release --bin rusty-feed-server --bin rusty-feed-worker --bin rusty-feed-cli \
  && mkdir -p /out \
  && cp target/release/rusty-feed-server target/release/rusty-feed-worker target/release/rusty-feed-cli /out/
+
+# ── Binaries ─────────────────────────────────────────────────────────────────
+# Binaries laid out per architecture. CI and the release workflow replace this
+# whole stage with natively built release binaries
+# (`--build-context binaries=<dir>` holding `<dir>/amd64/` and `<dir>/arm64/`),
+# so the builder above never runs there: no from-scratch Rust build in Docker
+# and no ARM64 compile under QEMU. A plain `docker build` still builds from source.
+FROM scratch AS binaries
+ARG TARGETARCH
+COPY --from=builder /out/ /${TARGETARCH}/
 
 # ── Runtime ──────────────────────────────────────────────────────────────────
 FROM debian:trixie-slim AS runtime
@@ -37,7 +48,8 @@ RUN apt-get update \
  && mkdir -p /var/lib/rusty-feed/models \
  && chown -R rusty-feed:rusty-feed /var/lib/rusty-feed
 
-COPY --from=builder /out/rusty-feed-server /out/rusty-feed-worker /out/rusty-feed-cli /usr/local/bin/
+ARG TARGETARCH
+COPY --from=binaries /${TARGETARCH}/rusty-feed-server /${TARGETARCH}/rusty-feed-worker /${TARGETARCH}/rusty-feed-cli /usr/local/bin/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

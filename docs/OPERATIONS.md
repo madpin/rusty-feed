@@ -303,9 +303,11 @@ silicon (arm64), Linux Debian/RPM packages, per-architecture SPDX SBOMs, GitHub 
 provenance, and an SBOM/provenance-bearing `linux/amd64,linux/arm64` image.
 GitHub OIDC signs every file and registry digest with Sigstore/cosign. GHCR is
 mandatory; repository variables plus credentials may mirror the exact digest to
-Docker Hub and Quay. CI installs the Debian package twice and boots the released
-container against PostgreSQL before creating the GitHub release. Pin production
-to a version or digest rather than `latest`.
+Docker Hub and Quay. Linux binaries are built on Ubuntu 24.04 and need glibc
+2.39 or newer (Debian 13, Ubuntu 24.04 and later); CI rejects any build that
+needs more. CI installs the Debian package twice on Ubuntu 24.04 and Debian 13,
+and boots the released container against PostgreSQL before creating the GitHub
+release. Pin production to a version or digest rather than `latest`.
 
 Packages intentionally do not enable the service or create live secrets. Copy
 `/usr/share/doc/rusty-feed/rusty-feed.env.example` to `/etc/rusty-feed/rusty-feed.env`, replace
