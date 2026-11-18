@@ -13,6 +13,12 @@ use rusty_feed_db::{
 };
 use rusty_feed_web::{router, AppSettings, AppState};
 
+/// Serializes the global demo reset against tests in this binary that create
+/// demo accounts: `delete_all_demo` removes every `is_demo` user, so a
+/// concurrent fixture could vanish between its creation and its session insert
+/// (FK violation on `sessions.user_id`, FND-252).
+static DEMO_RESET_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn state() -> Option<AppState> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = Db::connect(&url).await.ok()?;
@@ -58,6 +64,7 @@ async fn session_cookie(state: &AppState, user_id: uuid::Uuid) -> String {
 #[tokio::test]
 async fn demo_reset_deletes_only_demo_users() {
     let Some(state) = state().await else { return };
+    let _guard = DEMO_RESET_LOCK.lock().await;
     let real = users::create(
         state.db.pool(),
         &format!("real-{}@example.test", uuid::Uuid::now_v7()),
@@ -712,6 +719,7 @@ async fn robots_and_sitemap_are_served() {
 #[tokio::test]
 async fn demo_users_cannot_import_opml() {
     let Some(state) = state().await else { return };
+    let _guard = DEMO_RESET_LOCK.lock().await;
     let demo = users::create_demo(
         state.db.pool(),
         &format!("demo-opml-{}@demo.invalid", uuid::Uuid::now_v7()),
