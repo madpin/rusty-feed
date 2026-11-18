@@ -34,6 +34,12 @@ const RSS: &str = r#"<?xml version="1.0"?><rss version="2.0"><channel><title>F</
   <item><title>Item</title><link>PLACEHOLDER</link><guid>PLACEHOLDER</guid><description>summary only</description></item>
 </channel></rss>"#;
 
+/// Every test here talks to a wiremock server on `127.0.0.1`, so they all share
+/// one `domain_extraction_state` row. A concurrent successful extraction resets
+/// `rate_limit_count` to 0, racing the 429 assertion (FND-253); run them one at
+/// a time.
+static DOMAIN_STATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn connect() -> Option<Db> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let db = Db::connect(&url).await.expect("connect");
@@ -89,6 +95,7 @@ async fn extract_content_agent_enriches_article() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = DOMAIN_STATE_LOCK.lock().await;
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/article"))
@@ -159,6 +166,7 @@ async fn on_demand_extraction_runs_without_changing_subscription_demand() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = DOMAIN_STATE_LOCK.lock().await;
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/article"))
@@ -237,6 +245,7 @@ async fn rate_limited_extraction_records_and_signals_retry() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = DOMAIN_STATE_LOCK.lock().await;
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/article"))
@@ -301,6 +310,7 @@ async fn fetch_feed_enqueues_extraction_when_enabled() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = DOMAIN_STATE_LOCK.lock().await;
     let run = uuid::Uuid::now_v7().to_string();
     let item_url = format!("https://item.ex/{run}");
     let rss = RSS
@@ -361,6 +371,7 @@ async fn ignored_robots_policy_skips_the_robots_request() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = DOMAIN_STATE_LOCK.lock().await;
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/robots.txt"))
@@ -429,6 +440,7 @@ async fn feeds_without_subscriber_demand_do_not_fetch_article_pages() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = DOMAIN_STATE_LOCK.lock().await;
     let server = MockServer::start().await;
     for mode in ["rss", "paywalled"] {
         let (feed, _) = feeds::upsert_by_url(
@@ -489,6 +501,7 @@ async fn extraction_is_ssrf_guarded() {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
     };
+    let _guard = DOMAIN_STATE_LOCK.lock().await;
     // A STRICT client must refuse a loopback article URL.
     let strict = SafeFetchClient::new(Duration::from_secs(5)).unwrap();
     let service = ExtractionService::new(ExtractConfig {
