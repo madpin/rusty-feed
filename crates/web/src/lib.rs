@@ -130,6 +130,7 @@ pub fn router(state: AppState) -> Router {
         .route("/articles/{id}/live/resource", get(live_view::resource))
         .route("/articles/{id}/hero", get(media_proxy::hero))
         .route("/articles/{id}/media/{position}", get(media_proxy::get))
+        .route("/articles/{id}/audio/{position}", get(media_proxy::audio))
         .route("/articles/{id}/read", post(reader::mark_read))
         .route("/articles/{id}/unread", post(reader::mark_unread))
         .route("/articles/{id}/seen", post(reader::mark_seen))

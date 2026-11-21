@@ -1,0 +1,23 @@
+{% if !audio_voices.is_empty() %}
+<section class="reader-section article-audio" data-article-audio aria-label="Listen to article">
+  <h3>Listen to article</h3>
+  {% for voice in audio_voices %}
+  {% if loop.first %}
+  <p>Publisher audio · <span data-article-audio-name>{{ voice.voice_name }}</span></p>
+  <audio controls preload="none" data-article-audio-player aria-label="Listen to article">
+    <source src="{{ voice.url }}" type="{{ voice.mime_type }}">
+    <a href="{{ voice.url }}">Open audio</a>
+  </audio>
+  {% endif %}
+  {% endfor %}
+  {% if audio_voices.len() > 1 %}
+  <label class="article-audio-voices">Voice
+    <select data-article-audio-voice>
+      {% for voice in audio_voices %}
+      <option value="{{ voice.url }}" data-mime-type="{{ voice.mime_type }}">{{ voice.voice_name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+</section>
+{% endif %}

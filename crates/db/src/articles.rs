@@ -52,6 +52,39 @@ pub async fn set_extracted_content_with_privacy(
     lifetime: ContentLifetime,
     blocked_tracking_pixels: u32,
 ) -> Result<Option<i64>> {
+    set_extracted_content_with_metadata(
+        pool,
+        id,
+        expected_revision,
+        content,
+        excerpt,
+        lifetime,
+        ExtractedContentMetadata {
+            blocked_tracking_pixels,
+            audio: &[],
+        },
+    )
+    .await
+}
+
+/// Metadata acquired together with a shared public-page copy.
+#[derive(Debug, Default)]
+pub struct ExtractedContentMetadata<'a> {
+    pub blocked_tracking_pixels: u32,
+    pub audio: &'a [rusty_feed_core::article_audio::ArticleAudio],
+}
+
+/// Atomically store the page body and narration for the expected shared revision.
+/// A stale extraction cannot replace either the body or its audio metadata.
+pub async fn set_extracted_content_with_metadata(
+    pool: &PgPool,
+    id: Uuid,
+    expected_revision: i64,
+    content: &str,
+    excerpt: Option<&str>,
+    lifetime: ContentLifetime,
+    metadata: ExtractedContentMetadata<'_>,
+) -> Result<Option<i64>> {
     let content_hash = rusty_feed_core::hash::content_hash(content);
     let lifetime_days = lifetime.days().map(i32::from);
     Ok(sqlx::query_scalar(
@@ -62,6 +95,7 @@ pub async fn set_extracted_content_with_privacy(
          article_page_expires_at = CASE WHEN $6::int IS NULL THEN NULL \
               ELSE now() + make_interval(days => $6) END, \
          article_page_processing_version = $7, article_page_blocked_tracking_pixels = $8, \
+         article_page_audio = $9, \
          content_revision = content_revision + 1, extraction_status = 'success', \
          extraction_error = NULL, summary = NULL, key_points = NULL, topics = '{}', \
          summarized_at = NULL, summary_model = NULL, updated_at = now() \
@@ -77,7 +111,8 @@ pub async fn set_extracted_content_with_privacy(
     .bind(excerpt)
     .bind(lifetime_days)
     .bind(ARTICLE_PAGE_PROCESSING_VERSION)
-    .bind(i32::try_from(blocked_tracking_pixels).unwrap_or(i32::MAX))
+    .bind(i32::try_from(metadata.blocked_tracking_pixels).unwrap_or(i32::MAX))
+    .bind(sqlx::types::Json(metadata.audio))
     .fetch_optional(pool)
     .await?)
 }
@@ -282,7 +317,7 @@ pub async fn clear_expired_article_page_content(pool: &PgPool) -> Result<u64> {
          article_page_content = NULL, article_page_excerpt = NULL, \
          article_page_content_hash = NULL, article_page_fetched_at = NULL, \
          article_page_expires_at = NULL, article_page_processing_version = 0, \
-         article_page_blocked_tracking_pixels = 0, \
+         article_page_blocked_tracking_pixels = 0, article_page_audio = '[]'::jsonb, \
          content_revision = content_revision + 1, \
          extraction_status = 'none', extraction_error = NULL, summary = NULL, \
          key_points = NULL, topics = '{}', summarized_at = NULL, summary_model = NULL, \
@@ -816,6 +851,7 @@ async fn update(
          content_hash = CASE WHEN $12 THEN $8 ELSE content_hash END, \
          content_source = CASE WHEN $12 THEN 'feed' ELSE content_source END, \
          article_page_content = CASE WHEN $12 THEN NULL ELSE article_page_content END, \
+         article_page_audio = CASE WHEN $12 THEN '[]'::jsonb ELSE article_page_audio END, \
          article_page_excerpt = CASE WHEN $12 THEN NULL ELSE article_page_excerpt END, \
          article_page_content_hash = CASE WHEN $12 THEN NULL ELSE article_page_content_hash END, \
          article_page_fetched_at = CASE WHEN $12 THEN NULL ELSE article_page_fetched_at END, \

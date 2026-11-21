@@ -92,7 +92,12 @@ async fn extract_content_agent_enriches_article() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/article"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(ARTICLE_HTML))
+        .respond_with(ResponseTemplate::new(200).set_body_string(format!(
+            "{}{}",
+            include_str!("../../extract/tests/fixtures/google_tts.html"),
+            ARTICLE_HTML
+        )))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -138,6 +143,10 @@ async fn extract_content_agent_enriches_article() {
         .unwrap()
         .unwrap();
     assert_eq!(stored.extraction_status, "success");
+    assert_eq!(stored.article_page_audio.len(), 2);
+    assert_eq!(stored.article_page_audio[0].voice_name, "Umbriel");
+    assert!(!stored.content.contains("<audio"));
+    assert!(!stored.content.contains("storage.googleapis.com"));
     assert!(stored.content.contains("complete article body"));
     assert!(stored
         .content

@@ -142,14 +142,17 @@ impl Agent for ExtractContentAgent {
                 let blocked_tracking_pixels = e
                     .blocked_tracking_pixels
                     .saturating_add(report.blocked_tracking_pixels);
-                let updated = articles::set_extracted_content_with_privacy(
+                let updated = articles::set_extracted_content_with_metadata(
                     pool,
                     article_id,
                     content_revision,
                     &report.html,
                     e.excerpt.as_deref(),
                     lifetime,
-                    blocked_tracking_pixels,
+                    articles::ExtractedContentMetadata {
+                        blocked_tracking_pixels,
+                        audio: &e.audio,
+                    },
                 )
                 .await?;
                 let Some(content_revision) = updated else {

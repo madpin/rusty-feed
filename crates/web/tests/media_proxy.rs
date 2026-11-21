@@ -140,7 +140,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
             excerpt: None,
             image_url: Some(format!("{}/hero.jpg", publisher.uri())),
             enclosures: vec![NewArticleEnclosure {
-                url: media_url,
+                url: media_url.clone(),
                 media_kind: "audio".to_string(),
                 mime_type: Some("audio/mpeg".to_string()),
                 title: None,
@@ -154,6 +154,95 @@ async fn media_is_article_authorized_range_capable_and_shared() {
     )
     .await
     .unwrap();
+    let audio = [
+        rusty_feed_core::article_audio::ArticleAudio::new(
+            "Umbriel",
+            &media_url,
+            "audio/mpeg",
+            &article.url,
+        )
+        .unwrap(),
+        rusty_feed_core::article_audio::ArticleAudio::new(
+            "Gacrux",
+            &format!("{}/not-audio", publisher.uri()),
+            "audio/mpeg",
+            &article.url,
+        )
+        .unwrap(),
+        rusty_feed_core::article_audio::ArticleAudio::new(
+            "Private",
+            &format!("{}/private.mp3", publisher.uri()),
+            "audio/mpeg",
+            &article.url,
+        )
+        .unwrap(),
+    ];
+    articles::set_extracted_content_with_metadata(
+        state.db.pool(),
+        article.id,
+        article.content_revision,
+        "<p>Public page body</p>",
+        None,
+        rusty_feed_core::feed_content::ContentLifetime::Days(1),
+        articles::ExtractedContentMetadata {
+            blocked_tracking_pixels: 0,
+            audio: &audio,
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let audio_route = format!("/articles/{}/audio/0", article.id);
+    for cookie_header in [None, Some(format!("rusty_feed_sid={second_sid}"))] {
+        let mut request = Request::get(&audio_route);
+        let expected = if let Some(value) = cookie_header {
+            request = request.header("cookie", value);
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::UNAUTHORIZED
+        };
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    for view in [
+        format!("/articles/{}?content=article_page", article.id),
+        format!("/articles/{}/panel?content=article_page", article.id),
+        format!("/articles/{}/content?content=article_page", article.id),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(view)
+                    .header("cookie", format!("rusty_feed_sid={sid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(html.contains("Listen to article"));
+        assert!(html.contains(&format!("src=\"{audio_route}\"")));
+        assert!(html.contains("Gacrux"));
+        assert!(!html.contains(&format!("src=\"{media_url}\"")));
+    }
+    assert!(
+        publisher.received_requests().await.unwrap().is_empty(),
+        "rendering must not fetch narration"
+    );
     let route = format!("/articles/{}/media/0", article.id);
     let hero_route = format!("/articles/{}/hero", article.id);
 
@@ -287,6 +376,7 @@ async fn media_is_article_authorized_range_capable_and_shared() {
     );
 
     let response = app
+        .clone()
         .oneshot(
             Request::get(&route)
                 .header("cookie", format!("rusty_feed_sid={sid}"))
@@ -298,5 +388,77 @@ async fn media_is_article_authorized_range_capable_and_shared() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
     assert_eq!(response.headers()["content-range"], "bytes */10");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(&audio_route)
+                .header("cookie", format!("rusty_feed_sid={second_sid}"))
+                .header("range", "bytes=2-5")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(response.headers()["content-type"], "audio/mpeg");
+    assert_eq!(response.headers()["content-range"], "bytes 2-5/10");
+    // The enclosure and narration share a single URL cache across readers.
+    assert_eq!(
+        publisher
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path() == "/episode.mp3")
+            .count(),
+        1
+    );
+    Mock::given(method("GET"))
+        .and(path("/not-audio"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/html")
+                .set_body_string("<script>bad()</script>"),
+        )
+        .expect(1)
+        .mount(&publisher)
+        .await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/articles/{}/audio/1", article.id))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let safe_app = router(AppState::new(
+        state.db.clone(),
+        Cache::in_memory().await,
+        AppSettings::default(),
+        String::new,
+    ));
+    let response = safe_app
+        .oneshot(
+            Request::get(format!("/articles/{}/audio/2", article.id))
+                .header("cookie", format!("rusty_feed_sid={sid}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_GATEWAY,
+        "SafeFetchClient must block private narration targets"
+    );
+    assert!(!publisher
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .any(|request| request.url.path() == "/private.mp3"));
     publisher.verify().await;
 }

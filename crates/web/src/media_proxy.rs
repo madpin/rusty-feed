@@ -61,6 +61,53 @@ pub async fn get(
     )
 }
 
+/// `GET /articles/{id}/audio/{position}` — play one stored publisher narration.
+pub async fn audio(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((article_id, position)): Path<(Uuid, usize)>,
+    request_headers: HeaderMap,
+) -> Result<Response, AppError> {
+    if !state.settings.media_proxy_enabled
+        || !articles::user_can_access(state.db.pool(), user.id, article_id).await?
+    {
+        return Err(AppError::NotFound);
+    }
+    if !state.media_limiter.check(&user.id.to_string()).await {
+        return Err(AppError::RateLimited);
+    }
+    let article = articles::find_by_id(state.db.pool(), article_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if article.article_page_content.is_none()
+        || article
+            .article_page_expires_at
+            .is_some_and(|expires| expires <= OffsetDateTime::now_utc())
+    {
+        return Err(AppError::NotFound);
+    }
+    let voice = article
+        .article_page_audio
+        .get(position)
+        .ok_or(AppError::NotFound)?;
+    let cache_key = sha256_hex(voice.url.as_bytes());
+    let entry = cached_entry(
+        &state,
+        &cache_key,
+        &voice.url,
+        state.settings.media_proxy_max_bytes,
+    )
+    .await?;
+    serve_entry(
+        "audio",
+        &voice.url,
+        entry,
+        &request_headers,
+        false,
+        &state.settings.media_proxy_extra_inline_mime_types,
+    )
+}
+
 /// `GET /articles/{id}/hero` — serve an authorized header image without
 /// exposing the reader's address to the publisher.
 pub async fn hero(

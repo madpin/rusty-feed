@@ -6,6 +6,24 @@
 
   document.documentElement.classList.add("js");
 
+  document.addEventListener("change", function (event) {
+    var select = event.target;
+    if (!select || !select.matches || !select.matches("[data-article-audio-voice]")) return;
+    var section = select.closest("[data-article-audio]");
+    var player = section && section.querySelector("[data-article-audio-player]");
+    var option = select.options[select.selectedIndex];
+    if (!player || !option) return;
+    var source = player.querySelector("source");
+    player.pause();
+    source.src = option.value;
+    source.type = option.getAttribute("data-mime-type");
+    var link = player.querySelector("a");
+    if (link) link.href = option.value;
+    var name = section.querySelector("[data-article-audio-name]");
+    if (name) name.textContent = option.textContent;
+    player.load();
+  });
+
   var status = document.getElementById("action-status");
   var statusTimer;
   var installPrompt = null;

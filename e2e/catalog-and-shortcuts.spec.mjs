@@ -1,5 +1,35 @@
 import { expect, test } from "@playwright/test";
 
+test("publisher narration keeps native controls and switches voices in inserted reader content", async ({ page }) => {
+  await page.goto("/login");
+  const scriptUrl = new URL("/static/app.js", page.url()).href;
+  const cssUrl = new URL("/static/app.css", page.url()).href;
+  const markup = `<section class="article-audio" data-article-audio>
+    <p>Publisher audio · <span data-article-audio-name>Umbriel</span></p>
+    <audio controls preload="none" data-article-audio-player><source src="/articles/example/audio/0" type="audio/mpeg"></audio>
+    <label class="article-audio-voices">Voice<select data-article-audio-voice>
+      <option value="/articles/example/audio/0" data-mime-type="audio/mpeg">Umbriel</option>
+      <option value="/articles/example/audio/1" data-mime-type="audio/ogg">Gacrux</option>
+    </select></label></section>`;
+  await page.setContent(`<link rel="stylesheet" href="${cssUrl}"><main>${markup}</main>`);
+  const player = page.locator("audio");
+  await expect(player).toBeVisible();
+  await expect(player).toHaveAttribute("controls", "");
+  await expect(player).toHaveAttribute("preload", "none");
+  await expect(page.getByLabel("Voice")).toBeHidden();
+  await page.addScriptTag({ url: scriptUrl });
+  await expect(page.getByLabel("Voice")).toBeVisible();
+  await page.getByLabel("Voice").selectOption({ label: "Gacrux" });
+  await expect(player.locator("source")).toHaveAttribute("src", "/articles/example/audio/1");
+  await expect(player.locator("source")).toHaveAttribute("type", "audio/ogg");
+  await expect(page.locator("[data-article-audio-name]")).toHaveText("Gacrux");
+  expect(await player.evaluate((element) => element.paused)).toBe(true);
+  // Reader fragments inserted after initialization use the same delegated listener.
+  await page.locator("main").evaluate((element, html) => { element.innerHTML = html; }, markup);
+  await page.getByLabel("Voice").selectOption({ label: "Gacrux" });
+  await expect(page.locator("audio source")).toHaveAttribute("src", "/articles/example/audio/1");
+});
+
 async function register(page, suffix) {
   await page.goto("/register");
   await page.getByLabel("Email").fill(`playwright-${suffix}@example.test`);

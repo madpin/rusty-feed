@@ -200,6 +200,7 @@ struct ArticleTemplate {
     published: Option<String>,
     image_url: Option<String>,
     enclosures: Vec<EnclosureView>,
+    audio_voices: Vec<AudioVoiceView>,
     youtube_videos: Vec<YouTubeView>,
     content: String, // sanitized HTML
     content_notice: Option<String>,
@@ -217,6 +218,42 @@ struct ArticleTemplate {
     story_sources: Vec<StorySource>,
     external_new_tab: bool,
     share: ShareControls,
+}
+
+struct AudioVoiceView {
+    voice_name: String,
+    url: String,
+    mime_type: String,
+}
+
+#[derive(Template)]
+#[template(path = "article_audio.html")]
+struct ArticleAudioTemplate {
+    audio_voices: Vec<AudioVoiceView>,
+}
+
+fn audio_views(
+    article: &rusty_feed_db::Article,
+    mode: SubscriptionContentMode,
+    availability: ContentAvailability,
+    proxy_enabled: bool,
+) -> Vec<AudioVoiceView> {
+    if mode != SubscriptionContentMode::ArticlePage
+        || availability != ContentAvailability::Ready
+        || !proxy_enabled
+    {
+        return Vec::new();
+    }
+    article
+        .article_page_audio
+        .iter()
+        .enumerate()
+        .map(|(position, voice)| AudioVoiceView {
+            voice_name: voice.voice_name.clone(),
+            url: format!("/articles/{}/audio/{position}", article.id),
+            mime_type: voice.mime_type.clone(),
+        })
+        .collect()
 }
 
 struct StorySource {
@@ -246,6 +283,7 @@ struct ArticlePanelTemplate {
     published: Option<String>,
     image_url: Option<String>,
     enclosures: Vec<EnclosureView>,
+    audio_voices: Vec<AudioVoiceView>,
     youtube_videos: Vec<YouTubeView>,
     content: String,
     content_notice: Option<String>,
@@ -294,6 +332,7 @@ struct ReaderView {
     published: Option<String>,
     image_url: Option<String>,
     enclosures: Vec<EnclosureView>,
+    audio_voices: Vec<AudioVoiceView>,
     youtube_videos: Vec<YouTubeView>,
     content: String,
     content_notice: Option<String>,
@@ -2070,6 +2109,12 @@ async fn reader_view(
         public_shares::controls(state, user_id, id, &article.title, default_share_source).await?;
     let (story_summary, story_sources) =
         story_view(stories::coverage_for_user(state.db.pool(), user_id, id).await?);
+    let audio_voices = audio_views(
+        &article,
+        content_mode,
+        content_availability,
+        state.settings.media_proxy_enabled,
+    );
     Ok(ReaderView {
         id: id.to_string(),
         title: article.title,
@@ -2081,6 +2126,7 @@ async fn reader_view(
             enclosure_delivery_mode,
         ),
         enclosures,
+        audio_voices,
         youtube_videos,
         url,
         url_label,
@@ -2159,6 +2205,7 @@ pub async fn read(
         published: article.published,
         image_url: article.image_url,
         enclosures: article.enclosures,
+        audio_voices: article.audio_voices,
         youtube_videos: article.youtube_videos,
         content: article.content,
         content_notice: article.content_notice,
@@ -2217,6 +2264,7 @@ pub async fn side_panel(
         published: article.published,
         image_url: article.image_url,
         enclosures: article.enclosures,
+        audio_voices: article.audio_voices,
         youtube_videos: article.youtube_videos,
         content: article.content,
         content_notice: article.content_notice,
@@ -2286,9 +2334,19 @@ pub async fn content_fragment(
         external_new_tab,
         prefs.reading_format == "adhd",
     );
+    let audio = ArticleAudioTemplate {
+        audio_voices: audio_views(
+            &article,
+            content_mode,
+            availability,
+            state.settings.media_proxy_enabled,
+        ),
+    }
+    .render()
+    .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))?;
     Ok((
         [("x-rusty-feed-content-status", availability.as_str())],
-        Html(format!("{notice}{content}")),
+        Html(format!("{notice}{audio}{content}")),
     )
         .into_response())
 }
@@ -2504,10 +2562,40 @@ mod tests {
         articles_url, decode_library_cursor, enclosure_mime_is_safe, encode_library_cursor,
         format_timestamp, reader_image_url, safe_external_url, with_after,
     };
+    use askama::Template;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
     use rusty_feed_db::articles::ListCursor;
     use uuid::Uuid;
+
+    #[test]
+    fn narration_template_plays_first_voice_without_js_and_escapes_names() {
+        let mut template = super::ArticleAudioTemplate {
+            audio_voices: Vec::new(),
+        };
+        assert!(template.render().unwrap().trim().is_empty());
+        template.audio_voices.push(super::AudioVoiceView {
+            voice_name: "Umbriel <script>".into(),
+            url: "/articles/example/audio/0".into(),
+            mime_type: "audio/mpeg".into(),
+        });
+        let single = template.render().unwrap();
+        assert!(single.contains("<audio controls preload=\"none\""));
+        assert!(single.contains("<source src=\"/articles/example/audio/0\" type=\"audio/mpeg\""));
+        assert!(!single.contains("<select"));
+        assert!(!single.contains("<script>"));
+        template.audio_voices.push(super::AudioVoiceView {
+            voice_name: "Gacrux".into(),
+            url: "/articles/example/audio/1".into(),
+            mime_type: "audio/mpeg".into(),
+        });
+        let multiple = template.render().unwrap();
+        assert_eq!(multiple.matches("<audio ").count(), 1);
+        assert_eq!(multiple.matches("<source ").count(), 1);
+        assert_eq!(multiple.matches("<option ").count(), 2);
+        assert!(multiple.contains("data-article-audio-voice"));
+        assert!(!multiple.contains("autoplay"));
+    }
 
     #[test]
     fn library_cursors_round_trip_at_microsecond_precision() {

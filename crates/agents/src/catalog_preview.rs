@@ -160,6 +160,7 @@ mod tests {
             rss_body_chars: Some(20),
         };
         let extracted = Extracted {
+            audio: Vec::new(),
             content: format!("<p>{}</p>", "article ".repeat(100)),
             excerpt: None,
             title: None,

@@ -7,6 +7,7 @@
 //! `docs/ARCHITECTURE.md` §12. Headless-Chrome extraction is a future extractor
 //! (FND-120).
 
+pub mod audio;
 pub mod chromium;
 pub mod error;
 mod readability;
@@ -317,6 +318,13 @@ impl ExtractionService {
                 if let Some(mut extracted) =
                     self.run_extractors(&rendered, selector, base_url, tracking_pixel_policy)
                 {
+                    // A rendered page can replace/remove the original player wrapper.
+                    if extracted.audio.is_empty() {
+                        extracted.audio = audio::detect_article_audio(
+                            &scraper::Html::parse_document(html),
+                            base_url,
+                        );
+                    }
                     extracted.extractor = "chromium";
                     Some(extracted)
                 } else {

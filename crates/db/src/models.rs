@@ -97,6 +97,7 @@ pub struct Article {
     pub feed_blocked_tracking_pixels: i32,
     pub article_page_content: Option<String>,
     pub article_page_excerpt: Option<String>,
+    pub article_page_audio: sqlx::types::Json<Vec<rusty_feed_core::article_audio::ArticleAudio>>,
     pub article_page_content_hash: Option<String>,
     pub article_page_fetched_at: Option<OffsetDateTime>,
     pub article_page_expires_at: Option<OffsetDateTime>,
@@ -122,7 +123,7 @@ pub struct Article {
 pub(crate) const ARTICLE_COLUMNS: &str =
     "id, feed_id, url, original_url, comments_url, guid, title, author, content, excerpt, \
     content_hash, feed_content, feed_excerpt, feed_content_hash, feed_blocked_tracking_pixels, article_page_content, \
-    article_page_excerpt, article_page_content_hash, article_page_fetched_at, \
+    article_page_excerpt, article_page_audio, article_page_content_hash, article_page_fetched_at, \
     article_page_expires_at, article_page_processing_version, article_page_blocked_tracking_pixels, content_source, content_revision, \
     image_url, published_at, extraction_status, extraction_error, summary, key_points, topics, \
     summarized_at, summary_model, created_at, updated_at";

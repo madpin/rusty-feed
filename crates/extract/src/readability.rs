@@ -20,6 +20,7 @@ use rusty_feed_core::{
 #[derive(Debug, Clone)]
 pub struct Extracted {
     pub content: String,
+    pub audio: Vec<rusty_feed_core::article_audio::ArticleAudio>,
     pub excerpt: Option<String>,
     pub title: Option<String>,
     pub extractor: &'static str,
@@ -71,6 +72,10 @@ impl Extractor for ReadabilityExtractor {
         base_url: &str,
         tracking_pixel_policy: &TrackingPixelPolicy,
     ) -> Option<Extracted> {
+        let original_doc = Html::parse_document(html);
+        let audio = crate::audio::detect_article_audio(&original_doc, base_url);
+        let prepared_html = crate::audio::without_narration_players(html, &original_doc);
+        let html = prepared_html.as_str();
         let doc = Html::parse_document(html);
         let document_title = document_title(&doc);
         let custom = selector.and_then(|value| select_custom_content(&doc, value));
@@ -105,6 +110,7 @@ impl Extractor for ReadabilityExtractor {
         }
         let excerpt = excerpt_from(&content);
         Some(Extracted {
+            audio,
             content,
             excerpt,
             title,
@@ -211,7 +217,10 @@ impl Extractor for RawExtractor {
         base_url: &str,
         tracking_pixel_policy: &TrackingPixelPolicy,
     ) -> Option<Extracted> {
-        let doc = Html::parse_document(html);
+        let original_doc = Html::parse_document(html);
+        let audio = crate::audio::detect_article_audio(&original_doc, base_url);
+        let prepared_html = crate::audio::without_narration_players(html, &original_doc);
+        let doc = Html::parse_document(&prepared_html);
         let body_sel = Selector::parse("body").ok()?;
         let body = doc.select(&body_sel).next()?.inner_html();
         let cleaned = remove_publisher_boilerplate(&body);
@@ -226,6 +235,7 @@ impl Extractor for RawExtractor {
             return None;
         }
         Some(Extracted {
+            audio,
             excerpt: excerpt_from(&content),
             title: document_title(&doc),
             content,
@@ -248,7 +258,10 @@ pub(crate) fn short_outage_fallback(
     base_url: &str,
     tracking_pixel_policy: &TrackingPixelPolicy,
 ) -> Option<Extracted> {
-    let doc = Html::parse_document(html);
+    let original_doc = Html::parse_document(html);
+    let audio = crate::audio::detect_article_audio(&original_doc, base_url);
+    let prepared_html = crate::audio::without_narration_players(html, &original_doc);
+    let doc = Html::parse_document(&prepared_html);
     let body_selector = Selector::parse("body").ok()?;
     let body = doc.select(&body_selector).next()?.inner_html();
     let cleaned = remove_publisher_boilerplate(&body);
@@ -263,6 +276,7 @@ pub(crate) fn short_outage_fallback(
         return None;
     }
     Some(Extracted {
+        audio,
         excerpt: excerpt_from(&content),
         title: document_title(&doc),
         content,
@@ -576,6 +590,30 @@ mod tests {
       </article>
       <footer>© 2026</footer>
     </body></html>"#;
+
+    #[test]
+    fn narration_is_shared_metadata_even_outside_the_selected_body() {
+        let html = format!(
+            "{}{}",
+            include_str!("../tests/fixtures/google_tts.html"),
+            PAGE
+        );
+        for extractor in [&ReadabilityExtractor as &dyn Extractor, &RawExtractor] {
+            let out = extractor
+                .extract(
+                    &html,
+                    Some("article"),
+                    "https://example.com/article",
+                    &pixel_policy(),
+                )
+                .unwrap();
+            assert_eq!(out.audio.len(), 2);
+            assert_eq!(out.audio[0].voice_name, "Umbriel");
+            assert!(!out.content.contains("<audio"));
+            assert!(!out.content.contains("storage.googleapis.com"));
+            assert!(out.content.contains("first substantial paragraph"));
+        }
+    }
 
     #[test]
     fn readability_extracts_article_and_sanitizes() {

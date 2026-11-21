@@ -1307,6 +1307,9 @@ img.enclosure-image[data-image-modal] { cursor: zoom-in; }
 .article-body figcaption { margin-top: 0.45rem; color: var(--muted); font-size: 0.85rem; line-height: 1.5; text-align: center; }
 .article-body video,
 .article-body audio { width: 100%; max-width: 100%; margin: 1rem 0; }
+.article-audio audio { width: 100%; max-width: 100%; }
+.article-audio-voices { display: none; }
+.js .article-audio-voices { display: block; margin-top: 0.75rem; }
 .article-body table { display: block; width: max-content; max-width: 100%; margin: 1.25rem 0; overflow-x: auto; border-collapse: collapse; font-size: 0.92em; }
 .article-body caption { margin-bottom: 0.5rem; color: var(--muted); font-size: 0.88em; text-align: left; }
 .article-body th,

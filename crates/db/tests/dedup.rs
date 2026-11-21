@@ -474,13 +474,25 @@ async fn extracted_content_survives_unchanged_refresh_and_stale_write_is_rejecte
         published_at: None,
     };
     let (created, _) = articles::upsert(pool, &incoming).await.unwrap();
-    let extracted_revision = articles::set_extracted_content(
+    assert!(created.article_page_audio.is_empty());
+    let audio = vec![rusty_feed_core::article_audio::ArticleAudio::new(
+        "Umbriel",
+        "https://media.example/narration.mp3",
+        "audio/mpeg",
+        &created.url,
+    )
+    .unwrap()];
+    let extracted_revision = articles::set_extracted_content_with_metadata(
         pool,
         created.id,
         created.content_revision,
         "Full public page body",
         Some("Full excerpt"),
         ContentLifetime::Days(30),
+        articles::ExtractedContentMetadata {
+            blocked_tracking_pixels: 0,
+            audio: &audio,
+        },
     )
     .await
     .unwrap()
@@ -501,6 +513,7 @@ async fn extracted_content_survives_unchanged_refresh_and_stale_write_is_rejecte
     let (unchanged, action) = articles::upsert(pool, &incoming).await.unwrap();
     assert_eq!(action, UpsertAction::Skipped);
     assert_eq!(unchanged.content, "Full public page body");
+    assert_eq!(unchanged.article_page_audio.0, audio);
     assert_eq!(unchanged.content_source, "article_page");
     assert_eq!(unchanged.feed_content.as_deref(), Some("RSS fallback v1"));
     incoming.comments_url = Some("https://news.ycombinator.com/item?id=42".to_string());
@@ -530,10 +543,20 @@ async fn extracted_content_survives_unchanged_refresh_and_stale_write_is_rejecte
         None
     );
 
+    assert_eq!(
+        articles::find_by_id(pool, created.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .article_page_audio
+            .0,
+        audio
+    );
     incoming.content = "RSS fallback v2".to_string();
     let (changed, action) = articles::upsert(pool, &incoming).await.unwrap();
     assert_eq!(action, UpsertAction::Updated);
     assert_eq!(changed.content, "RSS fallback v2");
+    assert!(changed.article_page_audio.is_empty());
     assert_eq!(changed.content_source, "feed");
     assert_eq!(changed.extraction_status, "none");
     assert_eq!(changed.feed_content.as_deref(), Some("RSS fallback v2"));
@@ -740,13 +763,24 @@ async fn public_page_lifetime_expires_only_page_copy_and_infinite_is_retained() 
     )
     .await
     .unwrap();
-    articles::set_extracted_content(
+    let audio = vec![rusty_feed_core::article_audio::ArticleAudio::new(
+        "Narrator",
+        "/voice.mp3",
+        "audio/mpeg",
+        &article.url,
+    )
+    .unwrap()];
+    articles::set_extracted_content_with_metadata(
         pool,
         article.id,
         article.content_revision,
         "Finite public page",
         None,
         ContentLifetime::Days(1),
+        articles::ExtractedContentMetadata {
+            blocked_tracking_pixels: 0,
+            audio: &audio,
+        },
     )
     .await
     .unwrap()
@@ -767,6 +801,7 @@ async fn public_page_lifetime_expires_only_page_copy_and_infinite_is_retained() 
         .unwrap();
     assert_eq!(restored.content, "RSS survives");
     assert!(restored.article_page_content.is_none());
+    assert!(restored.article_page_audio.is_empty());
 
     articles::set_extracted_content(
         pool,
